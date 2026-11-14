@@ -32,6 +32,9 @@ it short; edit in place.
   `assets/splats/model.rad`), which the 3D view, the download and the share links already serve. The plugin adds
   the training between them, which runs in a companion GPU container (the "splat node"), not in WebODM's
   containers: they have no GPU.
+- **The plugin's code**: `training.py` (a task's job and its record), `node.py` (the splat node's API as the
+  plugin uses it), `api.py` (the views), `plugin.py` (the mount points). State is kept only in the plugin's
+  global data store: an update of an uploaded plugin replaces its folder, `get_persistent_path()` included.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
   runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum) and `compose.yml` (how a user
@@ -60,8 +63,10 @@ it short; edit in place.
   `dev/webodm.sh up --build splat-node`.
 - **`splatme/` is mounted live**, and the server reloads on every save: an undefined name 500s the pages that use
   it. Check a Python change with Ruff before it lands in `splatme/`.
-- The plugin's code runs in two containers: views in `sm-webapp`, `run_function_async` jobs and the task signals
-  in `sm-worker`. They share `/webodm/app/media` (tasks, the plugin's persistent folder).
+- The plugin's code runs in two containers: views in `sm-webapp`, `run_function_async` jobs in `sm-worker`. They
+  share `/webodm/app/media` (tasks, the plugin's persistent folder). The worker does not load plugins (a
+  plugin's signal receivers are not connected there) and keeps a module it has imported: after a change to
+  `splatme/`, a worker process that already ran a job runs the old code until the worker restarts.
 - The first start runs WebODM's dev setup (npm install, webpack, migrations) for several minutes before the server
   answers. The startup log then shows `Registered [coreplugins.splatme.plugin]`.
 - Host tools: `uv venv --python 3.13 .venv && uv pip install -r requirements-dev.txt` (Django and DRF for the IDE,

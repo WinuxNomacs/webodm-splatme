@@ -26,7 +26,10 @@ PUBLIC = ("state", "progress", "status", "error", "options", "user", "started", 
 
 
 def describe(task, job):
-    task.refresh_from_db()
+    try:
+        task.refresh_from_db()
+    except task.DoesNotExist:
+        raise exceptions.NotFound() from None
     out = {name: job.get(name) for name in PUBLIC} if job else {"state": None}
     out["active"] = bool(job) and job["state"] in training.ACTIVE
     out["has_splats"] = "splats.rad" in task.available_assets

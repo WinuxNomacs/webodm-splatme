@@ -19,6 +19,7 @@ from app.models import PluginDatum, Task
 from app.plugins.data_store import GlobalDataStore
 from app.plugins.functions import get_plugins_persistent_path
 from app.plugins.worker import run_function_async
+from django.core.exceptions import ValidationError
 from django.db import DatabaseError, connection, transaction
 from nodeodm import status_codes
 
@@ -185,6 +186,7 @@ def start(task, user, given):
     if reason:
         raise TrainingError(reason)
     options = parse_options(given, get_node().check())
+    sweep()
 
     current = get_job(task.id)
     if current and current["state"] in ACTIVE and not is_stale(current):
@@ -243,6 +245,22 @@ def removed(task_id):
         drop_node_job(job)
     forget(task_id)
     shutil.rmtree(work_dir(task_id), ignore_errors=True)
+
+
+def sweep():
+    """
+    Forgets the jobs of tasks that no longer exist. WebODM's worker does not load plugins, so a task it deletes
+    (a task deleted from the Dashboard, a project deleted with its tasks) sends this plugin no signal.
+    """
+    prefix = store().db_key(job_key(""))
+    for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):
+        task_id = key[len(prefix) :]
+        try:
+            gone = not Task.objects.filter(pk=task_id).exists()
+        except (ValueError, ValidationError):
+            gone = True
+        if gone:
+            removed(task_id)
 
 
 def drop_node_job(job):
@@ -315,6 +333,8 @@ def run(task_id, run):
     except Canceled:
         drop_node_job({"node_job": node_job})
         finish(task_id, run, "canceled")
+        if not Task.objects.filter(pk=task_id).exists():
+            forget(task_id)
     except (TrainingError, NodeError, ValueError, OSError) as e:
         # WebODM's export raises ValueError and FileNotFoundError with a message that names the problem
         logger.warning(f"SplatMe: training task {task_id} failed: {e}")
@@ -338,7 +358,8 @@ def finish(task_id, run, state, error=None):
 
 
 def check_cancel(task_id):
-    if cancel_requested(task_id):
+    # A deleted task stops its job as a cancel does: the worker that deletes it tells no plugin
+    if cancel_requested(task_id) or not Task.objects.filter(pk=task_id).exists():
         raise Canceled()
 
 

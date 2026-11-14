@@ -289,6 +289,28 @@ class TestSplatMe(BootTestCase):
         self.assertIsNone(training.get_job(task_id))
         self.assertTrue(self.node.jobs[node_job]["deleted"])
 
+    def test_a_task_deleted_while_training_stops_the_nodes_job_and_leaves_no_record(self):
+        task = make_task(self.user)
+        task_id = task.id
+        self.node.script = [("running", {"progress": 10, "step": 1})]
+
+        def delete_as_the_worker_does(seconds):
+            Task.objects.filter(pk=task_id).delete()  # no signal reaches the plugin
+
+        with mock.patch.object(training.time, "sleep", side_effect=delete_as_the_worker_does):
+            self.assertEqual(self.train(task).status_code, 404)
+        self.assertTrue(self.node.jobs["job1"]["deleted"])
+        self.assertIsNone(training.get_job(task_id))
+
+    def test_starting_a_training_forgets_the_jobs_of_tasks_that_are_gone(self):
+        gone = make_task(self.user)
+        self.assertEqual(self.train(gone).status_code, 200)
+        Task.objects.filter(pk=gone.id).delete()  # no signal reaches the plugin
+        self.assertIsNotNone(training.get_job(gone.id))
+
+        self.assertEqual(self.train(make_task(self.user)).status_code, 200)
+        self.assertIsNone(training.get_job(gone.id))
+
     def test_only_those_who_can_change_the_project_start_and_cancel(self):
         task = make_task(self.user)
         other = APIClient()
