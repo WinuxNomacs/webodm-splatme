@@ -4,11 +4,13 @@
 Python's standard library only. One job trains at a time (one GPU); the others wait in a queue.
 
     GET    /info                  the node, its trainer, its GPU and its queue
-    POST   /jobs?steps=7000       the training zip as the body; answers the new job
+    POST   /jobs?steps=7000       the training zip as the body; answers the new job. A zip that also holds
+                                  resume.ply (an earlier job's result) continues that model: steps is then
+                                  the total, the model's own steps included
     GET    /jobs                  every job
     GET    /jobs/<id>             one job: state, progress, error
     GET    /jobs/<id>/log?offset= the trainer's output from that byte on (X-Log-Offset: where it now ends)
-    GET    /jobs/<id>/result      the trained model (.rad), once the job is completed
+    GET    /jobs/<id>/result      the trained model (.ply), once the job is completed
     POST   /jobs/<id>/cancel      stop a queued or running job
     DELETE /jobs/<id>             cancel it and delete its files
 
@@ -33,7 +35,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELED = "queued", "running", "completed", "failed", "canceled"
 FINISHED = (COMPLETED, FAILED, CANCELED)
@@ -47,7 +49,11 @@ OPTIONS = {
 }
 # What a training zip must hold (WebODM's export, app/splats.py export_zip)
 REQUIRED_FILES = ("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin")
-KEPT_FILES = ("job.json", "log.txt", "model.rad")
+# The model is a .ply: the only format the trainer continues from (WebODM converts it for its viewer)
+MODEL = "model.ply"
+# An earlier model in the training zip, to continue from
+RESUME = "resume.ply"
+KEPT_FILES = ("job.json", "log.txt", MODEL)
 STEP_LINE = re.compile(rb"^Step (\d+): \S+ \[(\d+)%\]")
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 CHUNK = 1 << 20
@@ -78,7 +84,10 @@ def parse_options(params):
 
 
 def check_dataset(path):
-    """Refused unless the file is a training zip whose every entry stays inside the folder it is extracted to."""
+    """Refused unless the file is a training zip whose every entry stays inside the folder it is extracted to.
+
+    Answers whether it holds a model to continue from.
+    """
     if not zipfile.is_zipfile(path):
         raise Refused(400, "The dataset is not a zip file")
     with zipfile.ZipFile(path) as z:
@@ -91,6 +100,16 @@ def check_dataset(path):
         raise Refused(400, f"The dataset has no {missing[0]} (it must be a WebODM splats training zip)")
     if not any(name.startswith("images/") and not name.endswith("/") for name in names):
         raise Refused(400, "The dataset has no images")
+    return RESUME in names
+
+
+def extract_resume(dataset, dest):
+    """The zip's model to continue from, as a file of its own: the trainer takes it as an argument."""
+    with zipfile.ZipFile(dataset) as z, z.open(RESUME) as src, open(dest, "wb") as f:
+        shutil.copyfileobj(src, f, CHUNK)
+    with open(dest, "rb") as f:
+        if f.read(4) != b"ply\n":
+            raise Refused(400, "The model to continue from is not a .ply file")
 
 
 def gpu_info():
@@ -152,14 +171,14 @@ class Node:
         # Only the result and the log are kept: not the dataset, nor the folder the trainer extracted it to
         folder = self.path(job["id"])
         for name in os.listdir(folder):
-            if name not in KEPT_FILES or (name == "model.rad" and state != COMPLETED):
+            if name not in KEPT_FILES or (name == MODEL and state != COMPLETED):
                 target = os.path.join(folder, name)
                 if os.path.isdir(target):
                     shutil.rmtree(target, ignore_errors=True)
                 else:
                     os.remove(target)
         if state == COMPLETED:
-            job["size"] = os.path.getsize(self.path(job["id"], "model.rad"))
+            job["size"] = os.path.getsize(self.path(job["id"], MODEL))
         self.save(job)
 
     # The API's actions
@@ -181,13 +200,15 @@ class Node:
                         raise Refused(400, "The upload ended early")
                     f.write(data)
                     left -= len(data)
-            check_dataset(dataset)
+            resume = check_dataset(dataset)
+            if resume:
+                extract_resume(dataset, self.path(job_id, RESUME))
         except BaseException:
             shutil.rmtree(self.path(job_id), ignore_errors=True)
             raise
         job = {
             "id": job_id, "state": QUEUED, "options": options, "progress": 0, "step": 0, "created": time.time(),
-            "started": None, "finished": None, "error": None, "size": None,
+            "started": None, "finished": None, "error": None, "size": None, "resume": resume,
         }
         with self.lock:
             self.save(job)
@@ -267,7 +288,9 @@ class Node:
                     self.lock.notify_all()
 
     def command(self, job):
-        cmd = [self.trainer, self.path(job["id"], "dataset.zip"), "-o", self.path(job["id"], "model.rad")]
+        cmd = [self.trainer, self.path(job["id"], "dataset.zip"), "-o", self.path(job["id"], MODEL)]
+        if job.get("resume"):
+            cmd += ["--resume", self.path(job["id"], RESUME)]
         for name, value in job["options"].items():
             cmd += [OPTIONS[name][0], str(value)]
         return cmd
@@ -304,7 +327,7 @@ class Node:
                 self.finish(job, CANCELED)
             elif self.stopping:
                 self.finish(job, FAILED, "The splat node was stopped while this job was training")
-            elif code == 0 and os.path.isfile(os.path.join(folder, "model.rad")):
+            elif code == 0 and os.path.isfile(os.path.join(folder, MODEL)):
                 job["progress"] = 100
                 self.finish(job, COMPLETED)
             else:
@@ -433,14 +456,14 @@ class Handler(BaseHTTPRequestHandler):
             if node.get(job_id)["state"] != COMPLETED:
                 raise Refused(409, "The job has no result: it is {}".format(node.get(job_id)["state"]))
         try:
-            f = open(node.path(job_id, "model.rad"), "rb")  # noqa: SIM115 (closed below, once sent)
+            f = open(node.path(job_id, MODEL), "rb")  # noqa: SIM115 (closed below, once sent)
         except OSError:
             raise Refused(404, "The result was deleted") from None
         with f:
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
-            self.send_header("Content-Disposition", 'attachment; filename="model.rad"')
+            self.send_header("Content-Disposition", 'attachment; filename="model.ply"')
             self.end_headers()
             shutil.copyfileobj(f, self.wfile, CHUNK)
 

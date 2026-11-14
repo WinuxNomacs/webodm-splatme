@@ -17,11 +17,15 @@ splatnode.Handler.log_message = lambda *args: None
 TRAINER = os.path.join(os.path.dirname(__file__), "fake_trainer.py")
 
 
-def training_zip(names=("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin", "images/a.jpg")):
+def training_zip(
+    names=("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin", "images/a.jpg"), resume=None
+):
     data = io.BytesIO()
     with zipfile.ZipFile(data, "w") as z:
         for name in names:
             z.writestr(name, b"x")
+        if resume is not None:
+            z.writestr("resume.ply", resume)
     return data.getvalue()
 
 
@@ -87,7 +91,27 @@ class TestSplatNode(NodeTestCase):
 
     def test_only_the_result_and_the_log_are_kept(self):
         job = self.wait(self.create()["id"])
-        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt", "model.rad"])
+        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt", "model.ply"])
+
+    def test_a_job_continues_the_model_its_zip_holds(self):
+        first = self.wait(self.create("steps=20")["id"])
+        model = self.request("GET", "/jobs/{}/result".format(first["id"]))[1]
+        job = self.create("steps=50", body=training_zip(resume=model))
+        self.assertTrue(job["resume"])
+        job = self.wait(job["id"])
+        self.assertEqual((job["state"], job["step"]), ("completed", 50))
+        log = self.request("GET", "/jobs/{}/log".format(job["id"]))[1].decode()
+        self.assertIn("Step 30:", log)
+        self.assertNotIn("Step 20:", log)
+        data = self.request("GET", "/jobs/{}/result".format(job["id"]))[1]
+        self.assertIn(b"at iteration 50", data)
+        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt", "model.ply"])
+
+    def test_a_model_to_continue_from_that_is_not_a_ply_is_refused_and_leaves_nothing(self):
+        response, data = self.request("POST", "/jobs?steps=50", body=training_zip(resume=b"RAD something"))
+        self.assertEqual(response.status, 400)
+        self.assertIn("not a .ply file", data["error"])
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
 
     def test_the_log_is_read_from_an_offset(self):
         job = self.wait(self.create()["id"])
