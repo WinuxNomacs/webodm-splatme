@@ -280,8 +280,8 @@ def removed(task_id):
 
 def sweep():
     """
-    Forgets the jobs of tasks that no longer exist. WebODM's worker does not load plugins, so a task it deletes
-    (a task deleted from the Dashboard, a project deleted with its tasks) sends this plugin no signal.
+    Forgets the jobs of tasks that no longer exist. WebODM's worker imports plugins only when it starts, so until
+    WebODM restarts after this plugin is installed, a task the worker deletes sends this plugin no signal.
     """
     prefix = store().db_key(job_key(""))
     for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):

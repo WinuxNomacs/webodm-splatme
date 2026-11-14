@@ -214,10 +214,11 @@ status every few seconds; the status request is also what gives a job that lost 
 
 Found while building it:
 
-- **WebODM's worker does not load plugins**, so a plugin's signal receivers are not connected there, and the
-  worker is where `task_completed`, `task_failed` and the deletion of a task happen. The plugin therefore does
-  not rely on `task_removing`: a training job stops when its task is gone, and records of deleted tasks are
-  swept when a training starts. Automation (phase 1) cannot be a `task_completed` receiver as it stands.
+- **WebODM's worker imports every plugin when it starts, and only then** (corrected 2026-11-14, see
+  "1. Automation"): a receiver connected at a plugin module's top level is called in the worker, where
+  `task_completed`, `task_failed` and the deletion of a task happen. A plugin installed or changed after the
+  worker started is not there until the worker restarts, so the plugin does not rely on `task_removing` alone:
+  a training job stops when its task is gone, and records of deleted tasks are swept when a training starts.
 - The worker keeps a plugin's modules loaded: after a change to `splatme/`, a worker process that already ran a
   job runs the old code until the worker restarts (WebODM asks for a restart after a plugin update).
 - The export is the slow part on a busy machine (84 s to 325 s for 220 photos resized to 1,600 px, against 70 s
@@ -226,10 +227,47 @@ Found while building it:
 
 ### 1. Automation
 
-A setting, off by default: train every task that qualifies when it completes, and again after a task is
-reprocessed. WebODM's worker, where a task completes, does not load plugins, so a `task_completed` receiver in
-the plugin is not called there. To decide when planning this phase: a small pull request to WebODM (the worker
-loads plugins, as the web process does), or the plugin noticing completed tasks without the signal.
+Train a task when it completes, and again after it is reprocessed (reprocessing deletes the task's assets,
+its splat model included).
+
+**Is `task_completed` enough? Yes** (checked 2026-11-14 at the maintainer's request, WebODM 4.0.0, Celery
+5.6.3, in debug and in production mode):
+
+- The worker skips `boot()` (`app/urls.py`: "don't execute boot with celery workers"), so a plugin's
+  `register()` is not called there. But Celery checks the Django project when a worker starts
+  (`DjangoWorkerFixup.validate_models` runs Django's checks, which import `app.urls`), and building WebODM's
+  URL patterns calls `get_plugins()`, which imports every plugin's module. A module-level
+  `@receiver(signals.task_completed)` is therefore connected in the worker's parent process and inherited by
+  every child. This is what the published `tasknotification` plugin relies on.
+- Measured: a worker started fresh (a second worker on a queue of its own, stopped afterwards) has the plugin's
+  `task_removing` receiver connected, and sending the signal there calls it. The stack's long-running worker
+  showed no receiver only because it had started before the receiver was written: it still holds the
+  scaffold's `plugin.py`. The earlier conclusion ("the worker does not load plugins") came from that stale
+  worker and from one-off processes that do not go through Celery's start.
+- What the signal does not cover, and the plugin must handle itself:
+  - **A plugin uploaded or updated after the worker started is not imported there** until WebODM restarts
+    (the worker imports plugins once). The SplatMe page must say when automation is not active yet (a probe
+    job asks the worker whether the receiver is connected) and the install steps say to restart WebODM.
+  - **`get_plugins()` imports disabled plugins too**: the receiver checks that the plugin is enabled.
+  - The receiver must be connected at module level (not in `register()`), and runs inside the worker's task:
+    it only starts the training job (`run_function_async`) and returns.
+  - `CELERY_SKIP_CHECKS` set in the worker's environment would skip the import; WebODM does not set it.
+- So: **no watcher and no pull request for detection.** The decision "Watcher now + PR to WebODM" is replaced
+  by a `task_completed` receiver.
+
+Decided (2026-11-14):
+
+- **Every task that can train** is trained (no skipping of tasks whose photos point straight down).
+- **Per task, chosen by the user**: a new task has the setting (on or off, with the Quality and the options)
+  at creation and while editing; **administrators set the default** every new task starts from, on the SplatMe
+  page. A user's change applies to that task only. Presets are well guided, with sensible defaults.
+- **"Train Splats" / "Train Splats Again" stay** on every task that qualifies, for training by hand.
+
+Open: where a new task's setting is chosen. WebODM's New Task panel gives a plugin's item the task's name and
+files only (no project, no notice of the created task), and the Edit Task panel has no plugin hook. Without a
+pull request: the administrators' default applies to every new task, and the task's expanded panel on the
+Dashboard has the setting from the moment the task exists (while it processes too). With one (small, only
+after the user approves it): the same setting inside the New Task and Edit Task panels.
 
 ### 2. Denser starting cloud
 

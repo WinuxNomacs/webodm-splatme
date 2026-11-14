@@ -71,9 +71,10 @@ it short; edit in place.
 - **`splatme/` is mounted live**, and the server reloads on every save: an undefined name 500s the pages that use
   it. Check a Python change with Ruff before it lands in `splatme/`.
 - The plugin's code runs in two containers: views in `sm-webapp`, `run_function_async` jobs in `sm-worker`. They
-  share `/webodm/app/media` (tasks, the plugin's persistent folder). The worker does not load plugins (a
-  plugin's signal receivers are not connected there) and keeps a module it has imported: after a change to
-  `splatme/`, a worker process that already ran a job runs the old code until the worker restarts.
+  share `/webodm/app/media` (tasks, the plugin's persistent folder). The worker imports every plugin once, when it
+  starts (Celery's Django checks import `app.urls`), without calling `register()`: a module-level signal
+  receiver is connected there, and after a change to `splatme/` the worker runs the old code, receivers
+  included, until it restarts.
 - The first start runs WebODM's dev setup (npm install, webpack, migrations) for several minutes before the server
   answers. The startup log then shows `Registered [coreplugins.splatme.plugin]`.
 - Host tools: `uv venv --python 3.13 .venv && uv pip install -r requirements-dev.txt` (Django and DRF for the IDE,
