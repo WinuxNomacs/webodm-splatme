@@ -7,8 +7,8 @@ hand in other software. SplatMe does that step: one button on a task trains the 
 model in the task's 3D view.
 
 **Status: in development.** The training container (the "splat node") works, and the plugin trains a task
-through it from its API; the "Train Splats" button and the settings page are next. The plan is in
-[upcoming-changes.md](upcoming-changes.md).
+through it from the "Train Splats" button; training automatically when a task completes is next. There is no
+release yet. The plan is in [upcoming-changes.md](upcoming-changes.md).
 
 ## Requirements
 
@@ -40,22 +40,36 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 | `GET /jobs/<id>/result` | The trained model (`.rad`) |
 | `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |
 
-## The plugin's API
+## Using it
 
-Under `/api/plugins/splatme/`, with a WebODM login. Until the settings page exists, an administrator sets the
-node's address with `POST node`.
-
-| Request | Does |
-|---|---|
-| `GET node`, `POST node` (`url`, `token`) | Administrators: the node's address, and its state or what is wrong with it. The token is never sent back |
-| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree` |
-| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, and whether the task has a splat model |
-| `POST task/<id>/cancel` | Stops the job |
-| `GET task/<id>/log?offset=<bytes>` | The trainer's output |
+1. **Connect the node** (administrators): **SplatMe** in WebODM's side menu. Enter the node's address as
+   WebODM's containers reach it (`http://<host>:3100`) and its token; **Test Connection** says what is wrong
+   (no answer, wrong token, no GPU, a node too old) before anything is saved. Other users see only whether the
+   node is ready, its GPU and its queue.
+2. **Train**: on the Dashboard, open a completed task and press **Train Splats**. Choose a **Quality**: Draft
+   (2,000 steps), Standard (7,000) or High (30,000); **Advanced** has the steps, the image size and the most
+   gaussians as numbers. The dialog says first if the task cannot be trained, and warns when nearly all photos
+   point straight down.
+3. **Follow it**: the task's panel shows the stage, a progress bar, **Cancel** and **Show Log** (the trainer's
+   output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
 
 Training needs the right to change the task's project. The task must have completed with a point cloud and
 still have its photos (JPEG). The trained model replaces the task's splat model only when training succeeds,
 and then shows in the task's 3D view like a model uploaded by hand.
+
+## The plugin's API
+
+Under `/api/plugins/splatme/`, with a WebODM login.
+
+| Request | Does |
+|---|---|
+| `GET node` | The node's state or that it is not available; for administrators also its address and what is wrong. The token is never sent back |
+| `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
+| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree` |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, whether the task has a splat model and whether the user may train it |
+| `POST task/<id>/cancel` | Stops the job |
+| `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 
 ## Development
 
