@@ -7,7 +7,9 @@ plugin replaces its folder, and a restart of the worker ends the job that was fo
 the worker has a run id; a job whose run id is no longer the record's stops. A record nobody has touched for
 STALE seconds has lost its worker, and is given a new run that picks up from the node's job.
 """
+import json
 import logging
+import math
 import os
 import shutil
 import threading
@@ -150,6 +152,35 @@ def problem(task):
     if not any(os.path.isfile(task.task_path(name)) for name in names):
         return "The task's images are gone, and training needs them."
     return None
+
+
+def mostly_nadir(task):
+    """Whether nearly all the photos point straight down, judged as WebODM's own Splats dialog does."""
+    try:
+        with open(task.assets_path(task.ASSETS_MAP["shots.geojson"])) as f:
+            features = json.load(f).get("features", [])
+    except (OSError, ValueError):
+        return False
+    total = nadir = 0
+    for feature in features:
+        try:
+            rx, ry, rz = (float(v) for v in feature["properties"]["rotation"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        theta = math.sqrt(rx * rx + ry * ry + rz * rz)
+        view_z = 1.0 if theta < 1e-12 else math.cos(theta) + (rz / theta) ** 2 * (1.0 - math.cos(theta))
+        total += 1
+        nadir += view_z <= -0.978  # within about 12 degrees of straight down
+    return total > 0 and nadir / total > 0.98
+
+
+def warnings(task):
+    """What will limit the result of a task that can be trained."""
+    if mostly_nadir(task):
+        return [
+            "Most images in this dataset are nadir. Splats typically require obliques and/or orbits for good results."
+        ]
+    return []
 
 
 def parse_options(given, node_info):

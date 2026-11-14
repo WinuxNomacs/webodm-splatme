@@ -3,10 +3,12 @@ The plugin's API, under /api/plugins/splatme/.
 
     POST task/<id>/train     starts training; options steps, image_size, max_gaussians, sh_degree
     GET  task/<id>/status    the task's job, and whether the task has a splat model
+    GET  task/<id>/check     before training: why the task or the node cannot train, warnings, the options' ranges
     POST task/<id>/cancel    stops the task's job
     GET  task/<id>/log       the trainer's output from ?offset= on (the next offset is in X-Log-Offset)
-    GET  node                the splat node's address and state (administrators)
-    POST node                sets its address (url) and token, then answers as GET does (administrators)
+    GET  node                the splat node's state; for administrators also its address
+    POST node                sets its address (url) and token, then answers as GET does (administrators);
+                             with save false, only tries them
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
 """
@@ -19,13 +21,26 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import training
-from .node import NodeError
+from .node import Node, NodeError
 
 # What a page may know of a job: not its run id, nor the node's job
 PUBLIC = ("state", "progress", "status", "error", "options", "user", "started", "finished")
+UNAVAILABLE = "The splat node is not available. Ask an administrator to check SplatMe's settings."
 
 
-def describe(task, job):
+def can_train(request, task):
+    return request.user.has_perm("change_project", task.project)
+
+
+def node_state(info):
+    """What any user may know of the node: not the id of the job it runs."""
+    return {
+        "version": info.get("version"), "trainer": info.get("trainer"), "gpu": info.get("gpu"),
+        "busy": bool(info.get("running")), "queued": info.get("queued", 0),
+    }  # fmt: skip
+
+
+def describe(request, task, job):
     try:
         task.refresh_from_db()
     except task.DoesNotExist:
@@ -33,6 +48,8 @@ def describe(task, job):
     out = {name: job.get(name) for name in PUBLIC} if job else {"state": None}
     out["active"] = bool(job) and job["state"] in training.ACTIVE
     out["has_splats"] = "splats.rad" in task.available_assets
+    out["can_train"] = can_train(request, task)
+    out["task_status"] = task.status
     return out
 
 
@@ -44,20 +61,38 @@ class Train(TaskView):
             job = training.start(task, request.user, request.data)
         except (training.TrainingError, NodeError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(describe(task, job))
+        return Response(describe(request, task, job))
 
 
 class Status(TaskView):
     def get(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
-        return Response(describe(task, training.follow(task)))
+        return Response(describe(request, task, training.follow(task)))
+
+
+class Check(TaskView):
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        out = {
+            "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None,
+            "defaults": training.DEFAULTS, "has_splats": "splats.rad" in task.available_assets,
+        }  # fmt: skip
+        if out["problem"] is None:
+            out["warnings"] = training.warnings(task)
+        try:
+            info = training.get_node().check()
+            out["ranges"] = {name: info["options"][name] for name in training.NODE_OPTIONS if name in info["options"]}
+        except NodeError as e:
+            # Only an administrator can fix the node, and its address is theirs to know
+            out["node_error"] = str(e) if request.user.is_superuser else UNAVAILABLE
+        return Response(out)
 
 
 class Cancel(TaskView):
     def post(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
         check_project_perms(request, task.project, perms=("change_project",))
-        return Response(describe(task, training.cancel(task)))
+        return Response(describe(request, task, training.cancel(task)))
 
 
 class Log(TaskView):
@@ -83,28 +118,29 @@ class Log(TaskView):
 class NodeSettings(APIView):
     permission_classes = (IsAuthenticated,)
 
-    def check_permissions(self, request):
-        super().check_permissions(request)
-        if not request.user.is_superuser:
-            raise exceptions.PermissionDenied()
-
-    def describe(self):
-        node = training.get_node()
-        out = {"url": node.url, "token_set": bool(node.token), "node": None, "error": None}
-        if node.url:
-            try:
-                out["node"] = node.check()
-            except NodeError as e:
-                out["error"] = str(e)
+    def describe(self, request, node):
+        out = {"admin": request.user.is_superuser, "node": None, "error": None}
+        try:
+            out["node"] = node_state(node.check())
+        except NodeError as e:
+            out["error"] = str(e) if request.user.is_superuser else UNAVAILABLE
+        if request.user.is_superuser:
+            out.update(url=node.url, token_set=bool(node.token))
         return out
 
     def get(self, request):
-        return Response(self.describe())
+        return Response(self.describe(request, training.get_node()))
 
     def post(self, request):
-        url = str(request.data.get("url", "")).strip()
+        if not request.user.is_superuser:
+            raise exceptions.PermissionDenied()
+        url = str(request.data.get("url", "")).strip().rstrip("/")
         if url and not url.startswith(("http://", "https://")):
             raise exceptions.ValidationError(detail="The address starts with http:// or https://")
         token = request.data.get("token")
-        training.set_node(url, None if token is None else str(token))
-        return Response(self.describe())
+        token = None if token in (None, "") else str(token)  # an empty token keeps the one that is set
+        if request.data.get("save") in (False, "false", "0"):
+            saved = training.get_node()
+            return Response(self.describe(request, Node(url, saved.token if token is None else token)))
+        training.set_node(url, token)
+        return Response(self.describe(request, training.get_node()))
