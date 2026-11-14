@@ -9,17 +9,17 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. A SplatMe section in Task Options, and SplatMe's row in the New Task panel: both need a change in WebODM
-   (waits for the user's go-ahead to reach out to the maintainer; the pull request only after they approve it).
+1. Denser starting cloud: more of the task's point cloud as the gaussians' starting points.
 
 **Later**
 
-2. Denser starting cloud: more of the task's point cloud as the gaussians' starting points.
-3. Continue training: more steps for a task already trained, without starting over.
-4. Masks: pixels the training ignores.
-5. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-6. Native Windows app: a trainer run as a local program.
-7. Docs and first release.
+2. Continue training: more steps for a task already trained, without starting over.
+3. Masks: pixels the training ignores.
+4. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+5. Native Windows app: a trainer run as a local program.
+6. Docs and first release.
+7. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+   section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Done**
 
@@ -90,10 +90,10 @@ other software. The plugin does that step.
   compose file this repo publishes.
 - **The trainer is OpenSplat** (https://github.com/WebODM/OpenSplat, AGPL-3.0), chosen by the spike over Brush
   and nerfstudio.
-- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 1),
+- **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 6. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 5. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -169,7 +169,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 7.
+  workflow, to decide in phase 6.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -202,7 +202,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 6).
+  candidate for the native Windows app (phase 5).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -210,7 +210,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 5.
+  starting. Converting them is phase 4.
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -327,18 +327,58 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 1).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 7).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 1).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 7).
 
-### 1. A SplatMe section in Task Options (a pull request to WebODM)
+### 1. Denser starting cloud
 
-Nothing is sent or opened before the user approves that specific change. What to propose to the maintainer,
-each small and separate:
+`prepare_export` samples the point cloud to about 125,000 points, a fixed number. The plugin writes
+`points3D.bin` itself from the same `.laz` with more points (the cloud has millions), so training starts closer
+to the surface and needs fewer steps. Costs GPU memory. An option, with its default chosen by measuring on an
+RGB task with oblique photos ("HomerunObliqueRGB" on the dev stack): quality and time against the number of
+points, and how far the gaussians end up from the task's point cloud.
+
+### 2. Continue training
+
+OpenSplat's `--resume <ply>` continues from an earlier model. The node keeps (or the plugin stores) the `.ply`
+beside the `.rad`; "Continue Training" adds steps to it. Reprocessing the task discards it.
+
+### 3. Masks
+
+OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
+no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
+area drawn by the user, moving objects) and how they are made.
+
+Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
+and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
+
+### 4. Thermal tasks
+
+WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
+plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
+task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
+that the export can be given the converted images (it reads `task.get_image_path`).
+
+### 5. Native Windows app
+
+The same backend interface with a second implementation: the trainer as a local program the worker runs.
+
+### 6. Docs and first release
+
+README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
+
+### 7. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+
+Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
+setting through the page's requests included. Once it is close to feature complete, the user and Claude review
+which features would be better with a small, targeted pull request to WebODM; a plugin already in use shows
+the maintainer what each one is for. Nothing is sent or opened before the user approves that specific change.
+The candidates so far, each small and separate:
 
 - **A fix**: `ApiFactory.js` keeps listening until every plugin registered for a hook has answered (today the
   first answer wins, so two plugins cannot both add an item to the New Task panel, a task's buttons or the
@@ -352,40 +392,3 @@ each small and separate:
   and the setting kept in the plugin's data store becomes the fallback for WebODM versions without the section.
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
-
-### 2. Denser starting cloud
-
-`prepare_export` samples the point cloud to about 125,000 points, a fixed number. The plugin writes
-`points3D.bin` itself from the same `.laz` with more points (the cloud has millions), so training starts closer
-to the surface and needs fewer steps. Costs GPU memory. An option, with its default chosen by measuring on an
-RGB task with oblique photos ("HomerunObliqueRGB" on the dev stack): quality and time against the number of
-points, and how far the gaussians end up from the task's point cloud.
-
-### 3. Continue training
-
-OpenSplat's `--resume <ply>` continues from an earlier model. The node keeps (or the plugin stores) the `.ply`
-beside the `.rad`; "Continue Training" adds steps to it. Reprocessing the task discards it.
-
-### 4. Masks
-
-OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
-no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
-area drawn by the user, moving objects) and how they are made.
-
-Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
-and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
-
-### 5. Thermal tasks
-
-WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
-plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
-task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
-that the export can be given the converted images (it reads `task.get_image_path`).
-
-### 6. Native Windows app
-
-The same backend interface with a second implementation: the trainer as a local program the worker runs.
-
-### 7. Docs and first release
-
-README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
