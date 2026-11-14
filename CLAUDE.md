@@ -28,7 +28,7 @@ it short; edit in place.
 - **WebODM 4.0.0, Docker installs** (Python 3.14, Django 5.2, DRF 3.18): `webodmMinVersion` is 4.0.0 and Ruff
   targets py314. The native Windows app and 3.3.2 are not supported yet.
 - **WebODM's own splat code is reused, not copied**: the export (`app/splats.py`, `prepare_export`), the
-  conversion (`splat-tools`, as `worker/tasks.py`'s `process_splats`) and the asset (`splats.rad`,
+  conversion (`splat-tools`, run as `worker/tasks.py`'s `process_splats` runs it, on the `.ply` the trainer writes) and the asset (`splats.rad`,
   `assets/splats/model.rad`), which the 3D view, the download and the share links already serve. The plugin adds
   the training between them, which runs in a companion GPU container (the "splat node"), not in WebODM's
   containers: they have no GPU.

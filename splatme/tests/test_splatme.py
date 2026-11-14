@@ -19,7 +19,7 @@ from nodeodm import status_codes
 from rest_framework.test import APIClient
 
 from .. import training
-from .fake_node import MODEL, OPTIONS, FakeNode
+from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
@@ -82,9 +82,20 @@ class TestSplatMe(BootTestCase):
         patcher = mock.patch.object(training, "POLL", 0)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # WebODM's converter does not take the stand-in node's model
+        self.converted = []
+        patcher = mock.patch.object(training, "convert", self.convert)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.user = User.objects.get(username="testuser")
         self.client = APIClient()
         self.client.login(username="testuser", password="test1234")
+
+    def convert(self, trained_file, model):
+        with open(trained_file, "rb") as f:
+            self.converted.append(f.read())
+        with open(model, "wb") as f:
+            f.write(MODEL)
 
     def train(self, task, **options):
         return self.client.post(f"{API}/task/{task.id}/train", options)
@@ -228,6 +239,49 @@ class TestSplatMe(BootTestCase):
         self.put_model(task, b"the earlier model")
         self.assertEqual(self.train(task).status_code, 200)
         self.assertEqual(self.model(task), MODEL)
+
+    def test_a_training_continues_from_the_tasks_trained_model_with_the_options_it_had(self):
+        task = make_task(self.user)
+        self.assertIsNone(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"])
+        self.assertEqual(self.train(task, steps=10, image_size=16, max_gaussians=500).status_code, 200)
+        self.assertEqual(self.converted, [trained(10)])
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"], 10)
+
+        res = self.train(task, resume="true", steps=30, image_size=999)
+        self.assertEqual(res.status_code, 200, res.data)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertEqual(status["options"], {"steps": 40, "image_size": 16, "max_gaussians": 500})
+        job = self.node.jobs["job2"]
+        self.assertEqual(job["options"], {"steps": 40, "max_gaussians": 500})
+        self.assertEqual(job["resume"], trained(10))
+        self.assertEqual(self.converted, [trained(10), trained(40)])
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"], 40)
+        self.assertIsNone(self.node.jobs["job1"]["resume"])
+
+    def test_continuing_is_refused_without_a_trained_model_or_more_steps(self):
+        task = make_task(self.user)
+        res = self.train(task, resume="true", steps=30)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("no trained model to continue from", res.data["error"])
+        self.assertEqual(self.train(task, steps=10).status_code, 200)
+        for steps in ("", "0", "many"):
+            res = self.train(task, resume="true", steps=steps)
+            self.assertEqual(res.status_code, 400)
+            self.assertIn("steps must be", res.data["error"])
+        res = self.train(task, resume="true", steps=200000)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("steps must be between", res.data["error"])
+        self.assertEqual(len(self.node.jobs), 1)
+
+    def test_a_model_uploaded_since_the_training_is_not_continued(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10).status_code, 200)
+        self.put_model(task, b"a model uploaded in WebODM's Splats dialog")
+        later = time.time() + 60
+        os.utime(task.get_asset_file_or_stream("splats.rad"), (later, later))
+        self.assertIsNone(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"])
+        self.assertEqual(self.train(task, resume="true", steps=30).status_code, 400)
 
     def test_canceling_stops_the_nodes_job_and_imports_nothing(self):
         task = make_task(self.user)

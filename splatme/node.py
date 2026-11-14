@@ -4,7 +4,7 @@ The splat node's HTTP API (node/splatnode.py in this plugin's repository), as th
 import requests
 
 # The oldest node this plugin works with
-MIN_VERSION = (0, 1, 0)
+MIN_VERSION = (0, 2, 0)
 
 
 class NodeError(Exception):

@@ -91,6 +91,7 @@ class Check(TaskView):
         out = {
             "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None,
             "defaults": training.DEFAULTS, "has_splats": "splats.rad" in task.available_assets,
+            "trained_steps": training.trained_steps(task),
         }  # fmt: skip
         if out["problem"] is None:
             out["warnings"] = training.warnings(task)
