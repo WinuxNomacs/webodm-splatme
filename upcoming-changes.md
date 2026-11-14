@@ -9,7 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Automation: train when a task completes, retrain after reprocessing.
+1. Automatic training in the New Task and Edit Task panels: the task's setting where a task is created and
+   edited (waits for a decision: it needs a pull request to WebODM).
 
 **Later**
 
@@ -21,6 +22,19 @@ other software. The plugin does that step.
 7. Docs and first release.
 
 **Done**
+
+- Automation (2026-11-14): a task is trained when it completes, and again after it is processed again, when its
+  own setting or the administrators' default says so. `splatme/plugin.py` (the `task_completed` receiver, at
+  the module's top level), `splatme/training.py` (`completed`, a task's setting `auto::<task>`, the default
+  `auto_default`, `worker_listens`), `splatme/api.py` (`task/<id>/auto`, `automation`; the status carries
+  `auto`), the task's panel (`TrainSplats.jsx`: the "Train Splats When Completed" line and `AutoDialog.jsx`;
+  the options form shared with the Train Splats dialog is `OptionsFields.jsx`), the SplatMe page's "Automatic
+  Training" section. Tests: 10 in `test_splatme.py`, 4 in Jest. Checked in a headless browser on the dev stack:
+  the task's setting saved, kept through a reload, reset to the default, at phone width; the default saved on
+  the SplatMe page, a wrong number refused beside the Save button, and the "not active yet" warning, which is
+  true there (the stack's worker started before the receiver existed). In a worker started fresh (a second
+  worker on its own queue) the receiver is connected and the signal calls it. Not checked: a real task
+  completing in a restarted worker (the stack's worker was not restarted, and its one task has a model).
 
 - UI (2026-11-14): SplatMe's part of a task's expanded panel on the Dashboard (`splatme/public/main.js`,
   `TrainSplats.jsx`, `TrainDialog.jsx`, `LogDialog.jsx`, `Dialog.jsx`, `api.js`; what they show is
@@ -211,6 +225,11 @@ of that state, `status`, `error`, `active`, `has_splats`), `POST task/<id>/cance
 `POST node` (administrators: `url`, `token`, and `save` false to only try them; never answers the token). The
 status also says `can_train` and the task's own `task_status`. A page follows a job by asking the
 status every few seconds; the status request is also what gives a job that lost its worker a new one.
+Automatic training: `GET task/<id>/auto` and `POST task/<id>/auto` (`enabled` and the options, or `reset` true
+to follow the default again; needs the right to change the project), `GET automation` (the default; for
+administrators also `listening`, whether the worker tells the plugin of completed tasks) and `POST automation`
+(administrators). The status carries the task's `auto` (`enabled`, `options`, `own`), and a job says `auto`
+when it was started by the task completing.
 
 Found while building it:
 
@@ -225,10 +244,10 @@ Found while building it:
   of training for 2,000 steps), and it is redone for every training. Keeping it for the next training of the
   same task is a candidate for "Continue training".
 
-### 1. Automation
+### Automation (built)
 
 Train a task when it completes, and again after it is reprocessed (reprocessing deletes the task's assets,
-its splat model included).
+its splat model included). A task that completes with a model (an imported task) is not trained.
 
 **Is `task_completed` enough? Yes** (checked 2026-11-14 at the maintainer's request, WebODM 4.0.0, Celery
 5.6.3, in debug and in production mode):
@@ -263,11 +282,19 @@ Decided (2026-11-14):
   page. A user's change applies to that task only. Presets are well guided, with sensible defaults.
 - **"Train Splats" / "Train Splats Again" stay** on every task that qualifies, for training by hand.
 
-Open: where a new task's setting is chosen. WebODM's New Task panel gives a plugin's item the task's name and
-files only (no project, no notice of the created task), and the Edit Task panel has no plugin hook. Without a
-pull request: the administrators' default applies to every new task, and the task's expanded panel on the
-Dashboard has the setting from the moment the task exists (while it processes too). With one (small, only
-after the user approves it): the same setting inside the New Task and Edit Task panels.
+Built without a pull request: the administrators' default applies to every new task, and the task's expanded
+panel on the Dashboard has the setting ("Train Splats When Completed", with Change) from the moment the task
+exists, while it processes too. A task without a setting of its own follows the default as it is when the task
+completes. A training that cannot start (the node does not answer, a wrong option) is left on the task as a
+failed training; under the default, a task that cannot be trained at all is passed over without a word.
+
+### 1. Automatic training in the New Task and Edit Task panels
+
+The same setting where a task is created (the New Task panel on the Dashboard, beside WebODM's own options) and
+edited (the Edit Task panel). WebODM's New Task panel gives a plugin's item the task's name and files only (no
+project, no notice of the created task), and the Edit Task panel has no plugin hook, so this needs a small pull
+request to WebODM (the New Task hook is given the project and told of the created task; the Edit Task panel
+gets a plugin hook), prepared only after the user approves it. To decide: whether the task's panel is enough.
 
 ### 2. Denser starting cloud
 

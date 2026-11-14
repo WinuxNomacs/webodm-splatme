@@ -32,13 +32,14 @@ it short; edit in place.
   `assets/splats/model.rad`), which the 3D view, the download and the share links already serve. The plugin adds
   the training between them, which runs in a companion GPU container (the "splat node"), not in WebODM's
   containers: they have no GPU.
-- **The plugin's code**: `training.py` (a task's job and its record), `node.py` (the splat node's API as the
-  plugin uses it), `api.py` (the views), `plugin.py` (the mount points, the menu item, the scripts). State is
+- **The plugin's code**: `training.py` (a task's job and its record, automatic training and its settings),
+  `node.py` (the splat node's API as the plugin uses it), `api.py` (the views), `plugin.py` (the mount points,
+  the menu item, the scripts, the signal receivers). State is
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
   `get_persistent_path()` included.
 - **The plugin's pages**: `public/main.js` (ES5, on every page: adds SplatMe's part to a task's panel on the
-  Dashboard), `public/TrainSplats.jsx` with `TrainDialog.jsx`, `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built
-  by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),
+  Dashboard), `public/TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`, `OptionsFields.jsx`,
+  `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),
   `public/trainingView.js` (what they show, as plain functions: this is what Jest tests) and
   `templates/settings.html` (the side menu's SplatMe page, plain script). WebODM asks a plugin for a task's
   button once, when the panel opens: the component follows the task itself through the status view.

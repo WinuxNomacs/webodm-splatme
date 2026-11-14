@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText } from "../trainingView";
+import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -103,5 +103,29 @@ describe("a finished training", () => {
         expect(resultText({state: "failed", error: "CUDA out of memory"})).toBe("Training failed: CUDA out of memory");
         expect(resultText({state: "canceled"})).toBe("Training canceled.");
         expect(resultText({state: null})).toBe("");
+    });
+});
+
+describe("a task's automatic training", () => {
+    test("it is named by its Quality, and says when it is the administrators' default", () => {
+        expect(autoText({enabled: true, options: {steps: 7000}, own: true})).toBe("On: Standard");
+        expect(autoText({enabled: true, options: {steps: 30000}, own: false})).toBe("On: High (the default)");
+        expect(autoText({enabled: false, options: {steps: 7000}, own: false})).toBe("Off (the default)");
+        expect(autoText({enabled: false, options: {}, own: true})).toBe("Off");
+    });
+
+    test("steps no preset has are given as a number", () => {
+        expect(autoText({enabled: true, options: {steps: 12000}, own: true})).toBe("On: 12,000 steps");
+    });
+
+    test("every preset says what to expect of it", () => {
+        for (const preset of PRESETS) expect(preset.hint.length).toBeGreaterThan(10);
+    });
+
+    test("saved options fill the form, and the form gives them back", () => {
+        const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
+        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000"});
+        expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
+        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: ""});
     });
 });

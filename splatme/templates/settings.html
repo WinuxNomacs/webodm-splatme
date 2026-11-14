@@ -1,10 +1,13 @@
 {% extends "app/plugins/templates/base.html" %}
 
 {% block content %}
-{# SplatMe's page: the splat node's state for everyone, and for administrators its address and token (api.py, node). #}
+{% comment %}
+SplatMe's page: the splat node's state and the default of automatic training for everyone, and for administrators
+the node's address and token and that default as a form (api.py: node, automation).
+{% endcomment %}
 <h3><i class="fa fa-splat fa-fw"></i> SplatMe</h3>
 <p>Trains a task's Gaussian splats on a splat node: a container with a GPU that runs beside WebODM. Training starts
-    from <b>Train Splats</b> in a completed task's panel on the Dashboard.</p>
+    from <b>Train Splats</b> in a completed task's panel on the Dashboard, or by itself when a task completes.</p>
 
 <h4>Splat Node</h4>
 <div id="splatme-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Asking the splat node</div>
@@ -29,6 +32,65 @@
             <button type="submit" class="btn btn-primary" id="splatme-save"><i class="fa fa-save fa-fw"></i> Save</button>
             <button type="button" class="btn btn-default" id="splatme-test"><i class="fa fa-plug fa-fw"></i> Test Connection</button>
             <span id="splatme-saved" class="text-success" style="display: none; margin-left: 8px;">Saved.</span>
+        </div>
+    </div>
+</form>
+
+<h4>Automatic Training</h4>
+<p>A task can be trained by itself when it completes processing, and again each time it is processed again. Each
+    task has this setting in its panel on the Dashboard (<b>Train Splats When Completed</b>); a task without a
+    setting of its own follows the default here.</p>
+<div id="splatme-auto-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading</div>
+
+<form id="splatme-auto-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
+            <div class="checkbox">
+                <label><input type="checkbox" id="splatme-auto-enabled"> Train Splats When a Task Completes</label>
+            </div>
+            <span class="help-block">The default for every task without a setting of its own. Tasks that cannot be
+                trained (no point cloud, photos that are not JPEG) are passed over.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-quality">Quality</label>
+        <div class="col-sm-9">
+            <select class="form-control" id="splatme-auto-quality">
+                <option value="2000">Draft (2,000 steps)</option>
+                <option value="7000">Standard (7,000 steps)</option>
+                <option value="30000">High (30,000 steps)</option>
+                <option value="custom">Custom</option>
+            </select>
+            <span class="help-block" id="splatme-auto-hint"></span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-steps">Steps</label>
+        <div class="col-sm-9">
+            <input type="number" min="1" class="form-control" id="splatme-auto-steps">
+            <span class="help-block">How long the trainer works on the model.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-size">Image Size</label>
+        <div class="col-sm-9">
+            <input type="number" min="0" class="form-control" id="splatme-auto-size">
+            <span class="help-block">The photos' longer side in pixels as the trainer sees them. 0 keeps the photos as
+                they are, which needs more GPU memory.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-gaussians">Max Gaussians</label>
+        <div class="col-sm-9">
+            <input type="number" min="1" class="form-control" id="splatme-auto-gaussians" placeholder="The trainer's own limit">
+            <span class="help-block">The most points the model may grow to. Lower it when the GPU runs out of memory.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
+            <button type="submit" class="btn btn-primary" id="splatme-auto-save"><i class="fa fa-save fa-fw"></i> Save</button>
+            <span id="splatme-auto-saved" class="text-success" style="display: none; margin-left: 8px;">Saved.</span>
+            <span id="splatme-auto-error" class="text-danger" style="margin-left: 8px;"></span>
         </div>
     </div>
 </form>
@@ -112,6 +174,100 @@
         show(data, false);
         fill(data);
     }).fail(failed);
+})();
+
+// Automatic training: the default for tasks without a setting of their own
+(function(){
+    var API = "/api/plugins/splatme/automation";
+    var HINTS = {
+        "2000": "A quick look at whether the dataset trains well. Soft detail.",
+        "7000": "A good model for most datasets. The place to start.",
+        "30000": "The sharpest model. Takes several times longer than Standard.",
+        "custom": "More steps give a sharper model and take longer."
+    };
+    var state = document.getElementById("splatme-auto-state");
+    var form = document.getElementById("splatme-auto-form");
+    var enabled = document.getElementById("splatme-auto-enabled");
+    var quality = document.getElementById("splatme-auto-quality");
+    var steps = document.getElementById("splatme-auto-steps");
+    var size = document.getElementById("splatme-auto-size");
+    var gaussians = document.getElementById("splatme-auto-gaussians");
+    var saved = document.getElementById("splatme-auto-saved");
+    var error = document.getElementById("splatme-auto-error");
+
+    function box(kind, icon, text){
+        var div = document.createElement("div");
+        var i = document.createElement("i");
+        div.className = "alert alert-" + kind;
+        i.className = icon + " fa-fw";
+        div.appendChild(i);
+        div.appendChild(document.createTextNode(" " + text));
+        return div;
+    }
+
+    function qualityOfSteps(){
+        quality.value = HINTS[steps.value] && steps.value !== "custom" ? steps.value : "custom";
+        document.getElementById("splatme-auto-hint").textContent = HINTS[quality.value];
+    }
+
+    function show(data){
+        var options = data.options || {};
+        var name = {2000: "Draft", 7000: "Standard", 30000: "High"}[options.steps] || (options.steps + " steps");
+        state.innerHTML = "";
+        // The worker imports plugins when it starts: one installed since then hears of no completed task
+        if (data.listening === false){
+            state.appendChild(box("warning", "fa fa-exclamation-triangle",
+                "Automatic training is not active yet: WebODM has to be restarted once after SplatMe is installed or " +
+                "updated. Until then, tasks are trained only from the Train Splats button."));
+        }
+        state.appendChild(box("info", "fa fa-magic", data.enabled ?
+            "Tasks are trained when they complete (" + name + "), unless a task's own setting says otherwise." :
+            "Tasks are not trained by themselves, unless a task's own setting says so."));
+        if (!data.admin) return;
+        form.style.display = "";
+        enabled.checked = !!data.enabled;
+        steps.value = options.steps == null ? "" : options.steps;
+        size.value = options.image_size == null ? "" : options.image_size;
+        gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
+        qualityOfSteps();
+    }
+
+    function reason(xhr){
+        var data = xhr.responseJSON || {};
+        return data.error || data.detail || "The request failed (" + xhr.status + ").";
+    }
+
+    quality.addEventListener("change", function(){
+        if (quality.value !== "custom") steps.value = quality.value;
+        else steps.focus();
+        document.getElementById("splatme-auto-hint").textContent = HINTS[quality.value];
+    });
+    steps.addEventListener("input", qualityOfSteps);
+
+    form.addEventListener("submit", function(e){
+        var button = document.getElementById("splatme-auto-save");
+        e.preventDefault();
+        saved.style.display = "none";
+        error.textContent = "";
+        button.disabled = true;
+        $.ajax({
+            url: API, type: "POST", contentType: "application/json",
+            headers: {"X-CSRFToken": "{{ csrf_token }}"},
+            data: JSON.stringify({enabled: enabled.checked, steps: steps.value, image_size: size.value,
+                max_gaussians: gaussians.value})
+        }).done(function(data){
+            show(data);
+            saved.style.display = "";
+        }).fail(function(xhr){
+            // What was saved before still stands, and stays shown above
+            error.textContent = reason(xhr);
+        }).always(function(){ button.disabled = false; });
+    });
+
+    $.getJSON(API).done(show).fail(function(xhr){
+        state.innerHTML = "";
+        state.appendChild(box("danger", "fa fa-exclamation-triangle", reason(xhr)));
+    });
 })();
 </script>
 {% endblock %}

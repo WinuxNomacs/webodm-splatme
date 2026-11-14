@@ -3,7 +3,8 @@ import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
-import { PRESETS, presetOfSteps, optionsFromForm } from './trainingView';
+import OptionsFields from './OptionsFields';
+import { optionsFromForm } from './trainingView';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
 // that all point down, the options, and Start Training.
@@ -39,12 +40,6 @@ export default class TrainDialog extends React.Component {
         this.setState({form: {...this.state.form, [name]: value}, error: null});
     };
 
-    handlePreset = e => {
-        const preset = PRESETS.find(p => p.key === e.target.value);
-        if (preset) this.setField("steps", String(preset.steps));
-        else this.setState({advanced: true}); // Custom: the number is typed under Advanced
-    };
-
     handleStart = () => {
         const { options, error } = optionsFromForm(this.state.form, (this.state.check || {}).ranges);
         if (error){
@@ -59,23 +54,9 @@ export default class TrainDialog extends React.Component {
         });
     };
 
-    numberField(name, label, help, placeholder){
-        return (
-            <div className="form-group">
-                <label className="col-sm-4 control-label">{label}</label>
-                <div className="col-sm-8">
-                    <input type="number" min="0" className="form-control" value={this.state.form[name]} placeholder={placeholder || ""}
-                           onChange={e => this.setField(name, e.target.value)} />
-                    <span className="help-block">{help}</span>
-                </div>
-            </div>
-        );
-    }
-
     render(){
         const { check, error, starting, advanced, form } = this.state;
         const blocked = !check || !!check.problem || !!check.node_error;
-        const preset = presetOfSteps(form.steps);
         const footer = (
             <React.Fragment>
                 <button type="button" className="btn btn-default" onClick={this.props.onClose}>{_("Close")}</button>
@@ -95,29 +76,7 @@ export default class TrainDialog extends React.Component {
                     <div className="alert alert-info">{_("This task already has a splats model. The new one replaces it when the training succeeds.")}</div> : ""}
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleStart(); }}>
-                    <div className="form-group">
-                        <label className="col-sm-4 control-label">{_("Quality")}</label>
-                        <div className="col-sm-8">
-                            <select className="form-control" value={preset} onChange={this.handlePreset}>
-                                {PRESETS.map(p => <option key={p.key} value={p.key}>{_(p.label) + " (" + p.steps.toLocaleString() + " " + _("steps") + ")"}</option>)}
-                                <option value="custom">{_("Custom")}</option>
-                            </select>
-                            <span className="help-block">{_("More steps give a sharper model and take longer.")}</span>
-                        </div>
-                    </div>
-                    <div className="form-group">
-                        <div className="col-sm-8 col-sm-offset-4">
-                            <a href="javascript:void(0)" className="splatme-advanced" onClick={() => this.setState({advanced: !advanced})}>
-                                <i className={"fa fa-fw " + (advanced ? "fa-caret-down" : "fa-caret-right")}></i>{_("Advanced")}
-                            </a>
-                        </div>
-                    </div>
-                    {advanced ?
-                        <React.Fragment>
-                            {this.numberField("steps", _("Steps"), _("How long the trainer works on the model."))}
-                            {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. 0 keeps the photos as they are, which needs more GPU memory."))}
-                            {this.numberField("max_gaussians", _("Max Gaussians"), _("The most points the model may grow to. Lower it when the GPU runs out of memory."), _("The trainer's own limit"))}
-                        </React.Fragment> : ""}
+                    <OptionsFields form={form} advanced={advanced} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />
                 </form>
             </Dialog>
         );
