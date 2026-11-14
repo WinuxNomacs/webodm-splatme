@@ -9,8 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Automatic training in the New Task and Edit Task panels: the task's setting where a task is created and
-   edited (waits for a decision: it needs a pull request to WebODM).
+1. A SplatMe section in Task Options, and SplatMe's row in the New Task panel: both need a change in WebODM
+   (waits for the user's go-ahead to reach out to the maintainer; the pull request only after they approve it).
 
 **Later**
 
@@ -22,6 +22,19 @@ other software. The plugin does that step.
 7. Docs and first release.
 
 **Done**
+
+- Task Options (2026-11-14): a task's automatic training in WebODM's Edit Task Options dialog (the Options
+  row's Edit button in the New Task and Edit Task panels), below `pc-quality` in the Point Cloud section,
+  without a change to WebODM. `splatme/public/main.js` (the `presetDialogOptionsReady` hook),
+  `OptionsButton.jsx` (the button and where the setting goes), `newTaskSettings.js` (a new task's setting, held
+  on the page until WebODM creates the task), `AutoDialog.jsx` and `Dialog.jsx` (drawn inside WebODM's dialog),
+  `api.py` (`automation?ranges=1`). Tests: 7 in Jest (`__tests__/newTaskSettings.test.js`), 1 in
+  `test_splatme.py`. Checked in a headless browser on the dev stack: an existing task's setting saved at once
+  from the dialog, kept after the dialog's own Cancel, reset, at phone width; typing in the dialog and Escape
+  (which closes SplatMe's dialog only); a new task's setting kept while the panel is open, sent to the task
+  WebODM creates on Start Processing, and forgotten when the panel is canceled. Not checked: a real new task
+  (the creation was answered by the check itself with a task that does not exist, so that nothing was created
+  or uploaded; the server then answered 404 to the setting, as it should).
 
 - Automation (2026-11-14): a task is trained when it completes, and again after it is processed again, when its
   own setting or the administrators' default says so. `splatme/plugin.py` (the `task_completed` receiver, at
@@ -288,13 +301,57 @@ exists, while it processes too. A task without a setting of its own follows the 
 completes. A training that cannot start (the node does not answer, a wrong option) is left on the task as a
 failed training; under the default, a task that cannot be trained at all is passed over without a word.
 
-### 1. Automatic training in the New Task and Edit Task panels
+### Task Options (built)
 
-The same setting where a task is created (the New Task panel on the Dashboard, beside WebODM's own options) and
-edited (the Edit Task panel). WebODM's New Task panel gives a plugin's item the task's name and files only (no
-project, no notice of the created task), and the Edit Task panel has no plugin hook, so this needs a small pull
-request to WebODM (the New Task hook is given the project and told of the created task; the Edit Task panel
-gets a plugin hook), prepared only after the user approves it. To decide: whether the task's panel is enough.
+The user's intent: SplatMe's settings are part of a task's options, chosen where a task is created and edited,
+and used when the task is started or restarted and completes. Training only the splats of a completed task
+stays with Train Splats / Train Splats Again in the task's panel. Decided (2026-11-14): first without touching
+WebODM; reach out to the maintainer later, with a pull request then.
+
+What WebODM 4.0.0 gives a plugin in the Edit Task Options dialog (`EditPresetDialog.jsx`): one hook,
+`PluginsAPI.Dashboard.presetDialogOptionsReady`, called when the dialog opens with the task (none for a new
+task) and the dialog's option components; a plugin answers with controls, each drawn below one existing option.
+The dialog's sections are a fixed table and its options are the processing node's: a plugin can add neither a
+section nor an option.
+
+Built, as decided:
+
+- **Where**: below `pc-quality` (Point Cloud section; the first option when a node has no `pc-quality`), a
+  line "SplatMe" with the button "Train Splats When Completed: Off (the default) / On: Standard". The section
+  is closed when the dialog opens, as all are.
+- **An existing task** (the Edit Task panel): the button opens the same dialog as the task's panel does, and
+  Save there changes the task's setting at once, whatever the Edit Task Options dialog's and the Edit Task
+  panel's own Save and Cancel do.
+- **A new task** (the New Task panel): the hook gives neither the project nor the task to be, and no hook
+  tells a plugin of a created task. The setting is held on the page with the New Task panel it was chosen in;
+  the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
+  `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
+  is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 1).
+- **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
+  WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
+  tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
+  script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
+  a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 1).
+
+### 1. A SplatMe section in Task Options (a pull request to WebODM)
+
+Nothing is sent or opened before the user approves that specific change. What to propose to the maintainer,
+each small and separate:
+
+- **A fix**: `ApiFactory.js` keeps listening until every plugin registered for a hook has answered (today the
+  first answer wins, so two plugins cannot both add an item to the New Task panel, a task's buttons or the
+  options dialog). With it SplatMe's row in the New Task panel ("Train Splats When Completed", Quality,
+  Advanced) can be built.
+- **A section of a plugin's own options in the Edit Task Options dialog**, saved with the task's options
+  (`Task.options`) and in presets. Frontend only: `presetDialogOptionsReady` may answer with a section and its
+  options, and `EditTaskForm.getAvailableOptionsOnly` lets those names through. The server needs no change:
+  `Task.options` is checked for its form only, and the processing node ignores option names it does not know
+  (NodeODX's `odmInfo.js` `filterOptions`). SplatMe then reads its options from the task when it completes,
+  and the setting kept in the plugin's data store becomes the fallback for WebODM versions without the section.
+- Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
+  WebODM's requests).
 
 ### 2. Denser starting cloud
 

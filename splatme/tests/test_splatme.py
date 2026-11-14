@@ -19,7 +19,7 @@ from nodeodm import status_codes
 from rest_framework.test import APIClient
 
 from .. import training
-from .fake_node import MODEL, FakeNode
+from .fake_node import MODEL, OPTIONS, FakeNode
 
 API = "/api/plugins/splatme"
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
@@ -502,6 +502,22 @@ class TestSplatMe(BootTestCase):
 
         # Back to the default
         self.assertEqual(self.auto(opted_out, reset=True).data, dict(training.get_default(), own=False))
+
+    def test_a_new_task_is_given_its_setting_before_it_is_processed(self):
+        # The Edit Task Options dialog of a new task: the ranges come without a task, and the setting is saved
+        # on the task as soon as WebODM has created it
+        res = self.client.get(f"{API}/automation?ranges=1")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertFalse(res.data["enabled"])
+        self.assertEqual(res.data["ranges"]["steps"], OPTIONS["steps"])
+
+        task = make_task(self.user, status=None)
+        res = self.auto(task, enabled=True, steps=20)
+        self.assertEqual(res.status_code, 200, res.data)
+        task.status = status_codes.COMPLETED
+        task.save()
+        self.complete(task)
+        self.assertEqual(training.get_job(task.id)["options"]["steps"], 20)
 
     def test_a_task_processed_again_is_trained_again(self):
         task = make_task(self.user)
