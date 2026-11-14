@@ -69,6 +69,9 @@ other software. The plugin does that step.
 - **The service in the splat node is written in Python**, standard library only.
 - **Thermal tasks are a later phase** (7): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
+- **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
+  weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
+  "Deployment" below.
 - **Plugin guidelines first.** A pull request to WebODM only when a feature needs it and the user approves that
   change: small, targeted, with only critical tests.
 
@@ -96,6 +99,27 @@ other software. The plugin does that step.
   to start, cancel or delete).
 - Job state that outlives the page goes in the plugin's data store, read by a status view the page polls
   (as the cesiumion and dronedb plugins do).
+
+## Deployment (what an administrator does, and what the design owes them)
+
+- **The plugin is one zip**, uploaded in Administration → Plugins, and updated by uploading the next zip there
+  (WebODM then asks for a restart). It needs nothing else in WebODM's containers: no Python package beyond
+  WebODM's own, no change to WebODM's compose files, no environment variable.
+- **An update deletes the plugin's persistent folder.** An uploaded plugin lives in `media/plugins/splatme`,
+  which is also what `get_persistent_path()` returns, and an update replaces that whole folder (`app/admin.py`).
+  So settings and job state live only in the data stores (the database); the folder holds only a running job's
+  working files, and a job that loses them (an update, a restart of the worker) picks up again from its recorded
+  state or fails with a message, never stays "training" forever.
+- **The node is one image and one compose file**: a published image (no half-hour build), started with one
+  command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
+  workflow, to decide in phase 9.
+- **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
+  the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
+- **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
+  what is wrong (unreachable, wrong token, no GPU, version too old), and the node's state. Moving the node to
+  another machine is starting it there and changing the address.
+- **Nothing to clean by hand**: the node deletes its finished jobs, the plugin deletes its working files, and a
+  failed job leaves nothing behind.
 
 ## Spike results (2026-11-14)
 
