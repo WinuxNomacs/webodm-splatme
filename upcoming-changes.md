@@ -9,23 +9,30 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Orchestration: export, train, import, with job state, cancel and errors.
+1. UI: the "Train Splats" button on a task, progress, warnings, settings.
 
 **Then**
 
-2. UI: the "Train Splats" button on a task, progress, warnings, settings.
+2. Automation: train when a task completes, retrain after reprocessing.
 
 **Later**
 
-3. Automation: train when a task completes, retrain after reprocessing.
-4. Denser starting cloud: more of the task's point cloud as the gaussians' starting points.
-5. Continue training: more steps for a task already trained, without starting over.
-6. Masks: pixels the training ignores.
-7. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-8. Native Windows app: a trainer run as a local program.
-9. Docs and first release.
+3. Denser starting cloud: more of the task's point cloud as the gaussians' starting points.
+4. Continue training: more steps for a task already trained, without starting over.
+5. Masks: pixels the training ignores.
+6. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+7. Native Windows app: a trainer run as a local program.
+8. Docs and first release.
 
 **Done**
+
+- Orchestration (2026-11-14): `splatme/training.py` (the job: export, send, follow, import; its record in the
+  global data store; cancel; picking up a job that lost its worker), `splatme/node.py` (the node's API as the
+  plugin uses it), `splatme/api.py` (train, status, cancel, log; the node's settings for administrators), tests
+  in `splatme/tests/test_splatme.py` against a stand-in node (`tests/fake_node.py`). Checked on the dev stack
+  with a task imported for the check, on the real node: 2,000 steps trained and imported in 226 s (84 s of it
+  the export), a training canceled mid-way, and a worker job killed mid-training (picked up from the node's job
+  after a minute, nothing exported again).
 
 - Splat node (2026-11-14): `node/` (`splatnode.py`, the HTTP job service; `Dockerfile`, OpenSplat v1.2.2 on CUDA
   12.8 in a 10.6 GB image; `compose.yml`), its tests (`node/tests`, against a stand-in trainer), and the node in
@@ -49,10 +56,10 @@ other software. The plugin does that step.
   compose file this repo publishes.
 - **The trainer is OpenSplat** (https://github.com/WebODM/OpenSplat, AGPL-3.0), chosen by the spike over Brush
   and nerfstudio.
-- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 3),
+- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 2),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 8. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 7. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -65,13 +72,17 @@ other software. The plugin does that step.
   the structure-from-motion results: each photo's solved position and rotation (`shots.geojson`), the calibrated
   cameras with their lens distortion (`cameras.json`) and the dense georeferenced point cloud
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
-  redoes the alignment. What more to use is phases 4 to 6.
+  redoes the alignment. What more to use is phases 3 to 5.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (7): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (6): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
   "Deployment" below.
+- **The node's address and token are set by administrators, for everyone**: one node per WebODM, in the global
+  data store; users never see the token.
+- **Anyone who can edit a project may train its tasks** (`change_project`, as for WebODM's own splat upload).
+- **Training again replaces a task's splat only when the new training succeeds.**
 - **Plugin guidelines first.** A pull request to WebODM only when a feature needs it and the user approves that
   change: small, targeted, with only critical tests.
 
@@ -112,7 +123,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 9.
+  workflow, to decide in phase 8.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -145,7 +156,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 8).
+  candidate for the native Windows app (phase 7).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -153,7 +164,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 7.
+  starting. Converting them is phase 6.
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -169,28 +180,43 @@ queue, `error`, `size`), `GET /jobs/<id>/log?offset=`, `GET /jobs/<id>/result` (
 hours; the node's queue is the GPU's queue. Not done: a smaller image (10.6 GB, most of it libtorch's CUDA
 libraries, some of which OpenSplat may not load).
 
-### 1. Orchestration
+### The plugin's API (built)
 
-In the plugin: a start view that checks the task (completed, has `cameras.json`, `shots.geojson`, the point
-cloud and its images) and starts one worker job, which exports with `splats.prepare_export()`, sends the
-dataset to the node, polls it, fetches the result (`.rad`, so nothing to convert) and writes `assets/splats/model.rad`.
-Status, cancel and log views. State per task in the data store. Errors that say what to do (node unreachable,
-out of GPU memory, task compacted).
+Under `/api/plugins/splatme/`: `POST task/<id>/train` (options `steps`, `image_size`, `max_gaussians`,
+`sh_degree`; defaults 7,000 steps and 1,600 px images, the node's ranges apply), `GET task/<id>/status`
+(`state`: starting, exporting, uploading, queued, training, importing, completed, failed, canceled; `progress`
+of that state, `status`, `error`, `active`, `has_splats`), `POST task/<id>/cancel`, `GET task/<id>/log?offset=`
+(the node's log; the next offset in `X-Log-Offset`), `GET` and `POST node` (administrators: `url`, `token`; the
+answer has the node's state or what is wrong with it, never the token). A page follows a job by asking the
+status every few seconds; the status request is also what gives a job that lost its worker a new one.
 
-### 2. UI
+Found while building it:
+
+- **WebODM's worker does not load plugins**, so a plugin's signal receivers are not connected there, and the
+  worker is where `task_completed`, `task_failed` and the deletion of a task happen. The plugin therefore does
+  not rely on `task_removing`: a training job stops when its task is gone, and records of deleted tasks are
+  swept when a training starts. Automation (phase 2) cannot be a `task_completed` receiver as it stands.
+- The worker keeps a plugin's modules loaded: after a change to `splatme/`, a worker process that already ran a
+  job runs the old code until the worker restarts (WebODM asks for a restart after a plugin update).
+- The export is the slow part on a busy machine (84 s to 325 s for 220 photos resized to 1,600 px, against 70 s
+  of training for 2,000 steps), and it is redone for every training. Keeping it for the next training of the
+  same task is a candidate for "Continue training".
+
+### 1. UI
 
 On the Dashboard, in a completed task's expanded panel: a "Train Splats" button, a dialog with the options
 (quality preset, image size), progress with cancel, the log, and "View in 3D" when done. The warnings WebODM's
 own dialog gives (photos all pointing straight down, missing images). A settings page: the node's address and
 token, defaults. The node's state (reachable, GPU, queue).
 
-### 3. Automation
+### 2. Automation
 
-A per-user setting, off by default: train every task that qualifies when it completes (`task_completed`), and
-again after a task is reprocessed. To check first: that a plugin's receiver is connected in the worker process,
-where the signal is sent.
+A setting, off by default: train every task that qualifies when it completes, and again after a task is
+reprocessed. WebODM's worker, where a task completes, does not load plugins, so a `task_completed` receiver in
+the plugin is not called there. To decide when planning this phase: a small pull request to WebODM (the worker
+loads plugins, as the web process does), or the plugin noticing completed tasks without the signal.
 
-### 4. Denser starting cloud
+### 3. Denser starting cloud
 
 `prepare_export` samples the point cloud to about 125,000 points, a fixed number. The plugin writes
 `points3D.bin` itself from the same `.laz` with more points (the cloud has millions), so training starts closer
@@ -198,12 +224,12 @@ to the surface and needs fewer steps. Costs GPU memory. An option, with its defa
 RGB task with oblique photos ("HomerunObliqueRGB" on the dev stack): quality and time against the number of
 points, and how far the gaussians end up from the task's point cloud.
 
-### 5. Continue training
+### 4. Continue training
 
 OpenSplat's `--resume <ply>` continues from an earlier model. The node keeps (or the plugin stores) the `.ply`
 beside the `.rad`; "Continue Training" adds steps to it. Reprocessing the task discards it.
 
-### 6. Masks
+### 5. Masks
 
 OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
 no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
@@ -212,17 +238,17 @@ area drawn by the user, moving objects) and how they are made.
 Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
 and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
 
-### 7. Thermal tasks
+### 6. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 8. Native Windows app
+### 7. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 9. Docs and first release
+### 8. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.

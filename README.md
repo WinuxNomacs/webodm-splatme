@@ -6,8 +6,9 @@ WebODM can export a task's training data and display a trained splat model, but 
 hand in other software. SplatMe does that step: one button on a task trains the splats on a GPU and puts the
 model in the task's 3D view.
 
-**Status: in development.** The training container (the "splat node") works on its own; the plugin registers in
-WebODM and does not use it yet. The plan is in [upcoming-changes.md](upcoming-changes.md).
+**Status: in development.** The training container (the "splat node") works, and the plugin trains a task
+through it from its API; the "Train Splats" button and the settings page are next. The plan is in
+[upcoming-changes.md](upcoming-changes.md).
 
 ## Requirements
 
@@ -38,6 +39,23 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 | `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
 | `GET /jobs/<id>/result` | The trained model (`.rad`) |
 | `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |
+
+## The plugin's API
+
+Under `/api/plugins/splatme/`, with a WebODM login. Until the settings page exists, an administrator sets the
+node's address with `POST node`.
+
+| Request | Does |
+|---|---|
+| `GET node`, `POST node` (`url`, `token`) | Administrators: the node's address, and its state or what is wrong with it. The token is never sent back |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree` |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, and whether the task has a splat model |
+| `POST task/<id>/cancel` | Stops the job |
+| `GET task/<id>/log?offset=<bytes>` | The trainer's output |
+
+Training needs the right to change the task's project. The task must have completed with a point cloud and
+still have its photos (JPEG). The trained model replaces the task's splat model only when training succeeds,
+and then shows in the task's 3D view like a model uploaded by hand.
 
 ## Development
 

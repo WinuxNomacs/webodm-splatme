@@ -1,0 +1,94 @@
+"""
+A stand-in for the splat node (node/splatnode.py), for the plugin's tests: the same API, no training. A job
+goes through the states in FakeNode.script, one per status request, and stays in the last.
+"""
+import io
+import json
+import threading
+import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+OPTIONS = {
+    "steps": {"min": 1, "max": 200000, "default": 7000},
+    "max_gaussians": {"min": 0, "max": 50000000, "default": None},
+    "sh_degree": {"min": 1, "max": 3, "default": None},
+}
+MODEL = b"RAD model from the fake node"
+
+
+class FakeNode:
+    def __init__(self, token="secret"):
+        self.token = token
+        self.version = "0.1.0"
+        self.script = [("queued", {"position": 1}), ("running", {"progress": 50, "step": 5}), ("completed", {})]
+        self.jobs = {}  # id -> {"options", "names" (the zip's files), "asked" (status requests), "deleted"}
+        node = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def send(self, status, body, headers=None):
+                data = body if isinstance(body, bytes) else json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(data)))
+                for name, value in (headers or {}).items():
+                    self.send_header(name, value)
+                self.end_headers()
+                self.wfile.write(data)
+
+            def handle_request(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else b""
+                if self.headers.get("Authorization") != "Bearer " + node.token:
+                    return self.send(401, {"error": "Wrong or missing token"})
+                path, _, query = self.path.partition("?")
+                parts = [p for p in path.split("/") if p]
+                if parts == ["info"]:
+                    return self.send(200, node.info())
+                if parts == ["jobs"] and self.command == "POST":
+                    job_id = f"job{len(node.jobs) + 1}"
+                    options = {k: int(v) for k, v in (pair.split("=") for pair in query.split("&") if pair)}
+                    names = zipfile.ZipFile(io.BytesIO(body)).namelist()
+                    node.jobs[job_id] = {"options": options, "names": names, "asked": 0, "deleted": False}
+                    return self.send(201, node.describe(job_id))
+                job = node.jobs.get(parts[1]) if len(parts) > 1 and parts[0] == "jobs" else None
+                if job is None or job["deleted"]:
+                    return self.send(404, {"error": "No such job"})
+                if len(parts) == 2 and self.command == "DELETE":
+                    job["deleted"] = True
+                    return self.send(200, {})
+                if len(parts) == 2:
+                    job["asked"] += 1
+                    return self.send(200, node.describe(parts[1]))
+                if parts[2] == "log":
+                    return self.send(200, b"Step 10: 0.5 [100%]\n", {"X-Log-Offset": "20"})
+                if parts[2] == "result":
+                    return self.send(200, MODEL)
+                return self.send(404, {"error": "Not found"})
+
+            do_GET = do_POST = do_DELETE = handle_request
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def info(self):
+        return {
+            "name": "SplatMe splat node", "version": self.version, "trainer": "OpenSplat fake",
+            "gpu": {"name": "Fake GPU"}, "running": None, "queued": 0, "options": OPTIONS,
+        }  # fmt: skip
+
+    def describe(self, job_id):
+        job = self.jobs[job_id]
+        state, more = self.script[min(max(job["asked"] - 1, 0), len(self.script) - 1)]
+        return {"id": job_id, "state": state, "options": job["options"], "error": None, **more}
+
+    def add_job(self, job_id="job-known"):
+        """A job the node already has, as after a worker lost track of it."""
+        self.jobs[job_id] = {"options": {"steps": 10}, "names": [], "asked": 0, "deleted": False}
+        return job_id
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()

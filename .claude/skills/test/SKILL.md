@@ -14,6 +14,8 @@ From the repo root, with the dev stack up (`dev/webodm.sh ps`; start it with `de
    with a real job: `dev/webodm.sh up --build splat-node`, then post a training zip to http://localhost:3108/jobs
    (token `dev-token`) and wait for `completed`.
 3. **Django**: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
+   The tests train against a stand-in node (`splatme/tests/fake_node.py`); WebODM's tests run a worker's job
+   inside the request that starts it.
    Before a merge, also WebODM's plugin tests (`app.tests.test_plugins`) and, for changes that use WebODM's splat
    code, `app.tests.test_splats`. Never two Django runs at once: they share the stack's test database.
    A test run starts WebODM in test mode, which adds a `test` plugin row to the dev database; until the webapp
