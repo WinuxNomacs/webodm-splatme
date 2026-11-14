@@ -9,24 +9,26 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Scaffold: the plugin folder, the dev stack, tests, this repo's own `CLAUDE.md`.
-2. Spike: train one real task by hand with each candidate trainer and choose one.
+1. Spike: train one real task by hand with each candidate trainer and choose one.
 
 **Then**
 
-3. Splat node: the trainer container and its job API.
-4. Orchestration: export, train, import, with job state, cancel and errors.
-5. UI: the "Train Splats" button on a task, progress, warnings, settings.
+2. Splat node: the trainer container and its job API.
+3. Orchestration: export, train, import, with job state, cancel and errors.
+4. UI: the "Train Splats" button on a task, progress, warnings, settings.
 
 **Later**
 
-6. Automation: train when a task completes, retrain after reprocessing, a queue for the GPU.
-7. Native Windows app: a trainer run as a local program.
-8. Docs and first release.
+5. Automation: train when a task completes, retrain after reprocessing, a queue for the GPU.
+6. Native Windows app: a trainer run as a local program.
+7. Docs and first release.
 
 **Done**
 
-(nothing yet)
+- Scaffold (2026-11-14): the plugin `splatme/` (id `splatme`, name "SplatMe"; it registers and does nothing),
+  its test (`splatme/tests/test_splatme.py`), the dev stack (`dev/webodm.sh`, `dev/compose.yml`,
+  `dev/compose.gpu.yml`: http://localhost:8008, containers `sm-*`), Ruff, the `test` skill, `CLAUDE.md`,
+  `README.md`. Jest, ESLint and Playwright arrive with the first script (the UI phase).
 
 ## Decisions (2026-11-14)
 
@@ -35,12 +37,12 @@ other software. The plugin does that step.
   plugin's settings. No change to WebODM is needed: the plugin does not start the container (WebODM's containers
   have no Docker socket), it only talks to it. The container is not in the plugin's zip; it is an image and a
   compose file this repo publishes.
-- **The trainer is chosen in the spike** (phase 2): OpenSplat, Brush and nerfstudio (splatfacto, its Docker
+- **The trainer is chosen in the spike** (phase 1): OpenSplat, Brush and nerfstudio (splatfacto, its Docker
   image) are the candidates.
-- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 6),
+- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 5),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 7. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 6. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **Plugin guidelines first.** A pull request to WebODM only when a feature needs it and the user approves that
   change: small, targeted, with only critical tests.
 
@@ -71,18 +73,11 @@ other software. The plugin does that step.
 
 ## Phase details
 
-### 1. Scaffold
+### 1. Spike
 
-- The plugin folder (its name is the plugin's id and the zip's root), `manifest.json` (`experimental`, AGPL-3.0,
-  `webodmMinVersion` 4.0.0), an empty `plugin.py` that registers.
-- `dev/webodm.sh`: WebODM 4.0.0 in dev mode with the plugin mounted, on a free port (8002, 8005 and 8006 are
-  taken by other plugins' stacks), its own container names, project and volumes, images pinned by digest, the
-  GPU processing node. Taken from webodm-tweakui's.
-- Tests and checks: Django tests in the dev stack, Jest, ESLint, Ruff; the `test` and `live-check` skills.
-- `CLAUDE.md` rewritten for this repo (the present one is TweakUI's); `.gitignore` covers `ignored/`.
-- Open: the plugin's name and id.
-
-### 2. Spike
+The task: "Roof Sample" in "First Project" on the user's http://localhost:8002 stack (the dji-thermal plugin's,
+six test tasks; another of them if it suits better). Only read from that stack, except the splat model uploaded
+to the task, which is deleted afterwards unless the user wants it kept.
 
 By hand, outside the plugin, on a real task with oblique photos: download the training zip from the task's
 Splats dialog, train with each candidate in a GPU container, upload the result in the same dialog, and look at
@@ -101,7 +96,7 @@ For each candidate, record:
 
 Result: the trainer, its options, and the splat node's base image. Nothing else is built before this passes.
 
-### 3. Splat node
+### 2. Splat node
 
 A container with the chosen trainer and a small HTTP service: create a job from a training zip and options,
 report state, progress and log, cancel, download the result, delete. One job at a time on the GPU, the others
@@ -110,7 +105,7 @@ queued. A token for access. A compose file that adds it to a WebODM install.
 Open: datasets sent over HTTP (the node can be another machine) or read from WebODM's media volume mounted
 into the node (no copy, same machine only); what the service is written in.
 
-### 4. Orchestration
+### 3. Orchestration
 
 In the plugin: a start view that checks the task (completed, has `cameras.json`, `shots.geojson`, the point
 cloud and its images) and starts one worker job, which exports with `splats.prepare_export()`, sends the
@@ -118,23 +113,23 @@ dataset to the node, polls it, fetches the result, runs `splat-tools` and writes
 Status, cancel and log views. State per task in the data store. Errors that say what to do (node unreachable,
 out of GPU memory, task compacted).
 
-### 5. UI
+### 4. UI
 
 On the Dashboard, in a completed task's expanded panel: a "Train Splats" button, a dialog with the options
 (quality preset, image size), progress with cancel, the log, and "View in 3D" when done. The warnings WebODM's
 own dialog gives (photos all pointing straight down, missing images). A settings page: the node's address and
 token, defaults. The node's state (reachable, GPU, queue).
 
-### 6. Automation
+### 5. Automation
 
 A per-user setting, off by default: train every task that qualifies when it completes (`task_completed`), and
 again after a task is reprocessed. To check first: that a plugin's receiver is connected in the worker process,
 where the signal is sent.
 
-### 7. Native Windows app
+### 6. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 8. Docs and first release
+### 7. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.

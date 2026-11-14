@@ -1,0 +1,35 @@
+# Added to WebODM's own docker-compose.yml and .dev.yml by dev/webodm.sh: the WebODM checkout runs in dev mode with
+# this repo's plugin mounted as coreplugins/splatme, under its own container names (SM_PREFIX), port and volumes, so
+# it can run beside another WebODM (whose names and port it would take). The images (SM_*_IMAGE) are pinned by
+# digest in dev/webodm.sh. The processing node is defined here, not by WebODM's docker-compose.nodeodx.yml.
+services:
+  db:
+    image: ${SM_DB_IMAGE}
+    container_name: ${SM_PREFIX}-db
+  broker:
+    image: ${SM_BROKER_IMAGE}
+    container_name: ${SM_PREFIX}-broker
+  node-odx-1:
+    image: ${SM_NODE_IMAGE}
+    container_name: ${SM_PREFIX}-node-odx-1
+    expose:
+      - "3000"
+    restart: unless-stopped
+    oom_score_adj: 500
+  webapp:
+    image: ${SM_WEBAPP_IMAGE}
+    container_name: ${SM_PREFIX}-webapp
+    depends_on:
+      - node-odx-1
+    environment:
+      - WO_DEFAULT_NODES
+    ports: !override
+      - "${WO_PORT}:8000/tcp"
+      - "${SM_LIVERELOAD_PORT}:35729"
+    volumes:
+      - ${SM_PLUGIN_DIR}:/webodm/coreplugins/splatme
+  worker:
+    image: ${SM_WEBAPP_IMAGE}
+    container_name: ${SM_PREFIX}-worker
+    volumes:
+      - ${SM_PLUGIN_DIR}:/webodm/coreplugins/splatme
