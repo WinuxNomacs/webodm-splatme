@@ -19,9 +19,12 @@ other software. The plugin does that step.
 **Later**
 
 4. Automation: train when a task completes, retrain after reprocessing, a queue for the GPU.
-5. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-6. Native Windows app: a trainer run as a local program.
-7. Docs and first release.
+5. Denser starting cloud: more of the task's point cloud as the gaussians' starting points.
+6. Continue training: more steps for a task already trained, without starting over.
+7. Masks: pixels the training ignores.
+8. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+9. Native Windows app: a trainer run as a local program.
+10. Docs and first release.
 
 **Done**
 
@@ -44,7 +47,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion comes later (phase 4),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 6. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 9. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -57,8 +60,9 @@ other software. The plugin does that step.
   the structure-from-motion results: each photo's solved position and rotation (`shots.geojson`), the calibrated
   cameras with their lens distortion (`cameras.json`) and the dense georeferenced point cloud
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
-  redoes the alignment. What more to use is in phase 2's details.
-- **Thermal tasks are a later phase** (5): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+  redoes the alignment. What more to use is phases 5 to 7.
+- **The service in the splat node is written in Python**, standard library only.
+- **Thermal tasks are a later phase** (8): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Plugin guidelines first.** A pull request to WebODM only when a feature needs it and the user approves that
   change: small, targeted, with only critical tests.
@@ -112,7 +116,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 6).
+  candidate for the native Windows app (phase 9).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -120,7 +124,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 5.
+  starting. Converting them is phase 8.
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -132,8 +136,8 @@ A container with OpenSplat and a small HTTP service: create a job from a trainin
 report state, progress and log, cancel, download the result, delete. One job at a time on the GPU, the others
 queued. A token for access. A compose file that adds it to a WebODM install.
 
-Datasets arrive over HTTP (decided). Open: what the service is written in (proposed: Python's standard library
-only, no framework), and the size of the image without the build tools.
+Datasets arrive over HTTP and the service is Python, standard library only (both decided). Open: the size of
+the image without the build tools.
 
 ### 2. Orchestration
 
@@ -142,19 +146,6 @@ cloud and its images) and starts one worker job, which exports with `splats.prep
 dataset to the node, polls it, fetches the result (`.rad`, so nothing to convert) and writes `assets/splats/model.rad`.
 Status, cancel and log views. State per task in the data store. Errors that say what to do (node unreachable,
 out of GPU memory, task compacted).
-
-More of the task's results, each to measure on an RGB task with oblique photos ("HomerunObliqueRGB" on the dev
-stack) before it becomes an option:
-
-- **A denser starting cloud.** `prepare_export` samples the point cloud to about 125,000 points, a fixed number.
-  The plugin can write `points3D.bin` itself from the same `.laz` with more points (the cloud has millions), so
-  training starts closer to the surface and needs fewer steps. Costs GPU memory.
-- **Masks.** OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's
-  results hold no masks (ODX's sky and background masks are not kept), so they would be made by the plugin.
-- **Resume.** OpenSplat's `--resume <ply>` continues from an earlier model: more steps for a task already
-  trained, without starting over. Needs the `.ply` kept beside the `.rad`.
-- **Not usable:** the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision, and
-  the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
 
 ### 3. UI
 
@@ -169,17 +160,39 @@ A per-user setting, off by default: train every task that qualifies when it comp
 again after a task is reprocessed. To check first: that a plugin's receiver is connected in the worker process,
 where the signal is sent.
 
-### 5. Thermal tasks
+### 5. Denser starting cloud
+
+`prepare_export` samples the point cloud to about 125,000 points, a fixed number. The plugin writes
+`points3D.bin` itself from the same `.laz` with more points (the cloud has millions), so training starts closer
+to the surface and needs fewer steps. Costs GPU memory. An option, with its default chosen by measuring on an
+RGB task with oblique photos ("HomerunObliqueRGB" on the dev stack): quality and time against the number of
+points, and how far the gaussians end up from the task's point cloud.
+
+### 6. Continue training
+
+OpenSplat's `--resume <ply>` continues from an earlier model. The node keeps (or the plugin stores) the `.ply`
+beside the `.rad`; "Continue Training" adds steps to it. Reprocessing the task discards it.
+
+### 7. Masks
+
+OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
+no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
+area drawn by the user, moving objects) and how they are made.
+
+Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
+and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
+
+### 8. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 6. Native Windows app
+### 9. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 7. Docs and first release
+### 10. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
