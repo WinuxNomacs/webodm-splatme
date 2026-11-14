@@ -1,0 +1,96 @@
+"""
+The splat node's HTTP API (node/splatnode.py in this plugin's repository), as the plugin uses it.
+"""
+import requests
+
+# The oldest node this plugin works with
+MIN_VERSION = (0, 1, 0)
+
+
+class NodeError(Exception):
+    """Something the node refused or could not do, worded for the user. status is the HTTP status, if any."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
+
+def parse_version(text):
+    try:
+        return tuple(int(part) for part in str(text).split(".")[:3])
+    except ValueError:
+        return (0,)
+
+
+class Node:
+    def __init__(self, url, token, timeout=15):
+        self.url = (url or "").strip().rstrip("/")
+        self.token = token or ""
+        self.timeout = timeout
+
+    def request(self, method, path, **kwargs):
+        if not self.url:
+            raise NodeError("No splat node is set. An administrator sets its address in SplatMe's settings.")
+        headers = {"Authorization": "Bearer " + self.token, **kwargs.pop("headers", {})}
+        try:
+            res = requests.request(method, self.url + path, headers=headers, timeout=self.timeout, **kwargs)
+        except requests.RequestException as e:
+            raise NodeError(
+                f"The splat node at {self.url} does not answer. Check that it is running and that its address "
+                "in SplatMe's settings is right."
+            ) from e
+        if res.status_code == 401:
+            raise NodeError("The splat node refused the token. Check the token in SplatMe's settings.", 401)
+        if res.status_code >= 400:
+            try:
+                message = res.json()["error"]
+            except (ValueError, KeyError, TypeError):
+                message = f"The splat node answered {res.status_code}"
+            raise NodeError(message, res.status_code)
+        return res
+
+    def info(self):
+        try:
+            return self.request("GET", "/info").json()
+        except ValueError as e:
+            raise NodeError(f"{self.url} is not a splat node. Check its address in SplatMe's settings.") from e
+
+    def check(self):
+        """The node's info, once it is known to be able to train for this plugin."""
+        info = self.info()
+        if not isinstance(info, dict) or "options" not in info:
+            raise NodeError(f"{self.url} is not a splat node. Check its address in SplatMe's settings.")
+        if parse_version(info.get("version")) < MIN_VERSION:
+            raise NodeError(
+                "The splat node is version {}, and this SplatMe needs {} or later. Update the node.".format(
+                    info.get("version"), ".".join(str(n) for n in MIN_VERSION)
+                )
+            )
+        if not info.get("trainer"):
+            raise NodeError("The splat node's trainer does not run. Check the node's logs.")
+        if not info.get("gpu"):
+            raise NodeError("The splat node has no GPU it can use. Check its NVIDIA driver and Docker's GPU access.")
+        return info
+
+    def create_job(self, body, length, options):
+        """Sends a training zip (an iterable of bytes of a known length) and answers the node's new job."""
+        headers = {"Content-Length": str(length), "Content-Type": "application/zip"}
+        return self.request("POST", "/jobs", params=options, data=body, headers=headers).json()
+
+    def job(self, job_id):
+        return self.request("GET", f"/jobs/{job_id}").json()
+
+    def log(self, job_id, offset=0):
+        """The trainer's output from a byte on, and the offset to ask from next."""
+        res = self.request("GET", f"/jobs/{job_id}/log", params={"offset": offset})
+        return res.text, int(res.headers.get("X-Log-Offset", offset + len(res.content)))
+
+    def result(self, job_id, dest):
+        with self.request("GET", f"/jobs/{job_id}/result", stream=True) as res, open(dest, "wb") as f:
+            f.writelines(res.iter_content(1024 * 1024))
+
+    def cancel(self, job_id):
+        return self.request("POST", f"/jobs/{job_id}/cancel").json()
+
+    def delete(self, job_id):
+        self.request("DELETE", f"/jobs/{job_id}")

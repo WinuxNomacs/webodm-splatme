@@ -72,6 +72,10 @@ other software. The plugin does that step.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
   "Deployment" below.
+- **The node's address and token are set by administrators, for everyone**: one node per WebODM, in the global
+  data store; users never see the token.
+- **Anyone who can edit a project may train its tasks** (`change_project`, as for WebODM's own splat upload).
+- **Training again replaces a task's splat only when the new training succeeds.**
 - **Plugin guidelines first.** A pull request to WebODM only when a feature needs it and the user approves that
   change: small, targeted, with only critical tests.
 
