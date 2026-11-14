@@ -1,0 +1,25 @@
+# Added by dev/webodm.sh when the machine has an NVIDIA GPU that Docker can use (SM_GPU): the splat node (node/),
+# built from this repo, in the dev stack. WebODM's containers reach it at http://splat-node:3100, the host at
+# http://localhost:${SM_SPLATNODE_PORT}; the token is SM_SPLATNODE_TOKEN (a dev value, not a secret).
+services:
+  splat-node:
+    build: ${SM_REPO}/node
+    image: splatme-node:dev
+    container_name: ${SM_PREFIX}-splat-node
+    ports:
+      - "${SM_SPLATNODE_PORT}:3100"
+    environment:
+      SPLATNODE_TOKEN: ${SM_SPLATNODE_TOKEN}
+    volumes:
+      - splatnode:/var/splatnode
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+volumes:
+  splatnode:

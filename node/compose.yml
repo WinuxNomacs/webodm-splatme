@@ -1,0 +1,26 @@
+# Runs the splat node on a machine with an NVIDIA GPU and Docker's NVIDIA runtime:
+#   SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d --build
+# WebODM reaches it at this machine's address and SPLATNODE_PORT (3100) with that token (the plugin's settings).
+# It does not have to be WebODM's machine.
+services:
+  splat-node:
+    build: .
+    image: splatme-node:0.1.0
+    ports:
+      - "${SPLATNODE_PORT:-3100}:3100"
+    environment:
+      SPLATNODE_TOKEN: "${SPLATNODE_TOKEN:?Set SPLATNODE_TOKEN to a secret: anyone who can reach the port can use the GPU}"
+      SPLATNODE_KEEP_HOURS: "${SPLATNODE_KEEP_HOURS:-48}"
+    volumes:
+      - splatnode:/var/splatnode
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+volumes:
+  splatnode:

@@ -32,6 +32,10 @@ it short; edit in place.
   `assets/splats/model.rad`), which the 3D view, the download and the share links already serve. The plugin adds
   the training between them, which runs in a companion GPU container (the "splat node"), not in WebODM's
   containers: they have no GPU.
+- **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
+  on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
+  runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum) and `compose.yml` (how a user
+  runs it). It is not part of the plugin's zip.
 - **Never push and never tag.** No workflow exists yet.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
   descriptions and messages are sentences.
@@ -50,7 +54,10 @@ it short; edit in place.
   `sm-broker`, `sm-node-odx-1`, project and volumes `webodm-splatme`, so it runs beside other WebODMs. The images
   are pinned by digest in `dev/webodm.sh`. The processing node uses the GPU when the machine has one Docker can
   use (`SM_GPU=auto`, the default: WebODM's `nodeodx:gpu` image with the GPU reserved, `dev/compose.gpu.yml`);
-  `SM_GPU=0` runs it on the CPU.
+  `SM_GPU=0` runs it on the CPU. With a GPU the stack also has the splat node (`sm-splat-node`, built from
+  `node/` on the first `up`, `dev/compose.splatnode.yml`): http://splat-node:3100 from WebODM's containers,
+  http://localhost:3108 from the host, token `dev-token`. After a change to `node/`:
+  `dev/webodm.sh up --build splat-node`.
 - **`splatme/` is mounted live**, and the server reloads on every save: an undefined name 500s the pages that use
   it. Check a Python change with Ruff before it lands in `splatme/`.
 - The plugin's code runs in two containers: views in `sm-webapp`, `run_function_async` jobs and the task signals
@@ -67,6 +74,8 @@ The `test` skill in `.claude/skills` has the steps.
 - Django: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
   One run at a time: runs share the stack's test database.
 - Ruff: `.venv/bin/ruff check .`
+- The splat node's service: `python3 -m unittest discover -s node/tests -t node` (on the host, against a
+  stand-in trainer, `node/tests/fake_trainer.py`; no GPU or container needed).
 - Live checks: headless Playwright (Node) against http://localhost:8008 with a dev account from the user. Expected
   console error in dev mode: `localhost:35729/livereload.js` refused (WebODM's pages ask for that port; this stack
   maps livereload to 35737).
