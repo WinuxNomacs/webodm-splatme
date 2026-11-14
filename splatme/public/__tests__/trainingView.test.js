@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText } from "../trainingView";
+import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -100,6 +100,7 @@ describe("a finished training", () => {
 
     test("it is summed up beside the button", () => {
         expect(resultText({state: "completed", started: 100, finished: 326})).toBe("Splats trained in 3 min 46 s.");
+        expect(resultText({state: "completed", options: {steps: 14000}, started: 100, finished: 160})).toBe("Splats trained (14,000 steps) in 1 min 0 s.");
         expect(resultText({state: "failed", error: "CUDA out of memory"})).toBe("Training failed: CUDA out of memory");
         expect(resultText({state: "canceled"})).toBe("Training canceled.");
         expect(resultText({state: null})).toBe("");
@@ -127,5 +128,28 @@ describe("a task's automatic training", () => {
         expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
         expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: ""});
+    });
+});
+
+describe("continuing a trained model", () => {
+    const ranges = {steps: {min: 1, max: 200000}};
+
+    test("More Steps becomes a request to continue", () => {
+        expect(continueFromForm(" 3000 ", 7000, ranges)).toEqual({options: {resume: true, steps: 3000}});
+        expect(continueFromForm("3000", 7000, null)).toEqual({options: {resume: true, steps: 3000}});
+    });
+
+    test("More Steps that is missing, not a number or beyond the node's total is named", () => {
+        expect(continueFromForm("", 7000, ranges).error).toBe("More Steps is needed.");
+        expect(continueFromForm("1.5", 7000, ranges).error).toBe("More Steps is a whole number.");
+        expect(continueFromForm("0", 7000, ranges).error).toBe("More Steps is between 1 and 193000.");
+        expect(continueFromForm("193001", 7000, ranges).error).toBe("More Steps is between 1 and 193000.");
+        expect(continueFromForm("1", 200000, ranges).error).toMatch(/Start over instead/);
+    });
+
+    test("More Steps starts as as many again, within the node's limit", () => {
+        expect(defaultMoreSteps(7000, ranges)).toBe(7000);
+        expect(defaultMoreSteps(150000, ranges)).toBe(50000);
+        expect(defaultMoreSteps(7000, null)).toBe(7000);
     });
 });

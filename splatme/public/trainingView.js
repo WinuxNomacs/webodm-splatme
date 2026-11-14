@@ -84,6 +84,26 @@ export function optionsFromForm(form, ranges){
     return {options};
 }
 
+// Continuing a trained model: the More Steps field as a training request, or {error}.
+// trained: the steps the model has; ranges: as for optionsFromForm (the node's limit is on the total)
+export function continueFromForm(more, trained, ranges){
+    const text = String(more == null ? "" : more).trim();
+    if (text === "") return {error: "More Steps is needed."};
+    if (!/^\d+$/.test(text)) return {error: "More Steps is a whole number."};
+    const value = parseInt(text, 10);
+    const range = (ranges || {}).steps;
+    const max = range ? range.max - trained : Infinity;
+    if (max < 1) return {error: "This model has as many steps as the splat node trains. Start over instead."};
+    if (value < 1 || value > max) return {error: "More Steps is between 1 and " + max + "."};
+    return {options: {resume: true, steps: value}};
+}
+
+// What More Steps starts as: as many again, within the node's limit
+export function defaultMoreSteps(trained, ranges){
+    const range = (ranges || {}).steps;
+    return Math.max(1, range ? Math.min(trained, range.max - trained) : trained);
+}
+
 // A training's options (api.py) as the fields of the options form
 export function formFromOptions(options){
     options = options || {};
@@ -117,7 +137,8 @@ export function resultText(job){
     if (!job || !job.state) return "";
     if (job.state === "completed"){
         const took = job.started && job.finished ? " in " + duration(job.finished - job.started) : "";
-        return "Splats trained" + took + ".";
+        const steps = (job.options || {}).steps;
+        return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + ".";
     }
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
     if (job.state === "canceled") return "Training canceled.";

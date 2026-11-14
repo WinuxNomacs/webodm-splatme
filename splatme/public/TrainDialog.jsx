@@ -4,10 +4,11 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps } from './trainingView';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
-// that all point down, the options, and Start Training.
+// that all point down, the options, and Start Training. A task whose trained model SplatMe kept can be continued
+// instead: Start Over or Continue From Step N, which asks only how many more steps.
 export default class TrainDialog extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,
@@ -17,7 +18,7 @@ export default class TrainDialog extends React.Component {
 
     constructor(props){
         super(props);
-        this.state = {check: null, error: null, starting: false, advanced: false,
+        this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
                       form: {steps: "7000", image_size: "1600", max_gaussians: ""}};
     }
 
@@ -26,7 +27,8 @@ export default class TrainDialog extends React.Component {
         request("GET", "task/" + this.props.taskId + "/check").then(check => {
             if (!this._mounted) return;
             const defaults = check.defaults || {};
-            this.setState({check, form: {...this.state.form, steps: String(defaults.steps || 7000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
+            const trained = check.trained_steps || 0;
+            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 7000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
         }).catch(e => {
             if (this._mounted) this.setState({check: {}, error: e.message});
         });
@@ -41,9 +43,12 @@ export default class TrainDialog extends React.Component {
     };
 
     handleStart = () => {
-        const { options, error } = optionsFromForm(this.state.form, (this.state.check || {}).ranges);
+        const check = this.state.check || {};
+        const { options, error } = this.state.resume ?
+            continueFromForm(this.state.more, check.trained_steps, check.ranges) :
+            optionsFromForm(this.state.form, check.ranges);
         if (error){
-            this.setState({error: _(error), advanced: true});
+            this.setState({error: _(error), advanced: !this.state.resume});
             return;
         }
         this.setState({starting: true, error: null});
@@ -55,8 +60,10 @@ export default class TrainDialog extends React.Component {
     };
 
     render(){
-        const { check, error, starting, advanced, form } = this.state;
+        const { check, error, starting, advanced, form, resume, more } = this.state;
         const blocked = !check || !!check.problem || !!check.node_error;
+        const trained = (check || {}).trained_steps || 0;
+        const total = trained + (/^\d+$/.test(String(more).trim()) ? parseInt(more, 10) : 0);
         const footer = (
             <React.Fragment>
                 <button type="button" className="btn btn-default" onClick={this.props.onClose}>{_("Close")}</button>
@@ -72,11 +79,33 @@ export default class TrainDialog extends React.Component {
                 {check && check.node_error ? <div className="alert alert-danger"><i className="fa fa-exclamation-triangle"></i> {check.node_error}</div> : ""}
                 {((check || {}).warnings || []).map((warning, i) =>
                     <div key={i} className="alert alert-warning"><i className="fa fa-exclamation-triangle"></i> {warning}</div>)}
-                {check && check.has_splats && !blocked ?
+                {check && check.has_splats && !blocked && !resume ?
                     <div className="alert alert-info">{_("This task already has a splats model. The new one replaces it when the training succeeds.")}</div> : ""}
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleStart(); }}>
-                    <OptionsFields form={form} advanced={advanced} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />
+                    {trained > 0 && !blocked ?
+                        <div className="form-group">
+                            <div className="col-sm-8 col-sm-offset-4 splatme-resume">
+                                <div className="radio"><label>
+                                    <input type="radio" name="splatme-resume" checked={!resume} onChange={() => this.setState({resume: false, error: null})} /> {_("Start Over")}
+                                </label></div>
+                                <div className="radio"><label>
+                                    <input type="radio" name="splatme-resume" checked={resume} onChange={() => this.setState({resume: true, error: null})} /> {_("Continue From Step") + " " + trained.toLocaleString()}
+                                </label></div>
+                            </div>
+                        </div> : ""}
+                    {resume && !blocked ?
+                        <div className="form-group">
+                            <label className="col-sm-4 control-label">{_("More Steps")}</label>
+                            <div className="col-sm-8">
+                                <input type="number" min="1" className="form-control splatme-more-steps" value={more}
+                                       onChange={e => this.setState({more: e.target.value, error: null})} />
+                                <span className="help-block">
+                                    {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
+                                </span>
+                            </div>
+                        </div> :
+                        <OptionsFields form={form} advanced={advanced} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>
         );

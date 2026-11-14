@@ -9,15 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Continue training: more steps for a task already trained, without starting over.
+1. Masks: pixels the training ignores.
 
 **Later**
 
-2. Masks: pixels the training ignores.
-3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-4. Native Windows app: a trainer run as a local program.
-5. Docs and first release.
-6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+3. Native Windows app: a trainer run as a local program.
+4. Docs and first release.
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -26,6 +25,18 @@ other software. The plugin does that step.
   better result on the dev task at several times the training time. See "Denser starting cloud (dropped)".
 
 **Done**
+
+- Continue training (2026-11-14): the Train Splats dialog on a task's panel offers Start Over or Continue From
+  Step N for a task SplatMe trained, and continuing asks only More Steps. Splat node 0.2.0 (`node/splatnode.py`:
+  a job's model is a `.ply`; a zip that holds `resume.ply` continues it), `splatme/training.py` (`start` with
+  `resume`, `trained_steps`, `convert`, `import_model`), `api.py` (`check`'s `trained_steps`),
+  `public/TrainDialog.jsx`, `public/trainingView.js` (`continueFromForm`, `defaultMoreSteps`). Tests: 2 in
+  `node/tests`, 3 in `test_splatme.py`, 3 in Jest. Checked on the dev stack with the real node: 2,000 steps,
+  then continued to 3,000 (the node's job started at step 2,010; WebODM's converter took 15 s for a 125 MB
+  `.ply`), run in a process of its own because the dev worker still has the old code; the dialog in a headless
+  browser at desktop and phone width, with the train request answered by the check. Not checked: the continued
+  model in the 3D view; a training started from the browser through WebODM's worker (it needs the worker
+  restarted, as after any update of the plugin).
 
 - Task Options (2026-11-14): a task's automatic training in WebODM's Edit Task Options dialog (the Options
   row's Edit button in the New Task and Edit Task panels), below `pc-quality` in the Point Cloud section,
@@ -97,7 +108,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 4. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 3. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -173,7 +184,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 5.
+  workflow, to decide in phase 4.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -206,7 +217,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 4).
+  candidate for the native Windows app (phase 3).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -214,7 +225,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 3.
+  starting. Converting them is phase 2.
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -331,13 +342,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 6).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 5).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 6).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 5).
 
 ### Denser starting cloud (dropped)
 
@@ -367,12 +378,26 @@ from the `.ply`'s size.
 - 6.1 million starting points had not left the trainer's preparation after three minutes; stopped.
 - Not measured: the gaussians' distance from the point cloud; a GPU with more memory; 30,000 steps.
 
-### 1. Continue training
+### Continue training (built)
 
-OpenSplat's `--resume <ply>` continues from an earlier model. The node keeps (or the plugin stores) the `.ply`
-beside the `.rad`; "Continue Training" adds steps to it. Reprocessing the task discards it.
+Decided with the user (2026-11-14): the model to continue from is kept in the task's folder at WebODM, not
+only on the node; continuing is a choice in the Train Splats dialog (Start Over / Continue From Step N, then
+More Steps), not a button of its own.
 
-### 2. Masks
+- OpenSplat 1.2.2 continues only from a `.ply` (`--resume`; a `.rad` is refused), whose header holds its steps
+  (`comment Generated by opensplat at iteration N`); `-n` is the total; the photos are needed again. So the
+  node's result is now the `.ply`, and the plugin makes the viewer's `.rad` with WebODM's `splat-tools`, as
+  WebODM's own upload does (a level-of-detail `.rad`).
+- The `.ply` is `assets/splats/splatme-model.ply` (about 250 bytes per gaussian). Processing the task again
+  deletes it with the task's assets. A model uploaded since in WebODM's Splats dialog is newer than it, and
+  then nothing is continued. Its steps are read from its header, not from the plugin's record.
+- Continuing keeps the earlier training's options (from the task's record; the defaults when it is gone) and
+  sends the `.ply` in the training zip as `resume.ply`. Automatic training always starts over.
+- The trainer adds gaussians only during the first half of the total steps, so continuing mostly refines the
+  gaussians the model has. `--densify-until` could change that; not tried.
+- An existing 0.1.0 node is refused with "Update the node".
+
+### 1. Masks
 
 OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
 no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
@@ -381,22 +406,22 @@ area drawn by the user, moving objects) and how they are made.
 Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
 and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
 
-### 3. Thermal tasks
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 4. Native Windows app
+### 3. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 5. Docs and first release
+### 4. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
-### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
