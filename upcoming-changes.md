@@ -9,21 +9,22 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Spike: train one real task by hand with each candidate trainer and choose one.
+1. Splat node: the trainer container (OpenSplat) and its job API.
 
 **Then**
 
-2. Splat node: the trainer container and its job API.
-3. Orchestration: export, train, import, with job state, cancel and errors.
-4. UI: the "Train Splats" button on a task, progress, warnings, settings.
+2. Orchestration: export, train, import, with job state, cancel and errors.
+3. UI: the "Train Splats" button on a task, progress, warnings, settings.
 
 **Later**
 
-5. Automation: train when a task completes, retrain after reprocessing, a queue for the GPU.
-6. Native Windows app: a trainer run as a local program.
-7. Docs and first release.
+4. Automation: train when a task completes, retrain after reprocessing, a queue for the GPU.
+5. Native Windows app: a trainer run as a local program.
+6. Docs and first release.
 
 **Done**
+
+- Spike (2026-11-14): the trainer is **OpenSplat**. Results under "Spike results" below.
 
 - Scaffold (2026-11-14): the plugin `splatme/` (id `splatme`, name "SplatMe"; it registers and does nothing),
   its test (`splatme/tests/test_splatme.py`), the dev stack (`dev/webodm.sh`, `dev/compose.yml`,
@@ -37,12 +38,12 @@ other software. The plugin does that step.
   plugin's settings. No change to WebODM is needed: the plugin does not start the container (WebODM's containers
   have no Docker socket), it only talks to it. The container is not in the plugin's zip; it is an image and a
   compose file this repo publishes.
-- **The trainer is chosen in the spike** (phase 1): OpenSplat, Brush and nerfstudio (splatfacto, its Docker
-  image) are the candidates.
-- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 5),
+- **The trainer is OpenSplat** (https://github.com/WebODM/OpenSplat, AGPL-3.0), chosen by the spike over Brush
+  and nerfstudio.
+- **Training starts from a button** on a completed task; automatic training on completion comes later (phase 4),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 6. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 5. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **Plugin guidelines first.** A pull request to WebODM only when a feature needs it and the user approves that
   change: small, targeted, with only critical tests.
 
@@ -71,65 +72,78 @@ other software. The plugin does that step.
 - Job state that outlives the page goes in the plugin's data store, read by a status view the page polls
   (as the cesiumion and dronedb plugins do).
 
+## Spike results (2026-11-14)
+
+Machine: RTX 5060 Laptop GPU (8 GB), Docker under WSL2. Task: "South Whitehall Drive" on the :8002 stack (220
+JPEGs of 4032x3024, exported at 1600 px, 126,513 sparse points; 209 photos straight down and 11 oblique, so the
+splat itself is poor). The other five tasks there are thermal TIFFs, which WebODM's export refuses.
+
+- **OpenSplat v1.2.2: works.** Built from source in a container on `nvidia/cuda:12.8.1-devel-ubuntu24.04` with
+  libtorch 2.7.1+cu128 and `CMAKE_CUDA_ARCHITECTURES="75;80;86;89;120"` (its own Dockerfile stops at CUDA 12.4,
+  too old for an RTX 50). It has no released binaries.
+  - It takes WebODM's training zip as its input (`opensplat training.zip -n <steps> -o <file>`), keeps the scene's
+    coordinates unless given `--center`, undistorts the images itself, and writes `.ply`, `.splat`, `.spz` or
+    `.rad`: with `.rad` there is nothing to convert.
+  - 2,000 steps: 54 s, 3.0 GB of GPU memory. 7,000 steps: 192 s, 4.4 GB, 281,885 gaussians. The default is
+    30,000 steps; `--max-gaussians` (default 5 million) bounds memory.
+  - Progress is a line every 10 steps, `Step 1990: 0.189796 [99%]`, then `Wrote <file>`. It extracts the zip
+    beside it (`opensplat-<id>/`), which is left behind and must be deleted.
+  - Alignment: the gaussians' extents match the exported sparse points', and in the task's 3D view the splat
+    sits where the point cloud does. Its `.ply`, uploaded in the task's Splats dialog, converts with WebODM's
+    `splat-tools`.
+  - The build image is 27 GB (CUDA's development image, libtorch and the build): the splat node needs a second
+    stage with only what the program runs with.
+- **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
+  data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
+  produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
+  candidate for the native Windows app (phase 5).
+- **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
+  CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
+  and scaled by default.
+
+Found on the way:
+
+- A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
+  starting. Converting them is a possible later feature.
+- A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
+  timeout (800x520, four minutes).
+
 ## Phase details
 
-### 1. Spike
+### 1. Splat node
 
-The task: "Roof Sample" in "First Project" on the user's http://localhost:8002 stack (the dji-thermal plugin's,
-six test tasks; another of them if it suits better). Only read from that stack, except the splat model uploaded
-to the task, which is deleted afterwards unless the user wants it kept.
-
-By hand, outside the plugin, on a real task with oblique photos: download the training zip from the task's
-Splats dialog, train with each candidate in a GPU container, upload the result in the same dialog, and look at
-it in the 3D view over the point cloud.
-
-For each candidate, record:
-
-- Does the model line up with the point cloud, and which options keep the scene's frame? (nerfstudio centres,
-  orients and scales the poses by default.)
-- Does it train on this machine's GPU (RTX 5060 Laptop, 8 GB), and how long for which image size and step count?
-- Does it run from a command line with progress that can be read, and can it be stopped?
-- Which output formats, and does `splat-tools` convert them?
-- How large is the image and how is it built or obtained? (OpenSplat: compiled with libtorch; Brush: prebuilt
-  programs, to confirm; nerfstudio: its published image, whose PyTorch must support this GPU.)
-- Its licence.
-
-Result: the trainer, its options, and the splat node's base image. Nothing else is built before this passes.
-
-### 2. Splat node
-
-A container with the chosen trainer and a small HTTP service: create a job from a training zip and options,
+A container with OpenSplat and a small HTTP service: create a job from a training zip and options,
 report state, progress and log, cancel, download the result, delete. One job at a time on the GPU, the others
 queued. A token for access. A compose file that adds it to a WebODM install.
 
 Open: datasets sent over HTTP (the node can be another machine) or read from WebODM's media volume mounted
 into the node (no copy, same machine only); what the service is written in.
 
-### 3. Orchestration
+### 2. Orchestration
 
 In the plugin: a start view that checks the task (completed, has `cameras.json`, `shots.geojson`, the point
 cloud and its images) and starts one worker job, which exports with `splats.prepare_export()`, sends the
-dataset to the node, polls it, fetches the result, runs `splat-tools` and writes `assets/splats/model.rad`.
+dataset to the node, polls it, fetches the result (`.rad`, so nothing to convert) and writes `assets/splats/model.rad`.
 Status, cancel and log views. State per task in the data store. Errors that say what to do (node unreachable,
 out of GPU memory, task compacted).
 
-### 4. UI
+### 3. UI
 
 On the Dashboard, in a completed task's expanded panel: a "Train Splats" button, a dialog with the options
 (quality preset, image size), progress with cancel, the log, and "View in 3D" when done. The warnings WebODM's
 own dialog gives (photos all pointing straight down, missing images). A settings page: the node's address and
 token, defaults. The node's state (reachable, GPU, queue).
 
-### 5. Automation
+### 4. Automation
 
 A per-user setting, off by default: train every task that qualifies when it completes (`task_completed`), and
 again after a task is reprocessed. To check first: that a plugin's receiver is connected in the worker process,
 where the signal is sent.
 
-### 6. Native Windows app
+### 5. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 7. Docs and first release
+### 6. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
