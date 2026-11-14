@@ -7,8 +7,8 @@ hand in other software. SplatMe does that step: one button on a task trains the 
 model in the task's 3D view.
 
 **Status: in development.** The training container (the "splat node") works, and the plugin trains a task
-through it from the "Train Splats" button; training automatically when a task completes is next. There is no
-release yet. The plan is in [upcoming-changes.md](upcoming-changes.md).
+through it, from the "Train Splats" button or by itself when a task completes. There is no release yet. The
+plan is in [upcoming-changes.md](upcoming-changes.md).
 
 ## Requirements
 
@@ -53,6 +53,16 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 3. **Follow it**: the task's panel shows the stage, a progress bar, **Cancel** and **Show Log** (the trainer's
    output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
 
+4. **Train automatically**: a task's panel has **Train Splats When Completed** with **Change**: turned on, the
+   task is trained when it completes processing, and again each time it is processed again, with the Quality
+   chosen there. It can be set while the task is still processing. Administrators set the default for every
+   task without a setting of its own on the **SplatMe** page (**Automatic Training**); it is off until they
+   turn it on. A training that could not start shows on the task as a failed training, with the reason.
+
+   **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`): WebODM's worker
+   loads plugins only when it starts, and it is the worker that tells SplatMe a task has completed. Until
+   then the SplatMe page says that automatic training is not active yet; the button works without a restart.
+
 Training needs the right to change the task's project. The task must have completed with a point cloud and
 still have its photos (JPEG). The trained model replaces the task's splat model only when training succeeds,
 and then shows in the task's 3D view like a model uploaded by hand.
@@ -70,6 +80,10 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, whether the task has a splat model and whether the user may train it |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
+| `GET task/<id>/auto` | Whether the task is trained when it completes, with which options, and whether that is the task's `own` setting or the default |
+| `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train`; `reset` true follows the default again |
+| `GET automation` | The default for tasks without a setting of their own; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks |
+| `POST automation` (`enabled`, options) | Administrators: sets the default |
 
 ## Development
 

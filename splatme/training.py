@@ -17,7 +17,7 @@ import time
 import uuid
 
 from app import splats
-from app.models import PluginDatum, Task
+from app.models import Plugin, PluginDatum, Task
 from app.plugins.data_store import GlobalDataStore
 from app.plugins.functions import get_plugins_persistent_path
 from app.plugins.worker import run_function_async
@@ -72,6 +72,64 @@ def set_node(url, token=None):
     store().set_string("node_url", (url or "").strip())
     if token is not None:
         store().set_string("node_token", token)
+
+
+# Training automatically: a task's own setting, or the administrators' default for every task without one
+
+
+def auto_key(task_id):
+    return f"auto::{task_id}"
+
+
+def clean_options(given):
+    """A setting's options, checked against the node's ranges when the node answers (a training checks again)."""
+    try:
+        info = get_node().check()
+    except NodeError:
+        info = None
+    return parse_options(given, info)
+
+
+def get_default():
+    return store().get_json("auto_default", None) or {"enabled": False, "options": dict(DEFAULTS)}
+
+
+def set_default(enabled, given):
+    store().set_json("auto_default", {"enabled": bool(enabled), "options": clean_options(given)})
+
+
+def get_auto(task_id):
+    """Whether the task is trained when it completes, and with what: "own" says the setting is the task's."""
+    own = store().get_json(auto_key(task_id), None)
+    return dict(own or get_default(), own=own is not None)
+
+
+def set_auto(task_id, username, enabled, given):
+    setting = {"enabled": bool(enabled), "options": clean_options(given), "user": username}
+    store().set_json(auto_key(task_id), setting)
+
+
+def reset_auto(task_id):
+    store().del_key(auto_key(task_id))
+
+
+def listening():
+    # Only this function's source reaches the worker (run_function_async)
+    from app.plugins import signals
+
+    return any(entry[0][0] == "splatme_task_completed" for entry in signals.task_completed.receivers)
+
+
+def worker_listens():
+    """
+    Whether WebODM's worker tells this plugin when a task completes, or None when the worker does not answer.
+    The worker imports plugins when it starts: one installed since then is heard only after WebODM restarts.
+    """
+    try:
+        return bool(run_function_async(listening).get(timeout=5))
+    except Exception as e:  # noqa: BLE001 (a busy worker, a broker that is away: all mean "not known")
+        logger.warning(f"SplatMe: the worker did not say whether it listens for completed tasks: {e}")
+        return None
 
 
 # The job's record
@@ -184,9 +242,16 @@ def warnings(task):
 
 
 def parse_options(given, node_info):
-    """The job's options from a request's values, checked against the ranges the node gives."""
+    """
+    The job's options from a request's values, checked against the ranges the node gives. Without a node's answer
+    (None) only the values' form is checked.
+    """
     options = dict(DEFAULTS)
-    ranges = dict(node_info.get("options", {}), image_size={"min": 16, "max": 100000})
+    if node_info is None:
+        ranges = {name: {"min": 1, "max": 10**9} for name in NODE_OPTIONS}
+    else:
+        ranges = dict(node_info.get("options", {}))
+    ranges["image_size"] = {"min": 16, "max": 100000}
     for name in (*NODE_OPTIONS, "image_size"):
         value = given.get(name)
         if value in (None, ""):
@@ -211,7 +276,7 @@ def is_stale(job):
     return job["state"] in ACTIVE and time.time() - job.get("updated", 0) > STALE
 
 
-def start(task, user, given):
+def start(task, username, given, auto=False):
     """Starts training a task. Raises TrainingError or NodeError with the reason it cannot."""
     reason = problem(task)
     if reason:
@@ -226,13 +291,48 @@ def start(task, user, given):
     run = uuid.uuid4().hex
     now = time.time()
     job = {
-        "state": "starting", "run": run, "options": options, "user": user.username, "progress": 0, "status": "",
-        "node_job": None, "error": None, "started": now, "updated": now, "finished": None,
+        "state": "starting", "run": run, "options": options, "user": username, "auto": auto, "progress": 0,
+        "status": "", "node_job": None, "error": None, "started": now, "updated": now, "finished": None,
     }  # fmt: skip
     store().del_key(cancel_key(task.id))
     store().set_json(job_key(task.id), job)
     run_function_async(run_job, PACKAGE, str(task.id), run)
     return get_job(task.id)
+
+
+def completed(task_id):
+    """
+    A task completed processing (WebODM's task_completed signal, in the worker): trains it when its setting says
+    so. A training that cannot start is left in the task's record, where the task's panel shows it; a task that
+    cannot be trained at all is passed over, unless the setting is the task's own.
+    """
+    if not Plugin.objects.filter(name=NAME, enabled=True).exists():
+        return  # WebODM imports a disabled plugin's module too
+    task = Task.objects.filter(pk=task_id).first()
+    if task is None or "splats.rad" in task.available_assets:
+        return  # an imported task comes with its model
+    auto = get_auto(task.id)
+    if not auto["enabled"]:
+        return
+    reason = problem(task)
+    if reason and not auto["own"]:
+        return
+    try:
+        if reason:
+            raise TrainingError(reason)
+        start(task, auto.get("user") or "", auto["options"], auto=True)
+    except (TrainingError, NodeError) as e:
+        current = get_job(task.id)
+        if current and current["state"] in ACTIVE and not is_stale(current):
+            return
+        now = time.time()
+        job = {
+            "state": "failed", "run": None, "options": auto["options"], "user": auto.get("user") or "", "auto": True,
+            "progress": 0, "status": "", "node_job": None, "error": f"The training did not start. {e}",
+            "started": now, "updated": now, "finished": now,
+        }  # fmt: skip
+        store().set_json(job_key(task.id), job)
+        logger.warning(f"SplatMe: task {task.id} completed and its training did not start: {e}")
 
 
 def cancel(task):
@@ -275,23 +375,25 @@ def removed(task_id):
     if job and job["state"] in ACTIVE:
         drop_node_job(job)
     forget(task_id)
+    reset_auto(task_id)
     shutil.rmtree(work_dir(task_id), ignore_errors=True)
 
 
 def sweep():
     """
-    Forgets the jobs of tasks that no longer exist. WebODM's worker does not load plugins, so a task it deletes
-    (a task deleted from the Dashboard, a project deleted with its tasks) sends this plugin no signal.
+    Forgets the jobs and settings of tasks that no longer exist. WebODM's worker imports plugins only when it
+    starts, so until WebODM restarts after this plugin is installed, a task the worker deletes sends this plugin
+    no signal.
     """
-    prefix = store().db_key(job_key(""))
-    for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):
-        task_id = key[len(prefix) :]
-        try:
-            gone = not Task.objects.filter(pk=task_id).exists()
-        except (ValueError, ValidationError):
-            gone = True
-        if gone:
-            removed(task_id)
+    for prefix in (store().db_key(job_key("")), store().db_key(auto_key(""))):
+        for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):
+            task_id = key[len(prefix) :]
+            try:
+                gone = not Task.objects.filter(pk=task_id).exists()
+            except (ValueError, ValidationError):
+                gone = True
+            if gone:
+                removed(task_id)
 
 
 def drop_node_job(job):

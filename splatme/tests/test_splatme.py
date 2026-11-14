@@ -10,8 +10,8 @@ import tempfile
 import time
 from unittest import mock
 
-from app.models import Project, Task
-from app.plugins import get_plugin_by_name
+from app.models import Plugin, Project, Task
+from app.plugins import get_plugin_by_name, signals
 from app.tests.classes import BootTestCase
 from django.contrib.auth.models import User
 from guardian.shortcuts import assign_perm
@@ -124,8 +124,12 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         self.assertEqual(
             self.status(task),
-            {"state": None, "active": False, "has_splats": False, "can_train": True, "task_status": status_codes.COMPLETED},
-        )
+            {
+                "state": None, "active": False, "has_splats": False, "can_train": True,
+                "task_status": status_codes.COMPLETED,
+                "auto": {"enabled": False, "options": training.DEFAULTS, "own": False},
+            },
+        )  # fmt: skip
 
         res = self.train(task, steps=10, image_size=16)
         self.assertEqual(res.status_code, 200, res.data)
@@ -439,3 +443,139 @@ class TestSplatMe(BootTestCase):
 
         res = admin.post(f"{API}/node", {"url": self.node.url, "token": "wrong"})
         self.assertIn("token", res.data["error"])
+
+    # Training automatically
+
+    def complete(self, task):
+        """What WebODM does when a task completes processing."""
+        for _receiver, answer in signals.task_completed.send_robust(sender=Task, task_id=task.id):
+            self.assertIsNone(answer)
+
+    def auto(self, task, **values):
+        return self.client.post(f"{API}/task/{task.id}/auto", values, format="json")
+
+    def test_a_completed_task_is_not_trained_unless_a_setting_says_so(self):
+        task = make_task(self.user)
+        self.complete(task)
+        self.assertEqual(self.node.jobs, {})
+        self.assertIsNone(training.get_job(task.id))
+
+    def test_a_task_set_to_train_is_trained_with_its_options_when_it_completes(self):
+        task = make_task(self.user)
+        res = self.auto(task, enabled=True, steps=20, image_size=16)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}, "own": True})
+        self.assertEqual(self.node.jobs, {})
+
+        self.complete(task)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 20})
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertTrue(status["auto"]["enabled"])
+        self.assertTrue(status["has_splats"])
+        job = training.get_job(task.id)
+        self.assertTrue(job["auto"])
+        self.assertEqual(job["user"], "testuser")
+
+    def test_the_administrators_default_trains_every_task_without_a_setting_of_its_own(self):
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        self.assertEqual(self.client.post(f"{API}/automation", {"enabled": True}, format="json").status_code, 403)
+        res = admin.post(f"{API}/automation", {"enabled": True, "steps": 30}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertTrue(res.data["enabled"])
+        self.assertTrue(res.data["listening"])
+        self.assertEqual(res.data["options"]["steps"], 30)
+
+        # Everyone reads the default; only administrators are told whether the worker listens
+        res = self.client.get(f"{API}/automation")
+        self.assertTrue(res.data["enabled"])
+        self.assertIsNone(res.data["listening"])
+
+        follows = make_task(self.user)
+        opted_out = make_task(self.user)
+        self.assertEqual(self.auto(opted_out, enabled=False).data["own"], True)
+        self.complete(follows)
+        self.complete(opted_out)
+        self.assertEqual(training.get_job(follows.id)["options"]["steps"], 30)
+        self.assertIsNone(training.get_job(opted_out.id))
+
+        # Back to the default
+        self.assertEqual(self.auto(opted_out, reset=True).data, dict(training.get_default(), own=False))
+
+    def test_a_task_processed_again_is_trained_again(self):
+        task = make_task(self.user)
+        self.auto(task, enabled=True)
+        self.complete(task)
+        self.assertEqual(self.model(task), MODEL)
+
+        # Processing again deletes the task's assets; the task then completes with new ones and no model
+        os.remove(task.get_asset_file_or_stream("splats.rad"))
+        task.update_available_assets_field(commit=True)
+        self.complete(task)
+        self.assertEqual(sorted(self.node.jobs), ["job1", "job2"])
+        self.assertEqual(self.model(task), MODEL)
+
+    def test_a_task_that_completes_with_a_model_is_not_trained(self):
+        task = make_task(self.user)
+        self.auto(task, enabled=True)
+        self.put_model(task, b"imported")
+        task.update_available_assets_field(commit=True)
+        self.complete(task)
+        self.assertEqual(self.node.jobs, {})
+        self.assertEqual(self.model(task), b"imported")
+
+    def test_the_default_passes_over_a_task_that_cannot_be_trained_and_a_tasks_own_setting_says_why(self):
+        training.set_default(True, {})
+        task = make_task(self.user, images=["a.tif"])
+        self.complete(task)
+        self.assertIsNone(training.get_job(task.id))
+
+        self.auto(task, enabled=True)
+        self.complete(task)
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertTrue(status["auto"])
+        self.assertIn("The training did not start. Only JPEG images", status["error"])
+
+    def test_a_node_that_does_not_answer_when_a_task_completes_is_reported_on_the_task(self):
+        training.set_default(True, {})
+        task = make_task(self.user)
+        training.set_node("http://127.0.0.1:9")
+        self.complete(task)
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("does not answer", status["error"])
+
+    def test_a_disabled_plugin_trains_nothing(self):
+        training.set_default(True, {})
+        task = make_task(self.user)
+        Plugin.objects.filter(name="splatme").update(enabled=False)
+        self.addCleanup(lambda: Plugin.objects.filter(name="splatme").update(enabled=True))
+        training.completed(task.id)
+        self.assertEqual(self.node.jobs, {})
+
+    def test_a_tasks_setting_needs_the_right_to_change_its_project_and_checks_the_options(self):
+        task = make_task(self.user)
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        self.assertEqual(other.get(f"{API}/task/{task.id}/auto").status_code, 200)
+        self.assertEqual(other.post(f"{API}/task/{task.id}/auto", {"enabled": True}, format="json").status_code, 404)
+        self.assertFalse(training.get_auto(task.id)["own"])
+
+        res = self.auto(task, enabled=True, steps=10**8)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("steps must be between", res.data["error"])
+
+        # Without a node, a setting is still saved: the options are checked when the training starts
+        training.set_node("http://127.0.0.1:9")
+        self.assertEqual(self.auto(task, enabled=True, steps=50).status_code, 200)
+        self.assertEqual(training.get_auto(task.id)["options"]["steps"], 50)
+
+    def test_deleting_a_task_removes_its_setting(self):
+        task = make_task(self.user)
+        self.auto(task, enabled=True)
+        task_id = task.id
+        task.delete()
+        self.assertFalse(training.get_auto(task_id)["own"])

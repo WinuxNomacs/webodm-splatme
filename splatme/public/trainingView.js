@@ -1,11 +1,11 @@
 // What the Train Splats button, its dialog and the progress show, as plain functions of the plugin's answers
 // (api.py): no React here, so Jest tests them as they are.
 
-// The Quality choice: the trainer's steps
+// The Quality choice: the trainer's steps, and what to expect of each
 export const PRESETS = [
-    {key: "draft", label: "Draft", steps: 2000},
-    {key: "standard", label: "Standard", steps: 7000},
-    {key: "high", label: "High", steps: 30000}
+    {key: "draft", label: "Draft", steps: 2000, hint: "A quick look at whether the dataset trains well. Soft detail."},
+    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets. The place to start."},
+    {key: "high", label: "High", steps: 30000, hint: "The sharpest model. Takes several times longer than Standard."}
 ];
 
 // A job's states in order, with the share of the whole bar each takes (measured on 220 photos: the export and the
@@ -82,6 +82,25 @@ export function optionsFromForm(form, ranges){
         options[field.name] = value;
     }
     return {options};
+}
+
+// A training's options (api.py) as the fields of the options form
+export function formFromOptions(options){
+    options = options || {};
+    const text = (value, fallback) => String(value == null ? fallback : value);
+    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, "")};
+}
+
+// A task's automatic training in a few words: "On: Standard" or "Off", and whether that is the default
+export function autoText(auto){
+    if (!auto) return "";
+    let text = "Off";
+    if (auto.enabled){
+        const steps = (auto.options || {}).steps;
+        const preset = PRESETS.find(p => p.steps === Number(steps));
+        text = "On: " + (preset ? preset.label : Number(steps).toLocaleString("en-US") + " steps");
+    }
+    return text + (auto.own ? "" : " (the default)");
 }
 
 // "3 min 5 s" for a number of seconds
