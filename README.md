@@ -55,7 +55,11 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 
 4. **Train automatically**: a task's panel has **Train Splats When Completed** with **Change**: turned on, the
    task is trained when it completes processing, and again each time it is processed again, with the Quality
-   chosen there. It can be set while the task is still processing. Administrators set the default for every
+   chosen there. It can be set while the task is still processing. The same setting is in WebODM's **Edit
+   Task Options** dialog (the **Edit** button of the Options row, when creating a task and when editing one):
+   open **Point Cloud** and press **Train Splats When Completed** under SplatMe. It is saved when chosen
+   there, whatever is then done with the dialog's other options; a new task gets it when it is created.
+   Administrators set the default for every
    task without a setting of its own on the **SplatMe** page (**Automatic Training**); it is off until they
    turn it on. A training that could not start shows on the task as a failed training, with the reason.
 
@@ -82,7 +86,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options, and whether that is the task's `own` setting or the default |
 | `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train`; `reset` true follows the default again |
-| `GET automation` | The default for tasks without a setting of their own; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks |
+| `GET automation` | The default for tasks without a setting of their own; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1`: the default and the node's range of each option |
 | `POST automation` (`enabled`, options) | Administrators: sets the default |
 
 ## Development

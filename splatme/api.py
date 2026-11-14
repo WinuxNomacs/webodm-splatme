@@ -12,7 +12,8 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/auto      whether the task is trained when it completes, and with which options
     POST task/<id>/auto      sets that for the task (enabled and the options), or with reset true goes back to
                              the administrators' default
-    GET  automation          the default for tasks without a setting of their own
+    GET  automation          the default for tasks without a setting of their own; with ?ranges=1 also the
+                             node's range of each option (a new task's setting is chosen before the task exists)
     POST automation          sets it (administrators)
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
@@ -158,6 +159,8 @@ class Automation(APIView):
         return out
 
     def get(self, request):
+        if is_true(request.query_params.get("ranges")):
+            return Response(dict(describe_auto(training.get_default()), ranges=training.node_ranges()))
         return Response(self.describe(request))
 
     def post(self, request):

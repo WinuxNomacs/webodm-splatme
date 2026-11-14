@@ -90,6 +90,15 @@ def clean_options(given):
     return parse_options(given, info)
 
 
+def node_ranges():
+    """The node's range of each option, or None when the node does not answer."""
+    try:
+        info = get_node().check()
+    except NodeError:
+        return None
+    return {name: info["options"][name] for name in NODE_OPTIONS if name in info["options"]}
+
+
 def get_default():
     return store().get_json("auto_default", None) or {"enabled": False, "options": dict(DEFAULTS)}
 
