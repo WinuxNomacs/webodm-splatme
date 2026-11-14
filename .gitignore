@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# This repo
+ignored/
+new.md
+node_modules/
+dist/
+.vscode/
