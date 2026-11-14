@@ -8,7 +8,7 @@ it short; edit in place.
 ## Rules for this repository
 
 - **The plugin is `splatme/`**: the released zip has that folder as its single root. Dev tools (`dev/`,
-  `ruff.toml`, `requirements-dev.txt`) stay outside it.
+  `package.json`, `eslint.config.mjs`, `ruff.toml`, `requirements-dev.txt`) stay outside it.
 - **Official plugin rules only**: the guide (https://docs.webodm.org/plugin-development-guide, also
   `ignored/WebODM-Docs`) and `ignored/WebODM-Plugins/guidance/index.md`:
   - Extension points are only those of `app/plugins/plugin_base.py` (`include_js_files`, `include_css_files`,
@@ -33,8 +33,15 @@ it short; edit in place.
   the training between them, which runs in a companion GPU container (the "splat node"), not in WebODM's
   containers: they have no GPU.
 - **The plugin's code**: `training.py` (a task's job and its record), `node.py` (the splat node's API as the
-  plugin uses it), `api.py` (the views), `plugin.py` (the mount points). State is kept only in the plugin's
-  global data store: an update of an uploaded plugin replaces its folder, `get_persistent_path()` included.
+  plugin uses it), `api.py` (the views), `plugin.py` (the mount points, the menu item, the scripts). State is
+  kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
+  `get_persistent_path()` included.
+- **The plugin's pages**: `public/main.js` (ES5, on every page: adds SplatMe's part to a task's panel on the
+  Dashboard), `public/TrainSplats.jsx` with `TrainDialog.jsx`, `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built
+  by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),
+  `public/trainingView.js` (what they show, as plain functions: this is what Jest tests) and
+  `templates/settings.html` (the side menu's SplatMe page, plain script). WebODM asks a plugin for a task's
+  button once, when the panel opens: the component follows the task itself through the status view.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
   runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum) and `compose.yml` (how a user
@@ -70,7 +77,11 @@ it short; edit in place.
 - The first start runs WebODM's dev setup (npm install, webpack, migrations) for several minutes before the server
   answers. The startup log then shows `Registered [coreplugins.splatme.plugin]`.
 - Host tools: `uv venv --python 3.13 .venv && uv pip install -r requirements-dev.txt` (Django and DRF for the IDE,
-  Ruff). VSCode: interpreter `.venv`, `ignored/WebODM` on Pylance's extra paths (local `.vscode/settings.json`).
+  Ruff); `npm ci` (Jest, ESLint, Playwright, pinned in `package.json`). VSCode: interpreter `.venv`,
+  `ignored/WebODM` on Pylance's extra paths (local `.vscode/settings.json`).
+- A change to a `.jsx` or to a module it imports is live only once rebuilt: the dev server builds at its start
+  and does not watch. Rebuild with
+  `docker exec -w /webodm/coreplugins/splatme/public sm-webapp webpack-cli`.
 
 ## Tests and checks
 
@@ -79,6 +90,7 @@ The `test` skill in `.claude/skills` has the steps.
 - Django: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
   One run at a time: runs share the stack's test database.
 - Ruff: `.venv/bin/ruff check .`
+- Jest: `npm test` (jsdom, babel-jest; Babel's settings in `package.json`). ESLint: `npm run lint -- splatme`.
 - The splat node's service: `python3 -m unittest discover -s node/tests -t node` (on the host, against a
   stand-in trainer, `node/tests/fake_trainer.py`; no GPU or container needed).
 - Live checks: headless Playwright (Node) against http://localhost:8008 with a dev account from the user. Expected

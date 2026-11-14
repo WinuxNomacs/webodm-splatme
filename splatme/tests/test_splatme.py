@@ -122,7 +122,10 @@ class TestSplatMe(BootTestCase):
 
     def test_training_exports_the_task_sends_it_to_the_node_and_imports_the_model(self):
         task = make_task(self.user)
-        self.assertEqual(self.status(task), {"state": None, "active": False, "has_splats": False})
+        self.assertEqual(
+            self.status(task),
+            {"state": None, "active": False, "has_splats": False, "can_train": True, "task_status": status_codes.COMPLETED},
+        )
 
         res = self.train(task, steps=10, image_size=16)
         self.assertEqual(res.status_code, 200, res.data)
@@ -326,8 +329,94 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(APIClient().post(f"{API}/task/{task.id}/train").status_code, 404)
         self.assertEqual(self.node.jobs, {})
 
+    def test_the_status_says_who_may_train_and_how_far_the_task_is(self):
+        task = make_task(self.user, status=status_codes.RUNNING)
+        status = self.status(task)
+        self.assertTrue(status["can_train"])
+        self.assertEqual(status["task_status"], status_codes.RUNNING)
+
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        self.assertFalse(other.get(f"{API}/task/{task.id}/status").data["can_train"])
+
+    def test_the_check_before_training_gives_the_ranges_and_no_problem_for_a_task_that_can_train(self):
+        task = make_task(self.user)
+        check = self.client.get(f"{API}/task/{task.id}/check").data
+        self.assertIsNone(check["problem"])
+        self.assertIsNone(check["node_error"])
+        self.assertEqual(check["warnings"], [])
+        self.assertEqual(check["defaults"], training.DEFAULTS)
+        self.assertEqual(check["ranges"]["steps"]["min"], 1)
+        self.assertFalse(check["has_splats"])
+
+    def test_the_check_names_what_stands_in_the_way_of_the_task(self):
+        task = make_task(self.user, status=status_codes.RUNNING)
+        check = self.client.get(f"{API}/task/{task.id}/check").data
+        self.assertEqual(check["problem"], "The task has not completed processing.")
+
+    def test_the_check_warns_when_nearly_all_photos_point_straight_down(self):
+        task = make_task(self.user)
+        path = task.get_asset_file_or_stream("shots.geojson")
+        with open(path) as f:
+            shots = json.load(f)
+        for feature in shots["features"]:
+            feature["properties"]["rotation"] = [3.14159, 0.0, 0.0]
+        with open(path, "w") as f:
+            json.dump(shots, f)
+        check = self.client.get(f"{API}/task/{task.id}/check").data
+        self.assertIsNone(check["problem"])
+        self.assertEqual(len(check["warnings"]), 1)
+        self.assertIn("nadir", check["warnings"][0])
+
+    def test_the_check_tells_only_an_administrator_what_is_wrong_with_the_node(self):
+        task = make_task(self.user)
+        training.set_node("http://127.0.0.1:9")
+        check = self.client.get(f"{API}/task/{task.id}/check").data
+        self.assertIn("Ask an administrator", check["node_error"])
+        self.assertNotIn("127.0.0.1", check["node_error"])
+
+        assign_perm("view_project", User.objects.get(username="testsuperuser"), task.project)
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        self.assertIn("127.0.0.1:9 does not answer", admin.get(f"{API}/task/{task.id}/check").data["node_error"])
+
+    def test_the_settings_page_is_in_the_menu_and_needs_a_login(self):
+        res = self.client.get("/plugins/splatme/")
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Splat Node")
+        self.assertContains(self.client.get("/dashboard/"), 'href="/plugins/splatme/"')
+        self.assertEqual(APIClient().get("/plugins/splatme/").status_code, 302)
+
+    def test_everyone_sees_the_nodes_state_and_only_administrators_its_address(self):
+        res = self.client.get(f"{API}/node")
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["admin"])
+        self.assertEqual(res.data["node"]["trainer"], "OpenSplat fake")
+        self.assertNotIn("url", res.data)
+        self.assertNotIn(self.node.url, json.dumps(res.data))
+        self.assertEqual(APIClient().get(f"{API}/node").status_code, 403)
+
+        training.set_node("http://127.0.0.1:9")
+        res = self.client.get(f"{API}/node")
+        self.assertIn("Ask an administrator", res.data["error"])
+        self.assertNotIn("127.0.0.1", json.dumps(res.data))
+
+    def test_test_connection_tries_an_address_without_saving_it(self):
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        res = admin.post(f"{API}/node", {"url": "http://127.0.0.1:9", "save": False}, format="json")
+        self.assertIn("does not answer", res.data["error"])
+        self.assertEqual(training.get_node().url, self.node.url)
+
+        # A token given is tried in place of the saved one, and an empty one means the saved one
+        res = admin.post(f"{API}/node", {"url": self.node.url, "token": "wrong", "save": False}, format="json")
+        self.assertIn("token", res.data["error"])
+        res = admin.post(f"{API}/node", {"url": self.node.url, "token": "", "save": False}, format="json")
+        self.assertIsNone(res.data["error"])
+        self.assertEqual(training.get_node().token, self.node.token)
+
     def test_the_nodes_settings_are_the_administrators_and_never_show_the_token(self):
-        self.assertEqual(self.client.get(f"{API}/node").status_code, 403)
         self.assertEqual(self.client.post(f"{API}/node", {"url": "http://elsewhere:3100"}).status_code, 403)
         self.assertEqual(training.get_node().url, self.node.url)
 
