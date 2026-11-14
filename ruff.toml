@@ -2,3 +2,7 @@
 target-version = "py314"
 line-length = 120
 extend-exclude = ["ignored"]
+
+# The splat node's service runs on its image's Python (Ubuntu 24.04: 3.12)
+[per-file-target-version]
+"node/**" = "py312"
