@@ -9,6 +9,11 @@ The plugin's API, under /api/plugins/splatme/.
     GET  node                the splat node's state; for administrators also its address
     POST node                sets its address (url) and token, then answers as GET does (administrators);
                              with save false, only tries them
+    GET  task/<id>/auto      whether the task is trained when it completes, and with which options
+    POST task/<id>/auto      sets that for the task (enabled and the options), or with reset true goes back to
+                             the administrators' default
+    GET  automation          the default for tasks without a setting of their own
+    POST automation          sets it (administrators)
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
 """
@@ -24,7 +29,7 @@ from . import training
 from .node import Node, NodeError
 
 # What a page may know of a job: not its run id, nor the node's job
-PUBLIC = ("state", "progress", "status", "error", "options", "user", "started", "finished")
+PUBLIC = ("state", "progress", "status", "error", "options", "user", "auto", "started", "finished")
 UNAVAILABLE = "The splat node is not available. Ask an administrator to check SplatMe's settings."
 
 
@@ -40,6 +45,14 @@ def node_state(info):
     }  # fmt: skip
 
 
+def is_true(value):
+    return value is True or str(value).lower() in ("true", "1", "on")
+
+
+def describe_auto(setting):
+    return {name: setting.get(name) for name in ("enabled", "options", "own") if name in setting}
+
+
 def describe(request, task, job):
     try:
         task.refresh_from_db()
@@ -50,6 +63,7 @@ def describe(request, task, job):
     out["has_splats"] = "splats.rad" in task.available_assets
     out["can_train"] = can_train(request, task)
     out["task_status"] = task.status
+    out["auto"] = describe_auto(training.get_auto(task.id))
     return out
 
 
@@ -58,7 +72,7 @@ class Train(TaskView):
         task = self.get_and_check_task(request, pk)
         check_project_perms(request, task.project, perms=("change_project",))
         try:
-            job = training.start(task, request.user, request.data)
+            job = training.start(task, request.user.username, request.data)
         except (training.TrainingError, NodeError) as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe(request, task, job))
@@ -113,6 +127,47 @@ class Log(TaskView):
         res = HttpResponse(text, content_type="text/plain; charset=utf-8")
         res["X-Log-Offset"] = str(offset)
         return res
+
+
+class Auto(TaskView):
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        return Response(describe_auto(training.get_auto(task.id)))
+
+    def post(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        if is_true(request.data.get("reset")):
+            training.reset_auto(task.id)
+        else:
+            try:
+                training.set_auto(task.id, request.user.username, is_true(request.data.get("enabled")), request.data)
+            except training.TrainingError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(describe_auto(training.get_auto(task.id)))
+
+
+class Automation(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def describe(self, request):
+        out = describe_auto(training.get_default())
+        out["admin"] = request.user.is_superuser
+        # Only an administrator can restart WebODM, so only they are told the worker does not listen yet
+        out["listening"] = training.worker_listens() if request.user.is_superuser else None
+        return out
+
+    def get(self, request):
+        return Response(self.describe(request))
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            raise exceptions.PermissionDenied()
+        try:
+            training.set_default(is_true(request.data.get("enabled")), request.data)
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.describe(request))
 
 
 class NodeSettings(APIView):

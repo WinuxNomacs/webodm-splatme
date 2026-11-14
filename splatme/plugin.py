@@ -4,7 +4,7 @@ from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Cancel, Check, Log, NodeSettings, Status, Train
+from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, Status, Train
 
 
 class Plugin(PluginBase):
@@ -33,8 +33,19 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/check$", Check.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/cancel$", Cancel.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/log$", Log.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/auto$", Auto.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
+            MountPoint("automation$", Automation.as_view()),
         ]
+
+
+# WebODM's worker, where a task completes and is deleted, imports this module when it starts without calling
+# register(): the receivers are connected here, at the module's top level
+
+
+@receiver(signals.task_completed, dispatch_uid="splatme_task_completed")
+def train_completed_task(sender, task_id, **kwargs):
+    training.completed(task_id)
 
 
 @receiver(signals.task_removing, dispatch_uid="splatme_task_removing")
