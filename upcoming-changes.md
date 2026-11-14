@@ -343,6 +343,26 @@ to the surface and needs fewer steps. Costs GPU memory. An option, with its defa
 RGB task with oblique photos ("HomerunObliqueRGB" on the dev stack): quality and time against the number of
 points, and how far the gaussians end up from the task's point cloud.
 
+**Measured (2026-11-14), not decided.** HomerunObliqueRGB: 959 photos exported at 1600 px, a cloud of 12.8
+million points, the dev stack's RTX 5060 Laptop GPU (8 GB), one photo held out (`--val`). Gaussians are counted
+from the `.ply`'s size.
+
+| Starting points | Steps | Time | GPU memory, peak | Held-out PSNR | Gaussians at the end |
+|---|---|---|---|---|---|
+| 503,860 (WebODM's export) | 2,000 | 246 s | 5.3 GB | 17.44 | 0.50 million |
+| 2,070,489 | 2,000 | 327 s | 6.6 GB | 17.48 | 2.07 million |
+| 503,860 (WebODM's export) | 7,000 | 301 s | 6.5 GB | 20.84 | 0.27 million |
+| 2,070,489 | 7,000 | 762 s | 7.7 GB | 20.80 | 0.67 million |
+| 3,809,670 | 7,000 | 2,342 s | 7.8 GB | 21.00 | 0.99 million |
+
+- WebODM's "about 125,000 points" is a spacing worked out from the cloud's ground area: on a scene with walls
+  it gives four times as many (503,860 here).
+- More starting points did not improve the held-out photo (within 0.2 dB, one photo) at 2,000 or at 7,000
+  steps, cost 2.5 to 8 times the time, and filled the GPU's memory. Training prunes most of them: 2.07 million
+  became 0.67 million by step 7,000.
+- 6.1 million starting points had not left the trainer's preparation after three minutes; stopped.
+- Not measured: the gaussians' distance from the point cloud; a GPU with more memory; 30,000 steps.
+
 ### 2. Continue training
 
 OpenSplat's `--resume <ply>` continues from an earlier model. The node keeps (or the plugin stores) the `.ply`
