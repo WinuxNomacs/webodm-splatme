@@ -24,7 +24,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from .. import crop, sky, training
-from .fake_node import MODEL, FakeNode, trained
+from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
@@ -743,13 +743,17 @@ class TestSplatMe(BootTestCase):
         self.complete(other)
         self.assertIsNone(training.get_job(other.id))
 
-        # New Task With Splats gives its task the setting as soon as WebODM has created it, before it is processed
+        # SplatMe's panel above the New Task panel is filled before the task exists: the ranges come without one
+        res = self.client.get(f"{API}/automation?ranges=1")
+        self.assertEqual(res.data["ranges"]["steps"], OPTIONS["steps"])
+
+        # The panel gives the task its setting as soon as WebODM has created it, before it is processed
         task = make_task(self.user, status=None)
-        res = self.auto(task, enabled=True, new_task=True)
+        res = self.auto(task, enabled=True, steps=30, ignore_sky=True)
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}})
 
-        # Options chosen later are for the tasks created later
+        # Options chosen later are for the tasks created later; the Edit Task panel's can switch it off
         admin.post(f"{API}/automation", {"steps": 40}, format="json")
         self.assertEqual(training.get_auto(task.id)["options"]["steps"], 30)
         self.assertEqual(self.auto(task, enabled=False, steps=30).data["enabled"], False)

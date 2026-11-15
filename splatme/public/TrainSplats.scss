@@ -16,10 +16,6 @@
 
     .splatme-auto{
         margin-top: 6px;
-
-        .splatme-auto-change{
-            margin-left: 8px;
-        }
     }
 
     .splatme-bar-row{
@@ -37,6 +33,12 @@
             min-width: 3em;
         }
     }
+}
+
+// SplatMe's panel above WebODM's New Task and Edit Task panels (SplatMePanel.jsx): WebODM's panel class gives it
+// the look; the Edit Task panel's has its own spacing, which this one keeps
+.splatme-panel{
+    margin-bottom: 8px;
 }
 
 .splatme-dialog{

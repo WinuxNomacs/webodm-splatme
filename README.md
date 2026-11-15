@@ -73,15 +73,16 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
 
 4. **Train automatically**: in a project on the Dashboard, press **New Task With Splats**, beside **Select
-   Images and GCP**, and create the task as any other: its splats are trained when it completes processing,
-   and again each time it is processed again. While the New Task panel is open the button stays pressed;
-   pressing it again makes the task an ordinary one, and pressing it on a panel opened with Select Images and
-   GCP or by dropped files gives that task the training. Only tasks created this way are trained by
-   themselves. The task starts with the options administrators choose on the **SplatMe** page (**New Task
-   With Splats**; Standard until they change them). Its panel has **Train Splats When Completed** with
-   **Change**, where the options are changed and the training is switched off, or on for any other task,
-   also while the task is still processing. A training that could not start shows on the task as a failed
-   training, with the reason.
+   Images and GCP**, and pick the photos. WebODM's New Task panel opens with SplatMe's panel above it: **Train
+   Splats When Completed**, ticked, with the Quality, Ignore Sky, Crop To Boundary and Advanced. Create the task
+   as any other: its splats are trained when it completes processing, and again each time it is processed
+   again. Unticked, or from a New Task panel without SplatMe's, the task is an ordinary one (pressing **New
+   Task With Splats** while a New Task panel opened another way is open adds SplatMe's panel to it). The panel
+   starts with the options administrators choose on the **SplatMe** page (**New Task With Splats**; Standard
+   until they change them). A task's **Edit** panel has SplatMe's panel too: the training is switched on or
+   off, and its options changed, with the Edit panel's **Save**. A task set to train says so in its panel
+   (**Train Splats When Completed**). A training that could not start shows on the task as a failed training,
+   with the reason.
 
    With another plugin that adds a button beside Select Images and GCP, WebODM 4.0.0 shows only one of the
    two buttons.
@@ -114,8 +115,8 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options |
-| `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train`, or with `new_task` true the options a New Task With Splats task starts with |
-| `GET automation` | The options a task created with New Task With Splats starts with; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks |
+| `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train` |
+| `GET automation` | The options SplatMe's panel starts with for a new task; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
 | `POST automation` (options) | Administrators: sets those options |
 
 ## Development

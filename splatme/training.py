@@ -84,8 +84,9 @@ def set_node(url, token=None):
         store().set_string("node_token", token)
 
 
-# Training automatically: a task's own setting. A task created with New Task With Splats (NewTaskButton.jsx)
-# is given one, on, with the options the administrators chose for such tasks; any other task has none.
+# Training automatically: a task's own setting, chosen in SplatMe's panel above WebODM's New Task panel (opened
+# with New Task With Splats, starting from the options the administrators chose) or Edit Task panel. A task
+# without one is not trained by itself.
 
 
 def auto_key(task_id):
@@ -99,6 +100,15 @@ def clean_options(given):
     except NodeError:
         info = None
     return parse_options(given, info)
+
+
+def node_ranges():
+    """The node's range of each option, or None when the node does not answer."""
+    try:
+        info = get_node().check()
+    except NodeError:
+        return None
+    return {name: info["options"][name] for name in NODE_OPTIONS if name in info["options"]}
 
 
 def new_task_options():

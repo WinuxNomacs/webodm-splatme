@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import TrainDialog from './TrainDialog';
 import LogDialog from './LogDialog';
-import AutoDialog from './AutoDialog';
 import { request } from './api';
 import { overallProgress, stageText, panelMode, resultText, autoText } from './trainingView';
 import './TrainSplats.scss';
@@ -12,8 +11,8 @@ const FAST = 3000;  // between questions while a training runs
 const SLOW = 15000; // while the task itself is still processing
 
 // SplatMe's part of a task's expanded panel on the Dashboard (main.js): the Train Splats button, while a
-// training runs its stage, a progress bar, Cancel and Show Log, and whether the task is trained when it completes. WebODM asks a plugin for this once, when the panel
-// opens, so the component follows the task by itself: it asks the plugin for the task's status (api.py), which
+// training runs its stage, a progress bar, Cancel and Show Log, and whether the task is trained when it completes
+// (chosen in SplatMe's panel above the Edit Task panel). WebODM asks a plugin for this once, when the panel opens, so the component follows the task by itself: it asks the plugin for the task's status (api.py), which
 // is the same for everyone looking at the task and survives a reload of the page.
 export default class TrainSplats extends React.Component {
     static propTypes = {
@@ -23,7 +22,7 @@ export default class TrainSplats extends React.Component {
 
     constructor(props){
         super(props);
-        this.state = {status: null, dialog: false, log: false, auto: false, canceling: false, error: null};
+        this.state = {status: null, dialog: false, log: false, canceling: false, error: null};
     }
 
     componentDidMount(){
@@ -69,18 +68,12 @@ export default class TrainSplats extends React.Component {
         });
     };
 
-    handleAutoSaved = auto => {
-        this.setState({auto: false, status: {...this.state.status, auto}});
-    };
-
-    // Whether the task is trained when it completes, with a way to change it for those who may train it
+    // That the task is trained when it completes (changed in the Edit Task panel); nothing when it is not
     renderAuto(status){
-        if (!status.auto) return "";
+        if (!status.auto || !status.auto.enabled) return "";
         return (
             <div className="splatme-auto">
                 <i className="fa fa-magic fa-fw"></i> {_("Train Splats When Completed")}: <b>{_(autoText(status.auto))}</b>
-                {status.can_train ?
-                    <a href="javascript:void(0)" className="splatme-auto-change" onClick={() => this.setState({auto: true})}>{_("Change")}</a> : ""}
             </div>
         );
     }
@@ -133,7 +126,7 @@ export default class TrainSplats extends React.Component {
     }
 
     render(){
-        const { status, dialog, log, auto, error } = this.state;
+        const { status, dialog, log, error } = this.state;
         const mode = panelMode(status);
         if (mode === "hidden") return null;
         return (
@@ -142,7 +135,6 @@ export default class TrainSplats extends React.Component {
                 {this.renderAuto(status)}
                 {error ? <div className="text-danger">{error}</div> : ""}
                 {dialog ? <TrainDialog taskId={this.props.taskId} onStarted={this.handleStarted} onClose={() => this.setState({dialog: false})} /> : ""}
-                {auto ? <AutoDialog taskId={this.props.taskId} auto={status.auto} onSaved={this.handleAutoSaved} onClose={() => this.setState({auto: false})} /> : ""}
                 {log ? <LogDialog taskId={this.props.taskId} active={!!status.active} onClose={() => this.setState({log: false})} /> : ""}
             </div>
         );

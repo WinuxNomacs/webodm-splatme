@@ -40,11 +40,12 @@ it short; edit in place.
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
   `get_persistent_path()` included.
 - **The plugin's pages**: `public/main.js` (ES5, on every page: adds SplatMe's part to a task's panel on the
-  Dashboard and the New Task With Splats button to a project), `public/NewTaskButton.jsx` (that button, with
-  `newTaskSettings.js`: a new task's setting, held on the page until WebODM creates the task),
-  `public/TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`, `OptionsFields.jsx`,
+  Dashboard and the New Task With Splats button to a project), `public/NewTaskButton.jsx` (that button and
+  SplatMe's panel above the New Task panel), `public/EditTaskSplats.jsx` (SplatMe's panel above the Edit Task
+  panel), both with `SplatMePanel.jsx` and `panelSettings.js` (the panel's choice, held on the page until WebODM
+  saves its own panel), `public/TrainSplats.jsx` with `TrainDialog.jsx`, `OptionsFields.jsx`,
   `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),
-  `public/trainingView.js` (what they show, as plain functions: this and `newTaskSettings.js` are what Jest
+  `public/trainingView.js` (what they show, as plain functions: this and `panelSettings.js` are what Jest
   tests) and
   `templates/settings.html` (the side menu's SplatMe page, plain script). WebODM asks a plugin for a task's
   button once, when the panel opens: the component follows the task itself through the status view.
