@@ -903,7 +903,7 @@ Proposed:
 - **A task is compatible** when its photos are JPEG (the image files in its folder, by extension: a directory
   listing, cheap for a list; `problem` reads the task's cameras, too slow for every row), whatever its status:
   one still processing is listed, and trains when it completes. Tasks that already have splats are always
-  listed. Decided by the server, in `tasks`, which also says how many tasks of a project it left out.
+  listed. Decided by the server, in `tasks`.
 - **A project is listed when it has a compatible task**; the Project filter lists only those.
 - **New Task With Splats for a project not listed** (an empty one, the user's first): a New Task With Splats
   above the projects, which opens the box with its project choice (`NewTask.jsx` has it, for the Dashboard's
@@ -912,10 +912,13 @@ Proposed:
 - When nothing is listed: a sentence saying no task can be trained yet, with New Task With Splats.
 - Thermal tasks (phase 3) become compatible when that phase converts them.
 
-Open decisions (with the user): whether incompatible tasks are also hidden inside a listed project (with a count
-left out), or only whole projects; whether a completed task that cannot train for another reason (no point
-cloud, compacted, images gone) counts as compatible; the phase's place (proposed before the presets, as a
-refinement of the page just built).
+Decided with the user (2026-11-15):
+
+- **Incompatible tasks are hidden inside a listed project too, silently** (no count).
+- **A completed task is compatible only if it can train or already has splats**: one with JPEG photos but no
+  point cloud, compacted, or whose images are gone is hidden like a thermal task (checked from its assets and
+  files, not its cameras).
+- **Next, before the presets.**
 
 ### 2. OpenSplat presets
 
