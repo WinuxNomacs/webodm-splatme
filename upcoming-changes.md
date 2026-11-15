@@ -9,14 +9,13 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Crop: train only inside the task's crop area.
+1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-3. Native Windows app: a trainer run as a local program.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Native Windows app: a trainer run as a local program.
+3. Docs and first release.
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -26,6 +25,10 @@ other software. The plugin does that step.
 
 **Done**
 
+- Crop To Boundary (2026-11-14): a task processed with a boundary GeoJSON shows only the splats inside it.
+  `splatme/crop.py`, `training.py` (`import_model`, the `crop` option, `cropped`), `api.py` (`check`'s
+  `boundary`), `public/OptionsFields.jsx`, `public/trainingView.js`, `templates/settings.html`. Tests: 4 in
+  `test_splatme.py`, 1 in Jest. See "Crop To Boundary (built)".
 - Ignore Sky (2026-11-14): a checkbox in the Train Splats dialog, the Train Splats When Completed dialog and
   the SplatMe page's Automatic Training form; the worker masks the sky in the exported photos and the trainer
   ignores it. `splatme/sky.py`, `training.py` (`export_and_send`, the `masking` state, `sky_masks`),
@@ -222,7 +225,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 3).
+  candidate for the native Windows app (phase 2).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -347,13 +350,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 5).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 4).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 5).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
 
 ### Denser starting cloud (dropped)
 
@@ -444,34 +447,46 @@ The mask's edge (the guided filter's radius at the mask's size) is untried on re
 Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
 and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
 
-### 1. Crop
+### Crop To Boundary (built)
 
-The user's request (2026-11-14): crop the splats with a GeoJSON file, as the model can be.
+The user's request (2026-11-14): crop the splats with a GeoJSON file, as the model can be; the crop comes from
+the task's GeoJSON.
 
-Checked: a task has a crop polygon (`Task.crop`, drawn with the Crop button on the task's map), and WebODM's
-3D view already hides the splats outside it (`ModelView.jsx`, `sparkRenderer.cropVertices`), as it does the
-point cloud. The model file itself is not cut, and the training spends gaussians outside the area. A GeoJSON
-file is accepted today only by the Boundary option, at processing.
+Checked: the dev task was processed with WebODM's Boundary option (a GeoJSON polygon in the task's options,
+WGS84), to which ODX cut the point cloud; `Task.crop` (the Crop button on the task's map) is something else,
+empty there, and WebODM's 3D view already hides splats outside it. The trained `.ply` is in the task's
+projection less WebODM's export offset (`get_rtc_offset`), so the boundary projects straight onto it. Of the dev
+task's 252,780 gaussians (12,000 steps) 6,134 (2.4 %) lay outside its boundary, up to about 2 m.
 
-To plan: train only inside the task's crop (the starting cloud and the trained model cut to it, the pixels
-outside masked), and whether the plugin takes a GeoJSON file for it or uses the task's crop.
+Built:
 
-### 2. Thermal tasks
+- **Crop To Boundary**, a checkbox in the Train Splats dialog (only for a task with a boundary), the Train
+  Splats When Completed dialog and the SplatMe page's Automatic Training form; ticked unless turned off
+  (the option `crop` is stored only as false).
+- The crop is made when the model is imported, on the gaussians' centres, before WebODM's converter. The
+  `.ply` kept for continuing is not cropped. A boundary with all or none of the model inside crops nothing.
+- The training still sees the photos whole: no masks and no cut of the starting cloud (ODX already cut it).
+
+Checked on the dev stack: the task's real model cropped into a scratch file (246,646 of 252,780 kept, 0.1 s)
+and converted by WebODM's converter; the dialogs and the page in a headless browser. Not checked: a training
+from the browser, and the cropped model in the 3D view.
+
+### 1. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 3. Native Windows app
+### 2. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 4. Docs and first release
+### 3. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

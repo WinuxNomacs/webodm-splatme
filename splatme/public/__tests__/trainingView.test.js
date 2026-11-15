@@ -107,6 +107,7 @@ describe("a finished training", () => {
         expect(resultText({state: "completed", started: 100, finished: 326})).toBe("Splats trained in 3 min 46 s.");
         expect(resultText({state: "completed", options: {steps: 14000}, started: 100, finished: 160})).toBe("Splats trained (14,000 steps) in 1 min 0 s.");
         expect(resultText({state: "completed", sky_masks: 120, started: 100, finished: 160})).toBe("Splats trained in 1 min 0 s. Sky ignored in 120 photos.");
+        expect(resultText({state: "completed", cropped: 6134})).toBe("Splats trained. Cropped to the task's boundary.");
         expect(resultText({state: "completed", sky_masks: 1})).toBe("Splats trained. Sky ignored in 1 photo.");
         expect(resultText({state: "completed", sky_masks: 0})).toBe("Splats trained. No photo shows the sky.");
         expect(resultText({state: "failed", error: "CUDA out of memory"})).toBe("Training failed: CUDA out of memory");
@@ -133,9 +134,15 @@ describe("a task's automatic training", () => {
 
     test("saved options fill the form, and the form gives them back", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false});
+        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false, crop: true});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false});
+        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true});
+    });
+
+    test("Crop To Boundary is on unless it is unticked", () => {
+        expect(optionsFromForm({steps: "2000", image_size: "1600", crop: true}, null).options).toEqual({steps: 2000, image_size: 1600});
+        expect(optionsFromForm({steps: "2000", image_size: "1600", crop: false}, null).options).toEqual({steps: 2000, image_size: 1600, crop: false});
+        expect(formFromOptions({steps: 2000, crop: false}).crop).toBe(false);
     });
 
     test("Ignore Sky is an option only when it is ticked", () => {

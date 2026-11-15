@@ -83,6 +83,7 @@ export function optionsFromForm(form, ranges){
         options[field.name] = value;
     }
     if (form.ignore_sky) options.ignore_sky = true;
+    if (form.crop === false) options.crop = false;
     return {options};
 }
 
@@ -110,7 +111,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky};
+    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off", and whether that is the default
@@ -144,7 +145,8 @@ export function resultText(job){
         const sky = job.sky_masks == null ? "" : job.sky_masks > 0 ?
             " Sky ignored in " + Number(job.sky_masks).toLocaleString("en-US") + (job.sky_masks === 1 ? " photo." : " photos.") :
             " No photo shows the sky.";
-        return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + "." + sky;
+        return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + "." + sky +
+            (job.cropped ? " Cropped to the task's boundary." : "");
     }
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
     if (job.state === "canceled") return "Training canceled.";

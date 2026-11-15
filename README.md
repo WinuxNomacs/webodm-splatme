@@ -58,6 +58,11 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    with it downloads the sky model (180 MB, the one ODX uses for its sky removal) from ODX's releases on
    github.com into WebODM's media folder (`plugins/splatme/models`), so WebODM must reach that address once.
 
+   **Crop To Boundary** shows for a task that was processed with a boundary (a GeoJSON file in WebODM's
+   Boundary option) and is ticked: the splats outside the boundary are left out of the model the task shows,
+   as the processing leaves them out of the point cloud and the mesh. The training itself still sees the
+   photos whole, and the model kept for continuing is not cropped.
+
    A task SplatMe has trained can be trained further instead of starting over: the dialog then opens with
    **Start Over** and **Continue From Step** (the steps the model has), and continuing asks only **More
    Steps**. The other options stay as the model was trained. Continuing sharpens the model the task has; it
@@ -99,9 +104,9 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 |---|---|
 | `GET node` | The node's state or that it is not available; for administrators also its address and what is wrong. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
-| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, and `trained_steps`: the steps of the model a training can continue from |
-| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
-| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), whether the task has a splat model and whether the user may train it |
+| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one) and `trained_steps`: the steps of the model a training can continue from |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out), `crop` (false keeps the splats outside the task's boundary). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), whether the task has a splat model and whether the user may train it |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options, and whether that is the task's `own` setting or the default |
