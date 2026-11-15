@@ -718,9 +718,11 @@ as the status does, so a job that lost its worker is taken over from the page to
 WebODM's info table under Task ID, following a training (3 s) or a processing task (15 s) by itself. Checked in
 a headless browser: panel 1 showed Share and SplatMe's line (Share was missing there before), no Train Splats
 button; the Tasks page at 1280 px and 390 px (no horizontal scroll), `?task=` marking the task, the Train Splats
-and Change dialogs, a training row and a failed task (the list rewritten in the browser). Not checked: a real
-plain user's account (Django tests cover the permissions); a list of many tasks (one request, but a data store
-read or two per task).
+and Change dialogs, a training row and a failed task (the list rewritten in the browser). Checked as a real plain
+user too (2026-11-15, a dev account the user made): the menu has Tasks and Settings and no Administration item,
+the Tasks page lists only their own project, Settings shows the node and its address without the form, the
+admin page answers 403, and `node` sends no `token_set`. Not checked: a list of many tasks (one request, but a
+data store read or two per task); a project shared with a user for viewing only (Django tests cover it).
 
 ### 1. Thermal tasks
 
