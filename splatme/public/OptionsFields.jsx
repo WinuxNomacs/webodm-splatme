@@ -4,7 +4,7 @@ import { _ } from 'webodm/classes/gettext';
 import { PRESETS, presetOfSteps } from './trainingView';
 
 // A training's options as form rows: the Quality choice, and under Advanced the numbers. Used by the Train Splats
-// dialog and by SplatMe's panel above WebODM's New Task and Edit Task panels; the form's values are the parent's.
+// and Change dialogs and by SplatMe's panel above WebODM's New Task panel; the form's values are the parent's.
 export default class OptionsFields extends React.Component {
     static propTypes = {
         form: PropTypes.object.isRequired,

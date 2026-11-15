@@ -632,18 +632,24 @@ class TestSplatMe(BootTestCase):
         admin.login(username="testsuperuser", password="test1234")
         self.assertIn("127.0.0.1:9 does not answer", admin.get(f"{API}/task/{task.id}/check").data["node_error"])
 
-    def test_the_settings_page_is_in_the_menu_and_needs_a_login(self):
+    def test_the_tasks_and_settings_pages_are_in_the_menu_and_need_a_login(self):
         res = self.client.get("/plugins/splatme/")
         self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'id="splatme-tasks"')
+        res = self.client.get("/plugins/splatme/settings/")
+        self.assertEqual(res.status_code, 200)
         self.assertContains(res, "Splat Node")
-        self.assertContains(self.client.get("/dashboard/"), 'href="/plugins/splatme/"')
+        dashboard = self.client.get("/dashboard/")
+        self.assertContains(dashboard, 'href="/plugins/splatme/"')
+        self.assertContains(dashboard, 'href="/plugins/splatme/settings/"')
         self.assertEqual(APIClient().get("/plugins/splatme/").status_code, 302)
+        self.assertEqual(APIClient().get("/plugins/splatme/settings/").status_code, 302)
 
     def test_the_admin_page_is_for_staff_accounts_and_its_form_for_superusers(self):
         self.assertEqual(self.client.get("/plugins/splatme/admin/").status_code, 403)
         self.assertEqual(APIClient().get("/plugins/splatme/admin/").status_code, 302)
         # The SplatMe page has no form for the node, and the admin page has it
-        self.assertNotContains(self.client.get("/plugins/splatme/"), 'id="splatme-form"')
+        self.assertNotContains(self.client.get("/plugins/splatme/settings/"), 'id="splatme-form"')
         admin = APIClient()
         admin.login(username="testsuperuser", password="test1234")
         res = admin.get("/plugins/splatme/admin/")
@@ -889,27 +895,41 @@ class TestSplatMe(BootTestCase):
         training.store().set_json("listens", {"value": False, "at": time.time() - training.LISTENS_RECHECK - 1})
         self.assertTrue(self.status(task)["listening"])
 
-    def test_a_task_is_found_by_its_name_and_its_projects_only_when_one_task_has_them(self):
+    def test_the_tasks_list_has_the_tasks_of_the_projects_the_user_may_see_with_their_splats(self):
         task = make_task(self.user)
-        task.name = "Survey"
-        task.save()
-        find = lambda client, **query: client.get(f"{API}/find-task", query)
-        res = find(self.client, project="splatme test project", task="Survey")
-        self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"id": str(task.id)})
-        self.assertEqual(find(self.client, project="splatme test project", task="Other").status_code, 404)
-        self.assertEqual(find(self.client, project="", task="Survey").status_code, 404)
+        running = Task.objects.create(project=task.project, status=status_codes.RUNNING, name="Still running")
+        Task.objects.create(project=task.project, partial=True)  # still receiving its photos: not listed
+        hidden = make_task(User.objects.get(username="testuser2"))
+        self.assertEqual(self.train(task, steps=10).status_code, 200)
 
-        # Not a task of a project the user may not see
+        res = self.client.get(f"{API}/tasks")
+        self.assertEqual(res.status_code, 200, res.data)
+        projects = {p["id"]: p for p in res.data["projects"]}
+        self.assertNotIn(hidden.project.id, projects)
+        listed = {t["id"]: t for t in projects[task.project.id]["tasks"]}
+        self.assertEqual(set(listed), {str(task.id), str(running.id)})
+        self.assertEqual(listed[str(task.id)]["splats"]["state"], "completed")
+        self.assertTrue(listed[str(task.id)]["splats"]["has_splats"])
+        self.assertTrue(listed[str(task.id)]["splats"]["can_train"])
+        self.assertEqual(listed[str(running.id)]["status"], status_codes.RUNNING)
+        self.assertEqual(listed[str(running.id)]["name"], "Still running")
+        self.assertIsNone(listed[str(running.id)]["splats"]["state"])
+        # As task/<id>/status says it, so a row and the task's panel agree
+        self.assertEqual(listed[str(task.id)]["splats"], self.status(task))
+
+        # One project, by its id
+        only = self.client.get(f"{API}/tasks", {"project": task.project.id}).data["projects"]
+        self.assertEqual([p["id"] for p in only], [task.project.id])
+        self.assertEqual(self.client.get(f"{API}/tasks", {"project": "x"}).status_code, 400)
+
+        # A user who may only look at the project sees its tasks and may not train them
         other = APIClient()
         other.login(username="testuser2", password="test1234")
-        self.assertEqual(find(other, project="splatme test project", task="Survey").status_code, 404)
-
-        # Two tasks of that name: neither is the one
-        second = make_task(self.user)
-        second.name = "Survey"
-        second.save()
-        self.assertEqual(find(self.client, project="splatme test project", task="Survey").status_code, 404)
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        seen = {p["id"]: p for p in other.get(f"{API}/tasks").data["projects"]}
+        self.assertFalse(seen[task.project.id]["can_train"])
+        self.assertFalse(seen[task.project.id]["tasks"][0]["splats"]["can_train"])
+        self.assertEqual(APIClient().get(f"{API}/tasks").status_code, 403)
 
     # The time left
 

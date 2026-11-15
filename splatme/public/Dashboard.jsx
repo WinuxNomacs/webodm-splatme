@@ -1,15 +1,17 @@
 import React from 'React';
 import ReactDOM from 'ReactDOM';
+import { _ } from 'webodm/classes/gettext';
 import NewTaskButton from './NewTaskButton';
-import EditTaskSplats from './EditTaskSplats';
+import TaskLine from './TaskLine';
 import './TrainSplats.scss';
 
-// SplatMe's parts of the Dashboard that WebODM gives a plugin no hook for (main.js starts this there): the New
-// Task With Splats button after a project's buttons beside Select Images and GCP, and SplatMe's panel above each
-// Edit Task panel. Both are put in the page as WebODM draws it; where a place is not found, nothing is put there
-// and WebODM's page works as ever (the task's panel, through WebODM's own hook, still sets the training).
+// SplatMe's parts of the Dashboard (main.js starts this there), put in the page as WebODM draws it rather than
+// through WebODM's hooks, which keep only the first plugin's answer: the New Task With Splats button after a
+// project's buttons beside Select Images and GCP, and a line under a task panel's Task ID with the task's splats
+// and Open in SplatMe. Where a place is not found, nothing is put there and WebODM's page works as ever.
 export default function start(){
-    const parts = [];   // {anchor, container}: anchor is the element of WebODM's the part belongs to
+    const parts = [];   // {anchor, container, element}: anchor is the element of WebODM's the part belongs to;
+                        // element, what SplatMe added when it is more than the container
     let pending = false;
 
     function put(anchor, container, element){
@@ -21,8 +23,9 @@ export default function start(){
         pending = false;
         for (let i = parts.length - 1; i >= 0; i--){
             if (parts[i].anchor.isConnected && parts[i].container.isConnected) continue;
+            const element = parts[i].element || parts[i].container;  // what SplatMe added, around the container
             ReactDOM.unmountComponentAtNode(parts[i].container);
-            if (parts[i].container.parentNode) parts[i].container.parentNode.removeChild(parts[i].container);
+            if (element.parentNode) element.parentNode.removeChild(element);
             parts.splice(i, 1);
         }
         const known = anchor => parts.some(p => p.anchor === anchor);
@@ -36,12 +39,23 @@ export default function start(){
             put(group, slot, React.createElement(NewTaskButton));
         });
 
-        document.querySelectorAll(".edit-task-panel").forEach(panel => {
-            if (known(panel)) return;
-            const container = document.createElement("div");
-            container.className = "splatme-panel-container";
-            panel.parentNode.insertBefore(container, panel);
-            put(panel, container, React.createElement(EditTaskSplats, {panel}));
+        // The expanded panel's Task ID, as WebODM prints it: its row, followed by SplatMe's
+        document.querySelectorAll(".expanded-panel .info-table .task-id-link").forEach(link => {
+            const row = link.closest("tr");
+            const taskId = (link.textContent || "").trim().split(/\s+/)[0];
+            if (!row || !taskId || known(row)) return;
+            const line = document.createElement("tr");
+            line.className = "splatme-line-row";
+            const label = document.createElement("td");
+            const strong = document.createElement("strong");
+            strong.textContent = _("Splats:");
+            label.appendChild(strong);
+            const cell = document.createElement("td");
+            line.appendChild(label);
+            line.appendChild(cell);
+            row.parentNode.insertBefore(line, row.nextSibling);
+            parts.push({anchor: row, container: cell, element: line});
+            ReactDOM.render(React.createElement(TaskLine, {taskId}), cell);
         });
     }
 

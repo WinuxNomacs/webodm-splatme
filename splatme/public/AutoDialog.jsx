@@ -6,9 +6,8 @@ import OptionsFields from './OptionsFields';
 import { request } from './api';
 import { formFromOptions, optionsFromForm } from './trainingView';
 
-// A task's automatic training, from Change in the task's panel (TrainSplats.jsx): whether its splats are trained
-// when it completes processing, and with which options. The same as SplatMe's panel above the Edit Task panel,
-// through WebODM's own hook only, so it works when that panel cannot be shown.
+// A task's automatic training, from Change on SplatMe's Tasks page (TrainSplats.jsx): whether its splats are
+// trained when it completes processing, and with which options.
 export default class AutoDialog extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,

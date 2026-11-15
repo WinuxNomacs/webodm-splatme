@@ -39,19 +39,19 @@ it short; edit in place.
   the menu item, the scripts, the signal receivers). State is
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
   `get_persistent_path()` included.
-- **The plugin's pages**: `public/main.js` (ES5, on every page: adds SplatMe's part to a task's panel on the
-  Dashboard; on the Dashboard starts `public/Dashboard.jsx`, which puts in the page what WebODM has no hook
-  for: `NewTaskButton.jsx` (the New Task With Splats button and SplatMe's panel above the New Task panel) and
-  `EditTaskSplats.jsx` (SplatMe's panel above the Edit Task panel), both with `SplatMePanel.jsx`,
-  `panelSettings.js` (the panel's choice, held on the page until WebODM saves its own panel) and `notice.js`
-  (what SplatMe must not leave in the console)), `public/TrainSplats.jsx` with `TrainDialog.jsx`,
-  `AutoDialog.jsx` (Change), `OptionsFields.jsx`,
-  `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),
-  `public/trainingView.js` (what they show, as plain functions: this and `panelSettings.js` are what Jest
-  tests) and
-  `templates/settings.html` (the side menu's SplatMe page) and `templates/admin.html` (its page under
-  Administration, whose item `main.js` adds), both from `node.html` and `options.html` (plain script). WebODM asks a plugin for a task's
-  button once, when the panel opens: the component follows the task itself through the status view.
+- **The plugin's pages**: `templates/tasks.html` (SplatMe → Tasks, which starts `public/Tasks.jsx`: the tasks
+  the user may see, from api.py's `tasks`, each row a `TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`
+  (Change), `OptionsFields.jsx`, `LogDialog.jsx`, `Dialog.jsx` and `api.js`), `templates/settings.html`
+  (SplatMe → Settings) and `templates/admin.html` (its page under Administration, whose item `main.js` adds),
+  both from `node.html` and `options.html` (plain script). `public/main.js` (ES5, on every page) starts
+  `public/Dashboard.jsx` on the Dashboard, which puts in the page what WebODM has no hook for:
+  `NewTaskButton.jsx` (the New Task With Splats button and SplatMe's panel above the New Task panel, with
+  `SplatMePanel.jsx`, `panelSettings.js`, the panel's choice held until WebODM saves its panel, and `notice.js`,
+  what SplatMe must not leave in the console) and `TaskLine.jsx` (the task panel's Splats line, found by its
+  Task ID). SplatMe answers none of WebODM's task panel hooks: WebODM keeps the first answer and drops the
+  other plugins'. The `.jsx` are built by WebODM's webpack into `public/build`, which git ignores, as it does
+  the generated `webpack.config.js`. `public/trainingView.js` (what they show, as plain functions) and
+  `panelSettings.js` are what Jest tests.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
   runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum) and `compose.yml` (how a user

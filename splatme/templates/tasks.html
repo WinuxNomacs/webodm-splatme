@@ -1,0 +1,23 @@
+{% extends "app/plugins/templates/base.html" %}
+
+{% block content %}
+{% comment %}
+SplatMe → Tasks, for everyone: the tasks the user may see, with their splats and what can be done with them
+(public/Tasks.jsx, built by WebODM's webpack).
+{% endcomment %}
+<h3><i class="fa fa-splat fa-fw"></i> SplatMe Tasks</h3>
+<div id="splatme-tasks"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading the tasks</div>
+
+<script>
+(function(){
+    var place = document.getElementById("splatme-tasks");
+    PluginsAPI.SystemJS.import("splatme/build/Tasks.css");
+    PluginsAPI.SystemJS.import("splatme/build/Tasks.js").then(function(m){
+        place.innerHTML = "";
+        ReactDOM.render(React.createElement(m["default"] || m), place);
+    }, function(){
+        place.textContent = "SplatMe's page did not load. Reload the page; if it stays like this, ask an administrator.";
+    });
+})();
+</script>
+{% endblock %}

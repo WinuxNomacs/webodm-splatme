@@ -12,10 +12,10 @@ import { formFromOptions, optionsFromForm } from './trainingView';
 // One for the page: the choices of the tasks not created yet (panelSettings.js)
 const newTaskSettings = createPanelSettings($, isCreation, (taskId, setting, task) => {
     request("POST", "task/" + taskId + "/auto", setting).catch(e => {
-        showNotice(interpolate(_("the training setting of the new task \"%(name)s\" was not saved: %(error)s Set it with Change in the task's panel."), {name: task.name || taskId, error: e.message}));
+        showNotice(interpolate(_("the training setting of the new task \"%(name)s\" was not saved: %(error)s Set it with Change on SplatMe's Tasks page."), {name: task.name || taskId, error: e.message}));
     });
 }, 1000, () => {
-    showNotice(_("WebODM created the task in a way SplatMe does not know, so its training setting was not saved. Set it with Change in the task's panel."));
+    showNotice(_("WebODM created the task in a way SplatMe does not know, so its training setting was not saved. Set it with Change on SplatMe's Tasks page."));
 });
 
 // WebODM's own New Task panel in a project, not SplatMe's
@@ -93,7 +93,7 @@ export default class NewTaskButton extends React.Component {
         this.waitTimer = setTimeout(() => {
             if (!this._mounted || !this.armed) return;
             this.armed = false;
-            showNotice(_("New Task With Splats could not find WebODM's New Task panel on this page. Create the task with Select Images and GCP, then set its training with Change in the task's panel."));
+            showNotice(_("New Task With Splats could not find WebODM's New Task panel on this page. Create the task with Select Images and GCP, then set its training with Change on SplatMe's Tasks page."));
         }, PANEL_WAIT);
     };
 
@@ -145,7 +145,7 @@ export default class NewTaskButton extends React.Component {
 
     handleClick = () => {
         if (!this.uploadButton){
-            showNotice(_("New Task With Splats could not find WebODM's Select Images and GCP button on this page. Create the task with WebODM's button, then set its training with Change in the task's panel."));
+            showNotice(_("New Task With Splats could not find WebODM's Select Images and GCP button on this page. Create the task with WebODM's button, then set its training with Change on SplatMe's Tasks page."));
             return;
         }
         if (this.state.panel){

@@ -2,13 +2,13 @@
 
 {% block content %}
 {% comment %}
-SplatMe's page, for everyone: the splat node's state and address, and the user's own options for a new task.
+SplatMe → Settings, for everyone: the splat node's state and address, and the user's own options for a new task.
 The node's settings are on the admin page (admin.html), under Administration.
 {% endcomment %}
-<h3><i class="fa fa-splat fa-fw"></i> SplatMe</h3>
+<h3><i class="fa fa-splat fa-fw"></i> SplatMe Settings</h3>
 <p>Trains a task's Gaussian splats on a splat node: a container with a GPU that runs beside WebODM. Training starts
-    from <b>Train Splats</b> in a completed task's panel on the Dashboard, or by itself when a task created with
-    <b>New Task With Splats</b> completes.</p>
+    from <b>Train Splats</b> on <a href="/plugins/splatme/">SplatMe → Tasks</a>, or by itself when a task created
+    with <b>New Task With Splats</b> completes.</p>
 
 <h4>Splat Node</h4>
 {% include node_part %}
@@ -17,8 +17,7 @@ The node's settings are on the admin page (admin.html), under Administration.
 <p><b>New Task With Splats</b>, beside Select Images and GCP in a project on the Dashboard, opens WebODM's New
     Task panel with SplatMe's panel above it: <b>Train Splats When Completed</b>, ticked, with your options here.
     The task is then trained by itself when it completes processing, and again each time it is processed again.
-    A task's Edit Task panel has SplatMe's panel too, and its panel <b>Train Splats When Completed</b> with
-    <b>Change</b>, to change them or switch the training on or off. Until you save your own options, the
-    administrators' defaults are used.</p>
+    On SplatMe → Tasks, a task's <b>Train Splats When Completed</b> with <b>Change</b> changes them or switches the
+    training on or off. Until you save your own options, the administrators' defaults are used.</p>
 {% include options_part %}
 {% endblock %}

@@ -5,27 +5,35 @@ from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Auto, Automation, Cancel, Check, FindTask, Log, NodeSettings, SharedAutomation, Status, Train
+from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, SharedAutomation, Status, Tasks, Train
 
 
 class Plugin(PluginBase):
     def main_menu(self):
-        # WebODM shows a plugin's menu item to every user: the node's state and address, and the user's own options
-        # for a new task. Administration, which WebODM shows only to staff, has the node's settings (main.js)
-        return [Menu("SplatMe", self.public_url(""), "fa fa-splat fa-fw")]
+        # WebODM shows a plugin's menu item to every user: Tasks, where splats are trained, and Settings, with the
+        # node's state and address and the user's own options for a new task. Administration, which WebODM shows
+        # only to staff, has the node's settings (main.js)
+        return [Menu("SplatMe", "#", "fa fa-splat fa-fw", [
+            Menu("Tasks", self.public_url(""), "fa fa-tasks fa-fw"),
+            Menu("Settings", self.public_url("settings/"), "fa fa-cog fa-fw"),
+        ])]
 
     def include_js_files(self):
         return ["main.js"]
 
     def build_jsx_components(self):
-        return ["TrainSplats.jsx", "Dashboard.jsx"]
+        return ["Tasks.jsx", "Dashboard.jsx"]
 
     def app_mount_points(self):
         parts = {"node_part": self.template_path("node.html"), "options_part": self.template_path("options.html")}
 
         @login_required
+        def tasks_page(request):
+            return render(request, self.template_path("tasks.html"), {"title": "SplatMe Tasks"})
+
+        @login_required
         def settings_page(request):
-            return render(request, self.template_path("settings.html"), {"title": "SplatMe", **parts})
+            return render(request, self.template_path("settings.html"), {"title": "SplatMe Settings", **parts})
 
         # Staff accounts see Administration and so its SplatMe item; only superusers change what is on it
         @login_required
@@ -34,7 +42,7 @@ class Plugin(PluginBase):
                 raise PermissionDenied()
             return render(request, self.template_path("admin.html"), {"title": "SplatMe", **parts})
 
-        return [MountPoint("$", settings_page), MountPoint("admin/$", admin_page)]
+        return [MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page)]
 
     def api_mount_points(self):
         return [
@@ -47,7 +55,7 @@ class Plugin(PluginBase):
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("automation$", Automation.as_view()),
             MountPoint("automation/shared$", SharedAutomation.as_view()),
-            MountPoint("find-task$", FindTask.as_view()),
+            MountPoint("tasks$", Tasks.as_view()),
         ]
 
 

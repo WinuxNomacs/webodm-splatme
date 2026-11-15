@@ -3,11 +3,11 @@
 A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically.
 
 WebODM can export a task's training data and display a trained splat model, but the training itself is done by
-hand in other software. SplatMe does that step: one button on a task trains the splats on a GPU and puts the
-model in the task's 3D view.
+hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
+puts the model in the task's 3D view.
 
 **Status: in development.** The training container (the "splat node") works, and the plugin trains a task
-through it, from the "Train Splats" button or by itself when a task completes. There is no release yet. The
+through it, from **SplatMe → Tasks** or by itself when a task completes. There is no release yet. The
 plan is in [upcoming-changes.md](upcoming-changes.md).
 
 ## Requirements
@@ -44,12 +44,13 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 
 1. **Connect the node** (superusers): **Administration → SplatMe** in WebODM's side menu. Enter the node's
    address as WebODM's containers reach it (`http://<host>:3100`) and its token; **Test Connection** says what
-   is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved. Every user sees on the
-   **SplatMe** page in the side menu whether the node is ready, its address, its GPU and its queue (never the
+   is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved. Every user sees on
+   **SplatMe → Settings** in the side menu whether the node is ready, its address, its GPU and its queue (never the
    token, and what is wrong with the node only as "ask an administrator"). WebODM has no plugin hook for
    Administration, so SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is at
    `/plugins/splatme/admin/`.
-2. **Train**: on the Dashboard, open a completed task and press **Train Splats**. Choose a **Quality**: Draft
+2. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks of every project the user can see
+   (a **Project** filter narrows it), press **Train Splats** on a completed task. Choose a **Quality**: Draft
    (2,000 steps), Standard (7,000) or High (30,000); **Advanced** has the steps, the image size and the most
    gaussians as numbers. The dialog says first if the task cannot be trained, and warns when nearly all photos
    point straight down.
@@ -72,9 +73,16 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    adds few new gaussians, so a model that lacks detail everywhere is better started over at a higher
    Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
    be continued.
-3. **Follow it**: the task's panel shows the stage (while training, the step, such as "Step 4,650 of 7,000,
+3. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
    about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
-   progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
+   progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after
+   a reload. When it is done, **View in 3D** opens the model. A task that cannot be trained (failed or canceled
+   processing; for users who may only look at the project, any task) says why.
+
+   On the Dashboard, a task's panel has a **Splats** line under its Task ID ("Trained, 7,000 steps", or the
+   training's step) with **Open in SplatMe**, which opens the Tasks page at that task. Training is not in the
+   task's panel itself: WebODM keeps only the first plugin's answer to that panel's hook, so a SplatMe button
+   there dropped other plugins' buttons (such as Lightning's Share).
 
 4. **Train automatically**: in a project on the Dashboard, press **New Task With Splats**, beside **Select
    Images and GCP**, and pick the photos. WebODM's New Task panel opens with SplatMe's panel above it: **Train
@@ -82,21 +90,20 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    as any other: its splats are trained when it completes processing, and again each time it is processed
    again. Unticked, or from a New Task panel without SplatMe's, the task is an ordinary one (pressing **New
    Task With Splats** while a New Task panel opened another way is open adds SplatMe's panel to it). The panel
-   starts with the user's own options, saved on the **SplatMe** page (**New Task With Splats**); until they
+   starts with the user's own options, saved on **SplatMe → Settings** (**New Task With Splats**); until they
    save some, with the administrators' defaults from **Administration → SplatMe** (Standard until they change
-   them). A task's **Edit** panel has SplatMe's panel too: the training is switched on or
-   off, and its options changed, with the Edit panel's **Save**. Every task's panel also shows **Train Splats
-   When Completed** with **Change**, which does the same at once. A training that could not start shows on
-   the task as a failed training, with the reason.
+   them). On **SplatMe → Tasks**, every task shows **Train Splats When Completed** with **Change**, which
+   switches the training on or off and changes its options. A training that could not start shows on the task
+   as a failed training, with the reason.
 
-   WebODM has no plugin hooks for the button and the two SplatMe panels, so SplatMe puts them in the page as
-   WebODM 4.0.0 draws it (the button beside other plugins' buttons, such as DJI Thermal Analyzer's). If a
-   WebODM version draws its page differently, SplatMe says so where it cannot add them, and **Change** in the
-   task's panel, which goes through WebODM's own hook, still sets the training.
+   WebODM has no plugin hooks for the button, SplatMe's panel and the task panel's line, so SplatMe puts them
+   in the page as WebODM 4.0.0 draws it (the button beside other plugins' buttons, such as DJI Thermal
+   Analyzer's). If a WebODM version draws its page differently, SplatMe says so where it cannot add them, and
+   the Tasks page still trains and sets the training.
 
    **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`): WebODM's worker
    loads plugins only when it starts, and it is the worker that tells SplatMe a task has completed. Until
-   then the SplatMe page, SplatMe's panel and a task set to train say that tasks are not trained by
+   then SplatMe → Settings, SplatMe's panel and a task set to train say that tasks are not trained by
    themselves yet; **Train Splats** works without a restart.
 
 Training needs the right to change the task's project. The task must have completed with a point cloud and
@@ -127,7 +134,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET automation` | The options SplatMe's panel starts with for the user's new task: their own (`own` true) or the administrators' defaults, and `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
 | `POST automation` (options) | Saves the user's own options; with `reset` true drops them |
 | `GET automation/shared`, `POST automation/shared` (options) | The administrators' defaults, for users who saved none of their own; superusers set them |
-| `GET find-task?project=<name>&task=<name>` | The `id` of the only task of that name in the only project of that name the user may see (SplatMe's panel above an Edit Task panel, when the page does not say which task it edits); 404 when there is not exactly one |
+| `GET tasks` | The tasks of the projects the user may see (`?project=<id>` for one), by project, each with WebODM's `status` and its `splats` as `task/<id>/status` gives them: SplatMe's Tasks page, in one request |
 
 ## Development
 

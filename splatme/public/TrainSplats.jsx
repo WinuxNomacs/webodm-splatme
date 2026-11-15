@@ -7,53 +7,40 @@ import AutoDialog from './AutoDialog';
 import { NOT_LISTENING } from './restartText';
 import { request } from './api';
 import { overallProgress, stageText, panelMode, resultText, autoText } from './trainingView';
-import './TrainSplats.scss';
 
-const FAST = 3000;  // between questions while a training runs
-const SLOW = 15000; // while the task itself is still processing
-
-// SplatMe's part of a task's expanded panel on the Dashboard (main.js): the Train Splats button, while a
-// training runs its stage, a progress bar, Cancel and Show Log, and whether the task is trained when it completes
-// (with Change, as in SplatMe's panel above the Edit Task panel). WebODM asks a plugin for this once, when the panel opens, so the component follows the task by itself: it asks the plugin for the task's status (api.py), which
-// is the same for everyone looking at the task and survives a reload of the page.
+// A task's splats on SplatMe's Tasks page (Tasks.jsx): the Train Splats button, while a training runs its stage,
+// a progress bar, Cancel and Show Log, and whether the task is trained when it completes, with Change. The page
+// asks for every task's status at once and gives this row its own (status); an action's answer goes back to the
+// page (onStatus), and so does a wish to ask again (onRefresh).
 export default class TrainSplats extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,
-        projectId: PropTypes.number.isRequired
+        projectId: PropTypes.number.isRequired,
+        status: PropTypes.object.isRequired,
+        onStatus: PropTypes.func.isRequired,
+        onRefresh: PropTypes.func.isRequired
     };
 
     constructor(props){
         super(props);
-        this.state = {status: null, dialog: false, log: false, auto: false, canceling: false, error: null};
+        this.state = {dialog: false, log: false, auto: false, canceling: false, error: null};
     }
 
     componentDidMount(){
         this._mounted = true;
-        this.refresh();
     }
 
     componentWillUnmount(){
         this._mounted = false;
-        clearTimeout(this.timer);
     }
 
-    refresh = () => {
-        clearTimeout(this.timer);
-        request("GET", "task/" + this.props.taskId + "/status").then(status => {
-            if (this._mounted) this.setStatus(status);
-        }).catch(() => {
-            // The task is gone, or the server is restarting: ask again while there was something to follow
-            if (this._mounted && this.state.status) this.timer = setTimeout(this.refresh, SLOW);
-        });
-    };
+    componentDidUpdate(previous){
+        if (previous.status !== this.props.status && !this.props.status.active && this.state.canceling){
+            this.setState({canceling: false});
+        }
+    }
 
-    setStatus = status => {
-        clearTimeout(this.timer);
-        this.setState({status, canceling: status.active ? this.state.canceling : false});
-        const mode = panelMode(status);
-        if (mode === "progress") this.timer = setTimeout(this.refresh, FAST);
-        else if (mode === "waiting") this.timer = setTimeout(this.refresh, SLOW);
-    };
+    setStatus = status => this.props.onStatus(status);
 
     handleStarted = status => {
         this.setState({dialog: false, error: null});
@@ -72,11 +59,10 @@ export default class TrainSplats extends React.Component {
 
     handleAutoSaved = () => {
         this.setState({auto: false});
-        this.refresh();  // the status says again whether the worker listens, now that it may matter
+        this.props.onRefresh();  // the status says again whether the worker listens, now that it may matter
     };
 
-    // Whether the task is trained when it completes, with Change for those who may train it: WebODM's own hook,
-    // so it works whether SplatMe's panel above the Edit Task panel can be shown or not
+    // Whether the task is trained when it completes, with Change for those who may train it
     renderAuto(status){
         if (!status.auto) return "";
         return (
@@ -124,7 +110,7 @@ export default class TrainSplats extends React.Component {
                         title={waiting ? _("The task has not completed processing.") : _("Train this task's Gaussian splats on the splat node")}>
                     <i className="fa fa-splat fa-fw"></i> {status.has_splats && !waiting ? _("Train Splats Again") : _("Train Splats")}
                 </button>
-                {status.state === "completed" && status.has_splats ?
+                {status.has_splats && !waiting ?
                     <a className="btn btn-sm btn-default" href={"/3d/project/" + this.props.projectId + "/task/" + this.props.taskId + "/?t=splats"}>
                         <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                     </a> : ""}
@@ -138,7 +124,8 @@ export default class TrainSplats extends React.Component {
     }
 
     render(){
-        const { status, dialog, log, auto, error } = this.state;
+        const { dialog, log, auto, error } = this.state;
+        const { status } = this.props;
         const mode = panelMode(status);
         if (mode === "hidden") return null;
         return (

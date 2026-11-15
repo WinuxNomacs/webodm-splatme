@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps } from "../trainingView";
+import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, FAST, SLOW } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -173,5 +173,51 @@ describe("continuing a trained model", () => {
         expect(defaultMoreSteps(7000, ranges)).toBe(7000);
         expect(defaultMoreSteps(150000, ranges)).toBe(50000);
         expect(defaultMoreSteps(7000, null)).toBe(7000);
+    });
+});
+
+describe("a task's row on the Tasks page", () => {
+    test("says WebODM's status of the task", () => {
+        expect(taskStatusText(40)).toBe("Completed");
+        expect(taskStatusText(30)).toBe("Failed");
+        expect(taskStatusText(null)).toBe("Waiting for a processing node");
+    });
+
+    test("says why a task without the button cannot be trained", () => {
+        expect(rowNote({task_status: 30, can_train: true})).toMatch(/failed processing/);
+        expect(rowNote({task_status: 50, can_train: true})).toMatch(/canceled/);
+        expect(rowNote({task_status: 40, can_train: false})).toMatch(/Only those who may change this project/);
+        expect(rowNote({task_status: 40, can_train: true})).toBe("");
+        expect(rowNote({task_status: 40, can_train: false, active: true})).toBe("");
+    });
+});
+
+describe("the Tasks page's list", () => {
+    const list = (...tasks) => [{tasks}];
+
+    test("is asked for often while a task trains, now and then while one processes, and not otherwise", () => {
+        expect(nextRefresh(list({status: 40, splats: {active: true}}, {status: 20, splats: {}}))).toBe(FAST);
+        expect(nextRefresh(list({status: 40, splats: {}}, {status: 20, splats: {}}))).toBe(SLOW);
+        expect(nextRefresh(list({status: null, splats: {}}))).toBe(SLOW);
+        expect(nextRefresh(list({status: 40, splats: {}}, {status: 30, splats: {}}))).toBe(0);
+        expect(nextRefresh([])).toBe(0);
+    });
+});
+
+describe("the task panel's line on the Dashboard", () => {
+    test("says how far a training is", () => {
+        expect(splatsLine({active: true, state: "training", status: "Step 400 of 7,000"})).toBe("Training: Step 400 of 7,000");
+    });
+
+    test("says the steps of a trained model", () => {
+        expect(splatsLine({state: "completed", has_splats: true, options: {steps: 7000}})).toBe("Trained, 7,000 steps");
+        // A model WebODM was given by hand: no training of SplatMe's
+        expect(splatsLine({state: null, has_splats: true})).toBe("Trained");
+    });
+
+    test("says a task is trained when it completes, a failed training, or none", () => {
+        expect(splatsLine({state: null, task_status: 20, auto: {enabled: true}})).toBe("Trained when the task completes");
+        expect(splatsLine({state: "failed", has_splats: false})).toBe("Training failed");
+        expect(splatsLine({state: null, task_status: 40, auto: {enabled: false}})).toBe("None");
     });
 });

@@ -17,14 +17,13 @@ The plugin's API, under /api/plugins/splatme/.
     POST automation          saves the user's own options; with reset true, drops them
     GET  automation/shared   the administrators' options, for users who saved none of their own
     POST automation/shared   sets them (administrators)
-    GET  find-task           ?project=<name>&task=<name>: the id of the only task so named in the only project so
-                             named that the user may see (SplatMe's panel above an Edit Task panel, when the page
-                             does not say which task it edits)
+    GET  tasks               the tasks the user may see, by project, each with its splats as task/<id>/status
+                             gives them (SplatMe's Tasks page, in one request); ?project=<id> for one project
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
 """
 from app.api.common import check_project_perms
-from app.models import Project, Task
+from app.models import Project
 from app.plugins.views import TaskView
 from django.http import HttpResponse
 from guardian.shortcuts import get_objects_for_user
@@ -69,10 +68,15 @@ def describe(request, task, job):
         task.refresh_from_db()
     except task.DoesNotExist:
         raise exceptions.NotFound() from None
+    return summary(request, task, job, can_train(request, task))
+
+
+def summary(request, task, job, may_train):
+    """A task's splats as a page shows them: its job, its model, whether the user may train it, its automation."""
     out = {name: job.get(name) for name in PUBLIC} if job else {"state": None}
     out["active"] = bool(job) and job["state"] in training.ACTIVE
     out["has_splats"] = "splats.rad" in task.available_assets
-    out["can_train"] = can_train(request, task)
+    out["can_train"] = may_train
     out["task_status"] = task.status
     out["auto"] = describe_auto(training.get_auto(task.id, request.user))
     # Whether WebODM's worker tells the plugin of completed tasks, for a task set to train (None: not known)
@@ -206,18 +210,31 @@ class SharedAutomation(APIView):
         return Response(self.describe(request))
 
 
-class FindTask(APIView):
+class Tasks(APIView):
     permission_classes = (IsAuthenticated,)
 
     def get(self, request):
-        project, name = request.query_params.get("project", ""), request.query_params.get("task", "")
         # As WebODM's own project list: a project's own permission, not the global one every user has
         projects = get_objects_for_user(request.user, "app.view_project", Project, accept_global_perms=False)
-        projects = projects.filter(deleting=False, name=project)
-        found = list(Task.objects.filter(project__in=projects, name=name).values_list("id", flat=True)[:2])
-        if not project or not name or len(found) != 1:
-            raise exceptions.NotFound("No single task has that name.")
-        return Response({"id": str(found[0])})
+        projects = projects.filter(deleting=False).order_by("-created_at")
+        wanted = request.query_params.get("project")
+        if wanted:
+            if not wanted.isdigit():
+                raise exceptions.ValidationError(detail="Invalid project")
+            projects = projects.filter(id=int(wanted))
+        out = []
+        for project in projects:
+            may_train = request.user.has_perm("change_project", project)
+            tasks = []
+            # A task still receiving its photos (partial) is not one yet, as on the Dashboard
+            for task in project.task_set.filter(partial=False).order_by("-created_at"):
+                tasks.append({
+                    "id": str(task.id), "name": task.name, "status": task.status, "created_at": task.created_at,
+                    "images_count": task.images_count,
+                    "splats": summary(request, task, training.follow(task), may_train),
+                })  # fmt: skip
+            out.append({"id": project.id, "name": project.name, "can_train": may_train, "tasks": tasks})
+        return Response({"projects": out})
 
 
 class NodeSettings(APIView):
