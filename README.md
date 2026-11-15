@@ -12,7 +12,8 @@ plan is in [upcoming-changes.md](upcoming-changes.md).
 
 ## Requirements
 
-- WebODM 4.0.0 or later, installed with Docker.
+- WebODM 4.0.0 or later, installed with Docker. WebODM's native Windows app is not supported: it has no
+  `splat-tools` to convert a trained model, and cannot build a plugin's page scripts.
 - An NVIDIA GPU that Docker can use, for the training container.
 
 ## The splat node
