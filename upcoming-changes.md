@@ -9,7 +9,7 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Native Windows app: a trainer run as a local program.
+1. Native Windows app: SplatMe on WebODM's native Windows app, with the same splat node in Docker Desktop.
 
 **Later**
 
@@ -175,7 +175,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 1. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 1, with the splat node in Docker (decided 2026-11-15). 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -795,7 +795,23 @@ were under 8 MB; Jest covers the fields), Try Again after a failed file (Jest), 
 
 ### 1. Native Windows app
 
-The same backend interface with a second implementation: the trainer as a local program the worker runs.
+Decided with the user (2026-11-15): **SplatMe requires Docker for the splat node on Windows too.** On WebODM's
+native Windows app, the administrator runs the same node image in Docker Desktop (WSL2, NVIDIA driver), as on a
+Docker install: the most prebuilt and reliable way for administrators, and the same experience for users. Dropped:
+a native Windows splat node (a Windows CUDA build of OpenSplat and libtorch to publish and maintain) and the
+worker running the trainer itself (gigabytes of binaries outside the plugin's zip, a second backend, training
+competing with processing).
+
+What the plugin needs from the native app, read in WebODM's code but not checked on the app: its plugin build
+has Windows cases (`npm.cmd`, `webpack-cli.cmd` in `app/plugins/functions.py`), so the zip's page scripts should
+build. Unknown: the app's WebODM version (SplatMe needs 4.0.0), whether it has `splat-tools` on its PATH (the
+trained model's conversion, `training.py`), onnxruntime and SciPy (Ignore Sky), how its worker is restarted
+(`restartText.js` says `./webodm.sh restart`), and the address WebODM reaches the node at (`localhost:3108` from
+the host).
+
+To check on the user's native install (it runs on their Windows machine): the version; the zip uploaded and
+enabled, its pages built; the node's address saved and tested; one training, imported and shown in 3D; a task
+trained by itself after the app's restart. Then the README's install steps for Windows and the restart wording.
 
 ### Less fragile page parts (built)
 
