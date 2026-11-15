@@ -1,6 +1,8 @@
 // On every page. Adds SplatMe's parts of the Dashboard, both built by WebODM's webpack: in a task's expanded
 // panel the Train Splats button and a training's progress (TrainSplats.jsx; nothing on a task that failed or was
-// canceled), and beside a project's Select Images and GCP the New Task With Splats button (NewTaskButton.jsx).
+// canceled), beside a project's Select Images and GCP the New Task With Splats button and SplatMe's panel above
+// the New Task panel it opens (NewTaskButton.jsx), and SplatMe's panel above a task's Edit Task panel
+// (EditTaskSplats.jsx, on the Dashboard only).
 (function(){
     // A component is loaded once its place is on the page, not as a dependency of the hook: WebODM stops
     // listening after the first plugin's answer (ApiFactory.js), and an answer that waits for a script arrives
@@ -36,4 +38,10 @@
     PluginsAPI.Dashboard.addNewTaskButton(function(args){
         return React.createElement(NewTaskButton, {projectId: args.projectId});
     });
+
+    // WebODM gives a plugin no hook in the Edit Task panel: the page is watched for it
+    if (/^\/dashboard\//.test(window.location.pathname)){
+        PluginsAPI.SystemJS.import("splatme/build/EditTaskSplats.css");
+        PluginsAPI.SystemJS.import("splatme/build/EditTaskSplats.js").then(function(m){ (m["default"] || m)(); });
+    }
 })();

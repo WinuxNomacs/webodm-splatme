@@ -10,9 +10,9 @@ The plugin's API, under /api/plugins/splatme/.
     POST node                sets its address (url) and token, then answers as GET does (administrators);
                              with save false, only tries them
     GET  task/<id>/auto      whether the task is trained when it completes, and with which options
-    POST task/<id>/auto      sets that for the task (enabled and the options; with new_task true, the options
-                             a task created with New Task With Splats starts with)
-    GET  automation          the options a task created with New Task With Splats starts with
+    POST task/<id>/auto      sets that for the task (enabled and the options)
+    GET  automation          the options SplatMe's panel starts with for a new task; with ?ranges=1 also the
+                             node's range of each option (the panel is filled before the task exists)
     POST automation          sets them (administrators)
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
@@ -138,9 +138,8 @@ class Auto(TaskView):
     def post(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
         check_project_perms(request, task.project, perms=("change_project",))
-        given = training.new_task_options() if is_true(request.data.get("new_task")) else request.data
         try:
-            training.set_auto(task.id, request.user.username, is_true(request.data.get("enabled")), given)
+            training.set_auto(task.id, request.user.username, is_true(request.data.get("enabled")), request.data)
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe_auto(training.get_auto(task.id)))
@@ -156,7 +155,10 @@ class Automation(APIView):
         return out
 
     def get(self, request):
-        return Response(self.describe(request))
+        out = self.describe(request)
+        if is_true(request.query_params.get("ranges")):
+            out["ranges"] = training.node_ranges()
+        return Response(out)
 
     def post(self, request):
         if not request.user.is_superuser:

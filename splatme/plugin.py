@@ -17,7 +17,7 @@ class Plugin(PluginBase):
         return ["main.js"]
 
     def build_jsx_components(self):
-        return ["TrainSplats.jsx", "NewTaskButton.jsx"]
+        return ["TrainSplats.jsx", "NewTaskButton.jsx", "EditTaskSplats.jsx"]
 
     def app_mount_points(self):
         @login_required

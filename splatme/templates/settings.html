@@ -2,8 +2,8 @@
 
 {% block content %}
 {% comment %}
-SplatMe's page: the splat node's state and the options a New Task With Splats task starts with for everyone, and
-for administrators the node's address and token and those options as a form (api.py: node, automation).
+SplatMe's page: the splat node's state and the options SplatMe's panel starts with for a new task, for everyone,
+and for administrators the node's address and token and those options as a form (api.py: node, automation).
 {% endcomment %}
 <h3><i class="fa fa-splat fa-fw"></i> SplatMe</h3>
 <p>Trains a task's Gaussian splats on a splat node: a container with a GPU that runs beside WebODM. Training starts
@@ -38,10 +38,10 @@ for administrators the node's address and token and those options as a form (api
 </form>
 
 <h4>New Task With Splats</h4>
-<p>A task created with <b>New Task With Splats</b>, beside Select Images and GCP in a project on the Dashboard, is
-    trained by itself when it completes processing, and again each time it is processed again. It starts with the
-    options here; its panel on the Dashboard has the setting (<b>Train Splats When Completed</b>), where they are
-    changed and where any task is switched on or off.</p>
+<p><b>New Task With Splats</b>, beside Select Images and GCP in a project on the Dashboard, opens WebODM's New
+    Task panel with SplatMe's panel above it: <b>Train Splats When Completed</b>, ticked, with the options here.
+    The task is then trained by itself when it completes processing, and again each time it is processed again.
+    A task's Edit Task panel has SplatMe's panel too, to change them or switch the training on or off.</p>
 <div id="splatme-auto-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading</div>
 
 <form id="splatme-auto-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
@@ -226,7 +226,7 @@ for administrators the node's address and token and those options as a form (api
                 "Automatic training is not active yet: WebODM has to be restarted once after SplatMe is installed or " +
                 "updated. Until then, tasks are trained only from the Train Splats button."));
         }
-        state.appendChild(box("info", "fa fa-magic", "A task created with New Task With Splats starts with: " + name + "."));
+        state.appendChild(box("info", "fa fa-magic", "New Task With Splats starts with: " + name + "."));
         if (!data.admin) return;
         form.style.display = "";
         steps.value = options.steps == null ? "" : options.steps;

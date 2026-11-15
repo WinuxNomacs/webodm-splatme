@@ -25,6 +25,14 @@ other software. The plugin does that step.
 
 **Done**
 
+- SplatMe's panel (2026-11-15): above WebODM's New Task panel opened with New Task With Splats, and above every
+  Edit Task panel, as DJI Thermal Analyzer's is above its task panel: Train Splats When Completed and the
+  options. Replaces the button's pressed state and the task panel's Change (and `AutoDialog.jsx`).
+  `splatme/public/SplatMePanel.jsx`, `NewTaskButton.jsx`, `EditTaskSplats.jsx` (with `main.js`, Dashboard
+  only), `panelSettings.js` (was `newTaskSettings.js`), `TrainSplats.jsx`, `api.py` (`automation?ranges=1`
+  again, no `new_task`). Tests: 4 new in Jest (36), 1 changed in `test_splatme.py`. See "SplatMe's panel
+  (built)".
+
 - New Task With Splats (2026-11-15): a button beside "Select Images and GCP" in a project on the Dashboard;
   only a task created with it is trained by itself. It replaces the control in the Edit Task Options dialog
   and the administrators' default for every task. `splatme/public/NewTaskButton.jsx`, `main.js` (the
@@ -365,6 +373,39 @@ Built, as decided:
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
   never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
+
+### SplatMe's panel (built)
+
+The user's request (2026-11-15): instead of a button in the Options row of the New Task and Edit Task panels,
+a SplatMe settings panel above them, as webodm-dji-thermal's Measurement panel above its New Task panel (its
+`ThermalTaskPanel.jsx`). Decided:
+
+- **New Task**: SplatMe's panel shows only on a New Task panel opened with New Task With Splats (and on one
+  opened another way when that button is pressed while it is open), with Train Splats When Completed ticked.
+- **Edit Task**: SplatMe's panel shows above every Edit Task panel; it replaces the task panel's "Train Splats
+  When Completed" Change link and its dialog.
+- **WebODM's own New Task panel and upload stay** (DJI Thermal draws its own copy of `NewTaskPanel` and uploads
+  itself, because it converts the photos; SplatMe does not need to, and keeps Resize Images and Alignment).
+
+Built:
+
+- Both panels are placed in the page, above WebODM's (`.new-task-panel` in the project, `.edit-task-panel` in
+  the task list), as DJI Thermal places its own: not a WebODM hook. Without the place, no panel and WebODM's
+  works as ever.
+- The choice waits on the page with WebODM's panel and goes to the task when WebODM's own request for that
+  panel succeeds: the task's creation (New Task) or its PATCH (Edit Task's Save). Cancel drops it. Review,
+  Start Processing and Save wait while SplatMe's numbers are wrong (the panel says why).
+- **Which task an Edit Task panel edits** is read from the props React gave WebODM's `EditTaskPanel`
+  (`taskOfPanel` in `EditTaskSplats.jsx`): the page names it nowhere and no hook gives it. This relies on React
+  16's internals; a WebODM on another React would show no panel there until it is adjusted.
+- The task's panel shows "Train Splats When Completed: On: …" only while the task is set to train, without a
+  link (Claude's choice: the only sign left on the task, to be dropped if not wanted).
+
+Checked in a headless browser on the dev stack at desktop and phone width, with the creation, the edit, the
+setting and the uploads answered by the check (nothing written): no panel from WebODM's own button and the
+button adding it; the panel above WebODM's, ticked; a wrong number holding Review; Start Processing sending
+the chosen options; the Edit Task panel's choice sent after Save and not after Cancel. Not checked: a real
+task trained from either panel.
 
 ### New Task With Splats (built)
 
