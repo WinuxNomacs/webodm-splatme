@@ -9,19 +9,25 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. Less fragile page parts: SplatMe says when it cannot add its parts to WebODM's pages, finds an Edit Task
+   panel's task a second way, and places its button itself so DJI Thermal's shows too. See "1. Less fragile
+   page parts".
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-2. Native Windows app: a trainer run as a local program.
-3. Docs and first release.
-4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Native Windows app: a trainer run as a local program.
+4. Docs and first release.
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
 
 - Denser starting cloud (2026-11-14, the user's decision after the measurements): more starting points gave no
   better result on the dev task at several times the training time. See "Denser starting cloud (dropped)".
+- Restarting WebODM's worker from the SplatMe page, and starting a training from the task's panel when the
+  worker does not hear of completed tasks (2026-11-15, the user's decision): an administrator restarts WebODM
+  by hand once after installing or updating, as the README says.
 
 **Done**
 
@@ -556,18 +562,45 @@ Checked on the dev stack: the task's real model cropped into a scratch file (246
 and converted by WebODM's converter; the dialogs and the page in a headless browser. Not checked: a training
 from the browser, and the cropped model in the 3D view.
 
-### 1. Thermal tasks
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 2. Native Windows app
+### 3. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 3. Docs and first release
+### 1. Less fragile page parts
+
+The release is experimental, so some fragility is accepted; this lessens it without a pull request to WebODM
+(the user's request, 2026-11-15). What is fragile: the Edit Task panel's task is read from React 16's
+internals; the panels and the button are placed by WebODM's page markup; the choice is saved on hearing
+WebODM's own requests; New Task With Splats presses Select Images and GCP.
+
+Proposed (the user agreed to the second way of finding the task and to the button; the rest awaits them):
+
+- **Never fail silently**: New Task With Splats that opens no New Task panel says so in the project; an Edit
+  Task panel whose task is not found says the training cannot be set there; a setting that could not be saved
+  says which task and why (not only in the browser's console); while WebODM's worker does not hear of
+  completed tasks (not restarted since SplatMe was installed or updated), SplatMe's panel and a task set to
+  train say that WebODM has to be restarted once (the status then tells everyone whether the worker listens,
+  not only administrators).
+- **A second way to find an Edit Task panel's task**: by its name in its project's task list, used only when
+  exactly one task there has that name (agreed: a task cannot be renamed while it runs).
+- **SplatMe places its button itself**, after the other buttons beside Import, instead of answering
+  `addNewTaskButton`: WebODM 4.0.0 stops listening to that hook shortly after the first answer, so SplatMe's
+  immediate answer drops DJI Thermal's (which answers after loading its script), and any other plugin's that
+  answers late. Out of the hook, SplatMe drops none. (Agreed in principle; the Import menu and the New Task
+  panel's item were weighed and have the same race.)
+- **Open**: bring back Change beside "Train Splats When Completed" in the task's panel, as the way that uses
+  only WebODM's hooks.
+- For the release phase: a committed browser check run against each new WebODM before supporting it, and the
+  page parts turned off on a WebODM newer than tested.
+
+### 4. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -585,7 +618,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
