@@ -486,6 +486,20 @@ The same backend interface with a second implementation: the trainer as a local 
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
+Decided with the user (2026-11-14):
+
+- The splat node is published as a prebuilt image on GitHub's registry (ghcr.io), so an administrator runs it
+  with one `docker run`: no clone, no compile. Built and pushed by a workflow that runs only for a pushed
+  release tag (and by hand), never for an ordinary push. The user makes the repository public before the
+  release, and pushes the tag. A new package starts private on ghcr.io: its visibility is set to public once.
+- The administrator's steps the release must make true: run the node's image; upload `splatme.zip` in
+  Administration > Plugins and enable it; restart WebODM once; enter the node's address and token on the
+  SplatMe page.
+
+To do, besides the image: something that builds `splatme.zip` (the `splatme/` folder as its single root); a
+check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
+folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
+
 ### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
