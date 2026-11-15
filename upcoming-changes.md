@@ -9,9 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-   After the phases before it, so thermal tasks get what they built, and released with the next
-   webodm-dji-thermal.
+1. Thermal tasks: DJI Thermal Analyzer's tasks trained, their temperatures drawn as JPEGs in a Thermal Colours
+   palette over one range for the whole task. Planned with the user (2026-11-15); released with SplatMe's own.
 
 **Later**
 
@@ -1082,14 +1081,64 @@ HomerunObliqueRGB, 1,005 photos (the trainer's own pick of a held-out photo, `�
 
 ### 1. Thermal tasks
 
-WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
-plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
-task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
-that the export can be given the converted images (it reads `task.get_image_path`).
+WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs.
 
-Moved later (2026-11-15, the user's decision): it is released at the same time as the next webodm-dji-thermal,
-whose release the user makes, and thermal tasks are to benefit from the work before it (new tasks in SplatMe,
-the presets). webodm-dji-thermal itself is still not touched from here.
+**Found (2026-11-15, reading only, on the user's DJI Thermal Analyzer stack at :8002):**
+
+- **No conversion is needed.** A task made by DJI Thermal Analyzer's Thermal Task button holds TIFFs of
+  temperatures, not R-JPEGs: single-band float32, degrees Celsius, 640 × 512 on the M4T (`converter.convert`,
+  dji-thermal-cli's `temp_c` TIFF). The R-JPEGs are not kept. Each TIFF's XMP has `Camera:BandName="LWIR"` (what
+  ODM goes by) and DJI Thermal Analyzer's own namespace `urn:dji-thermal-cli:xmp:1.0` (`dtc`), after the pixels,
+  which the TIFF's tag 700 points to. Drawing the temperatures needs only numpy and Pillow (WebODM's): neither
+  that plugin nor DJI's SDK has to be installed.
+- **One range for the whole task.** A photo stretched to its own range (as DJI's previews are) shows the same roof
+  in a different shade in each view, and the model blurs.
+- **The task's point cloud is grayscale** (ODM's thermal colouring), the starting colours of every palette.
+- **WebODM 4.0.0 ships matplotlib's colour maps** (`app.vendor.rio_tiler.colormap.cmap`: gray, magma, inferno,
+  plasma, viridis, cividis, jet and their `_r`), which its map layers offer; DJI's own palettes (Iron Red,
+  Arctic...) exist only inside DJI's photos and cannot be bundled.
+- **The export can be reused whole**: `prepare_export` reads the shots' names from `odm_report/shots.geojson` and
+  each image from `task.get_image_path`. Given a stand-in for the task that answers both with the drawn JPEGs
+  (and everything else as the task), it writes the cameras, the images and the sampled point cloud as for any
+  task: nothing of WebODM is copied.
+
+**Decided with the user (2026-11-15):**
+
+- **Only DJI Thermal Analyzer's tasks**: every photo a TIFF with its `dtc` metadata. Other thermal TIFFs (in
+  hundredths of a kelvin, or raw counts, and none at hand to test) stay unlisted, as today.
+- **Thermal Colours chosen per training**: Grayscale (white is hot, the default), Black Hot, Iron (SplatMe's own,
+  from colour stops: black, purple, red, yellow, white), Magma, Inferno, Plasma, Viridis, Cividis, Jet (WebODM's
+  own maps). The hottest is the right-hand end, as WebODM's map layers draw them.
+- **The test task**: a thermal task on the dev stack (:8008) from ThermalTest's 218 TIFFs (copied from :8002,
+  reading only there), processed and trained, and kept for later checks.
+- **Released with SplatMe's own** (not tied to webodm-dji-thermal any more: nothing of it is used).
+  webodm-dji-thermal is still not touched from here. Reading a temperature back from a trained model (its 3D
+  page) would be a change in that repo, raised with the user there.
+
+**The design:**
+
+- `thermal.py`: whether a task is DJI Thermal Analyzer's (`is_thermal`: its first TIFF's tag 700, read without the
+  pixels), the palettes (`PALETTES`: key, name, 256 colours from WebODM's maps or Iron's stops), and `draw(task,
+  palette, folder, progress)`: a first pass over every photo for the task's range (low and high percentiles of
+  all pixels, so the cold sky and a few hot pixels do not flatten the rest), a second writing each photo as
+  `<name>.jpg` in the palette, and a stand-in task for `prepare_export`. Returns the range in °C.
+- `training.py`: `compatible` and `problem` accept a thermal task; `export_and_send` draws before exporting (its
+  own stage, "Drawing the thermal photos"); the option `palette` (default `gray`) checked like the others,
+  saved in automatic training's options and the user's and administrators' defaults; a continued training keeps
+  its palette, as it keeps the other options. Ignore Sky is not applied to a thermal task (the sky model is for
+  colour photos). The job's record keeps `thermal: {palette, low, high}`.
+- `api.py`: `check` says `thermal`, `status` passes the job's `thermal`.
+- The pages: **Thermal Colours** under Quality in the Train Splats and Change dialogs of a thermal task, in the
+  New Task With Splats panel when the photos picked are TIFFs, and on SplatMe → Settings (and its Administration
+  page) with the hint "For DJI Thermal Analyzer's tasks"; Ignore Sky hidden for a thermal task. The task's row
+  says "Thermal Colours: Grayscale, 10.3 °C (black) to 43.5 °C (white)", in WebODM's unit system as DJI Thermal
+  Analyzer shows temperatures.
+- The README and the API table.
+
+**Build order:** `thermal.py` with Django tests (TIFFs made in the test, with and without the `dtc` metadata;
+the range; the drawn JPEGs; the stand-in export); then `training.py` and `api.py` with their tests; the pages
+with Jest (`trainingView.js`: the palettes, the row's text); the test task on :8008 and a training of it,
+measured (the presets' times on 640 × 512 frames), and a check in the browser.
 
 ### 2. Docs and first release
 
