@@ -9,15 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Only compatible tasks on SplatMe → Tasks: projects with no task SplatMe can train are not listed.
-2. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
+1. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
    OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
 **Later**
 
-3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
    After the phases above, so thermal tasks get what they build, and released with the next webodm-dji-thermal.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Docs and first release.
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -34,6 +33,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- Only compatible tasks on SplatMe → Tasks (2026-11-15, from `new.md`): `training.compatible` (JPEG photos,
+  and once completed what a training needs; or splats already), used by api.py's `tasks`, which leaves out
+  projects with no such task and adds `addable`; New Task With Splats above the list (`Tasks.jsx`). Test:
+  `test_the_tasks_list_leaves_out_tasks_splatme_cannot_train_and_projects_with_none`. See "Only compatible
+  tasks on SplatMe → Tasks (built)".
 - New tasks in SplatMe (2026-11-15): New Task With Splats in each project's heading on SplatMe → Tasks
   (`public/NewTask.jsx`: SplatMe's panel above WebODM's own `NewTaskPanel`; `public/newTask.js`: the task
   created, its training setting saved, the files uploaded, the task committed, through WebODM's task API);
@@ -193,7 +197,7 @@ other software. The plugin does that step.
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
   redoes the alignment.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (3): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (2): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
@@ -254,7 +258,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 4.
+  workflow, to decide in phase 3.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -295,7 +299,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 3 (Thermal tasks).
+  starting. Converting them is phase 2 (Thermal tasks).
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -412,13 +416,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 5).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 4).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 5).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
 
 ### SplatMe's panel (built)
 
@@ -466,7 +470,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 5. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 4. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -885,7 +889,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 1. Only compatible tasks on SplatMe → Tasks
+### Only compatible tasks on SplatMe → Tasks (built)
 
 Requested 2026-11-15 (`new.md`): in the SplatMe Tasks view, don't show empty projects or projects that don't
 have any compatible tasks.
@@ -910,7 +914,7 @@ Proposed:
   link when the name is not one project's). The Dashboard's button keeps opening the box for its project, listed
   or not.
 - When nothing is listed: a sentence saying no task can be trained yet, with New Task With Splats.
-- Thermal tasks (phase 3) become compatible when that phase converts them.
+- Thermal tasks (phase 2) become compatible when that phase converts them.
 
 Decided with the user (2026-11-15):
 
@@ -920,7 +924,15 @@ Decided with the user (2026-11-15):
   files, not its cameras).
 - **Next, before the presets.**
 
-### 2. OpenSplat presets
+As built (2026-11-15): as designed. An image file other than JPEG (TIFF, PNG, DNG, NEF, RAW, WebP, BMP, GIF)
+makes a task incompatible, text files (GCP, geo.txt) do not; a task with no photo left is incompatible. A failed
+or canceled task with JPEG photos is listed (it can be processed again). New Task With Splats above the list
+opens the file picker for a user's only project, or the box with a project choice; the projects' own buttons
+stay. A project asked for in the address that is not listed shows them all. Checked in the browser (read only):
+as admin, the empty First Project not listed and in the box's choice; as testuser, the sentence for nothing to
+list and the picker at once; 390 px. The dev stack has no thermal task (the Django test covers them).
+
+### 1. OpenSplat presets
 
 Requested 2026-11-15 (`new.md`): become an expert in OpenSplat, to choose the best presets SplatMe should offer
 to guide users. Part of the plugin's refinement, before the first release.
@@ -945,7 +957,7 @@ Open decisions (with the user, after the study): the presets themselves; new opt
 node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
 moving the node to OpenSplat's newer commit.
 
-### 3. Thermal tasks
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
@@ -956,7 +968,7 @@ Moved later (2026-11-15, the user's decision): it is released at the same time a
 whose release the user makes, and thermal tasks are to benefit from the work before it (new tasks in SplatMe,
 the presets). webodm-dji-thermal itself is still not touched from here.
 
-### 4. Docs and first release
+### 3. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -974,7 +986,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

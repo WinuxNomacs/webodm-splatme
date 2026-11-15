@@ -273,6 +273,25 @@ def problem(task):
     return None
 
 
+# Image files a task may have that are not JPEG: such a task cannot be trained (WebODM's export takes JPEG only)
+OTHER_IMAGES = (".tif", ".tiff", ".png", ".dng", ".nef", ".raw", ".webp", ".bmp", ".gif")
+
+
+def compatible(task):
+    """
+    Whether SplatMe's Tasks page lists the task: it has splats, or its photos are JPEG and, once completed, it can
+    train. Cheaper than problem() (its files and assets, not its cameras), for every task of a list.
+    """
+    if "splats.rad" in task.available_assets:
+        return True
+    names = [os.path.splitext(name)[1].lower() for name in task.scan_images()]
+    if not any(ext in (".jpg", ".jpeg") for ext in names) or any(ext in OTHER_IMAGES for ext in names):
+        return False
+    if task.status != status_codes.COMPLETED:
+        return True
+    return not task.compacted and all(asset in task.available_assets for asset in REQUIRED_ASSETS)
+
+
 def trained_model(task):
     return os.path.join(os.path.dirname(task.get_asset_file_or_stream("splats.rad")), TRAINED_MODEL)
 

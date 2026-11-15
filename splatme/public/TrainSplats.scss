@@ -83,11 +83,20 @@
 // SplatMe → Tasks (Tasks.jsx): a project's tasks as WebODM's list groups, and the task asked for in the address
 // marked with the theme's primary border
 .splatme-tasks{
+    // The Project filter, with New Task With Splats at the other end
     .splatme-filter{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
         margin-bottom: 12px;
 
         label{
             margin-right: 6px;
+        }
+
+        .form-inline{
+            margin: 4px 10px 4px 0;
         }
     }
 

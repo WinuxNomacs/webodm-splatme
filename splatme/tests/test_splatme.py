@@ -30,6 +30,13 @@ API = "/api/plugins/splatme"
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
 
 
+def add_file(task, name, data=b"x"):
+    """A file in the task's folder, as WebODM keeps a task's photos."""
+    os.makedirs(task.task_path(), exist_ok=True)
+    with open(task.task_path(name), "wb") as f:
+        f.write(data)
+
+
 def make_task(user, images=IMAGES, status=status_codes.COMPLETED, rotation=(0.1, 0.2, 0.3)):
     """A completed task with what a training needs, as WebODM's own splats test makes one."""
     project = Project.objects.create(owner=user, name="splatme test project")
@@ -900,6 +907,7 @@ class TestSplatMe(BootTestCase):
         running = Task.objects.create(
             project=task.project, status=status_codes.RUNNING, name="Still running", running_progress=0.4
         )
+        add_file(running, "photo.JPG")
         Task.objects.create(project=task.project, partial=True)  # still receiving its photos: not listed
         hidden = make_task(User.objects.get(username="testuser2"))
         self.assertEqual(self.train(task, steps=10).status_code, 200)
@@ -935,6 +943,56 @@ class TestSplatMe(BootTestCase):
         self.assertFalse(seen[task.project.id]["can_train"])
         self.assertFalse(seen[task.project.id]["tasks"][0]["splats"]["can_train"])
         self.assertEqual(APIClient().get(f"{API}/tasks").status_code, 403)
+
+    def test_the_tasks_list_leaves_out_tasks_splatme_cannot_train_and_projects_with_none(self):
+        trainable = make_task(self.user)
+        project = trainable.project
+        thermal = Task.objects.create(project=project, status=status_codes.RUNNING, name="Thermal")
+        add_file(thermal, "a_T.tif")
+        mixed = Task.objects.create(project=project, status=status_codes.QUEUED, name="Mixed")
+        add_file(mixed, "a.jpg")
+        add_file(mixed, "b.png")
+        Task.objects.create(project=project, status=status_codes.QUEUED, name="No photos")
+        # Completed with JPEG photos but unable to train, each the only task of its project
+        no_cloud = make_task(self.user)
+        assets = [a for a in no_cloud.available_assets if a != "georeferenced_model.laz"]
+        Task.objects.filter(pk=no_cloud.pk).update(available_assets=assets)
+        compacted = make_task(self.user)
+        Task.objects.filter(pk=compacted.pk).update(compacted=True)
+        failed = Task.objects.create(project=project, status=status_codes.FAILED, name="Failed, can run again")
+        add_file(failed, "a.jpeg")
+        # A project with only a task SplatMe cannot train, and an empty one: not listed, but one may add a task there
+        thermal_only = Project.objects.create(owner=self.user, name="Thermal only")
+        add_file(Task.objects.create(project=thermal_only, status=status_codes.COMPLETED), "a.tiff")
+        empty = Project.objects.create(owner=self.user, name="Empty")
+
+        data = self.client.get(f"{API}/tasks").data
+        listed = {p["id"]: {t["name"] or t["id"] for t in p["tasks"]} for p in data["projects"]}
+        self.assertEqual(listed[project.id], {str(trainable.id), "Failed, can run again"})
+        self.assertNotIn(thermal_only.id, listed)
+        self.assertNotIn(empty.id, listed)
+        self.assertNotIn(no_cloud.project.id, listed)
+        self.assertNotIn(compacted.project.id, listed)
+        addable = {p["id"]: p for p in data["addable"]}
+        self.assertEqual(addable[empty.id], {"id": empty.id, "name": "Empty", "has_tasks": False})
+        self.assertTrue(addable[thermal_only.id]["has_tasks"])
+
+        # A task with splats is listed whatever its photos (its model can be viewed)
+        os.makedirs(os.path.dirname(thermal.get_asset_file_or_stream("splats.rad")), exist_ok=True)
+        with open(thermal.get_asset_file_or_stream("splats.rad"), "wb") as f:
+            f.write(b"rad")
+        thermal.update_available_assets_field()
+        thermal.save()
+        names = {t["name"] for p in self.client.get(f"{API}/tasks").data["projects"] for t in p["tasks"]}
+        self.assertIn("Thermal", names)
+
+        # A user who may only look at a project sees its compatible tasks, and may not add a task to it
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), project)
+        seen = other.get(f"{API}/tasks").data
+        self.assertIn(project.id, [p["id"] for p in seen["projects"]])
+        self.assertNotIn(project.id, [p["id"] for p in seen["addable"]])
 
     # The time left
 

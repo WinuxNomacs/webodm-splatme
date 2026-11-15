@@ -15,7 +15,7 @@ import { formFromOptions, optionsFromForm } from './trainingView';
 // here until WebODM commits the task. The task then shows in its project's list.
 export default class NewTask extends React.Component {
     static propTypes = {
-        project: PropTypes.object,              // {id, name, tasks}; null until the user chooses one
+        project: PropTypes.object,              // {id, name, has_tasks}; null until the user chooses one
         projects: PropTypes.array.isRequired,   // the projects the user may add a task to
         files: PropTypes.array.isRequired,      // the picked files; none yet when opened from the Dashboard
         onPick: PropTypes.func.isRequired,      // () opens the file picker
@@ -207,7 +207,7 @@ export default class NewTask extends React.Component {
                                           suggestedTaskName={this.suggestedTaskName}
                                           filesCount={files.length}
                                           showResize={true}
-                                          showAlign={(project.tasks || []).length > 0}
+                                          showAlign={!!project.has_tasks}
                                           projectId={project.id}
                                           getFiles={this.getFiles} />
                         </div>}

@@ -41,7 +41,8 @@ it short; edit in place.
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
   `get_persistent_path()` included.
 - **The plugin's pages**: `templates/tasks.html` (SplatMe → Tasks, which starts `public/Tasks.jsx`: the tasks
-  the user may see, from api.py's `tasks`, each row a `TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`
+  SplatMe can train that the user may see (`training.compatible`), from api.py's `tasks`, each row a
+  `TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`
   (Change), `OptionsFields.jsx`, `LogDialog.jsx`, `Dialog.jsx` and `api.js`; and `NewTask.jsx`, New Task With
   Splats: `SplatMePanel.jsx` above WebODM's own `NewTaskPanel` (imported from WebODM, as webodm-dji-thermal
   does), then `newTask.js`, the upload through WebODM's task API), `templates/settings.html`
