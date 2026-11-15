@@ -306,7 +306,6 @@ class TestSplatMe(BootTestCase):
     def test_photos_that_look_down_are_not_searched_for_sky(self):
         task = make_task(self.user, rotation=(math.pi, 0, 0))
         load = self.find_sky(sky.MODEL_INPUT // 2)
-        self.assertEqual(sky.may_show_sky(task), set())
         self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="true").status_code, 200)
         load.assert_not_called()
         status = self.status(task)
@@ -315,10 +314,26 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.node.jobs["job1"]["masks"], {})
 
     def test_a_photo_looking_just_below_the_horizon_is_searched_for_sky(self):
-        # The test camera sees 36 degrees from the middle of the picture to its corner
-        down = lambda degrees: (math.radians(90 + degrees), 0, 0)
-        self.assertEqual(sky.may_show_sky(make_task(self.user, rotation=down(30))), set(IMAGES))
-        self.assertEqual(sky.may_show_sky(make_task(self.user, rotation=down(45))), set())
+        # The test camera sees 24 degrees from the middle of the picture to its upper edge
+        def searched(degrees_down):
+            task = make_task(self.user, rotation=(math.radians(90 + degrees_down), 0, 0))
+            view = sky.photo_views(task)[IMAGES[0]]
+            return sky.above_horizon(view, 48, 36)
+
+        self.assertFalse(searched(45).any())
+        rows = searched(20).all(axis=1)
+        self.assertTrue(rows[0])  # the upper edge is within the margin of the horizon
+        self.assertFalse(rows[-1])
+        self.assertTrue(searched(-30).all())  # looking up
+
+    def test_sky_is_found_only_above_a_photos_horizon(self):
+        # The model takes bright roofs and water for sky: what it finds below the horizon is not masked
+        task = make_task(self.user, rotation=(math.radians(90 + 20), 0, 0))
+        self.find_sky(sky.MODEL_INPUT)  # sky everywhere, says the model
+        self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="true").status_code, 200)
+        mask = np.asarray(Image.open(io.BytesIO(self.node.jobs["job1"]["masks"][f"masks/{IMAGES[0]}.png"])))
+        self.assertTrue((mask[0] == 0).all())
+        self.assertTrue((mask[-1] == 255).all())
 
     def test_a_photo_without_sky_gets_no_mask(self):
         task = make_task(self.user)

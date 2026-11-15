@@ -9,15 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Ignore Sky: the training ignores the sky in the photos.
+1. Crop: train only inside the task's crop area.
 
 **Later**
 
-2. Crop: train only inside the task's crop area.
-3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-4. Native Windows app: a trainer run as a local program.
-5. Docs and first release.
-6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+3. Native Windows app: a trainer run as a local program.
+4. Docs and first release.
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -27,6 +26,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- Ignore Sky (2026-11-14): a checkbox in the Train Splats dialog, the Train Splats When Completed dialog and
+  the SplatMe page's Automatic Training form; the worker masks the sky in the exported photos and the trainer
+  ignores it. `splatme/sky.py`, `training.py` (`export_and_send`, the `masking` state, `sky_masks`),
+  `public/OptionsFields.jsx`, `public/trainingView.js`, `templates/settings.html`. Tests: 9 in
+  `test_splatme.py`, 2 in Jest. See "Ignore Sky (built)".
 - Continue training (2026-11-14): the Train Splats dialog on a task's panel offers Start Over or Continue From
   Step N for a task SplatMe trained, and continuing asks only More Steps. Splat node 0.2.0 (`node/splatnode.py`:
   a job's model is a `.ply`; a zip that holds `resume.ply` continues it), `splatme/training.py` (`start` with
@@ -398,10 +402,10 @@ More Steps), not a button of its own.
   gaussians the model has. `--densify-until` could change that; not tried.
 - An existing 0.1.0 node is refused with "Update the node".
 
-### 1. Ignore Sky
+### Ignore Sky (built)
 
 Decided with the user (2026-11-14): of the masks SplatMe could make, the sky first, found automatically; an
-area to train is phase 2; masks uploaded with the photos and moving objects are not planned.
+area to train is the next phase (Crop); masks uploaded with the photos and moving objects are not planned.
 
 Checked:
 
@@ -416,21 +420,31 @@ Checked:
 - The dev task (HomerunObliqueRGB) has no sky: its cameras look 40 to 50 degrees below the horizon or
   straight down. The stack has no other task.
 
-Design:
+Built:
 
-- **Ignore Sky**, a checkbox in the Train Splats dialog on a task's panel (Dashboard) and in the Train Splats
-  When Completed dialog, off by default; an option of the training (`ignore_sky`), kept when continuing.
-- The worker makes the masks after the export, from the exported (resized) photos, and adds them to the
-  training zip as `masks/<stem>.png`. Photos that cannot show the sky (looking too far down, from the shot's
-  rotation and the camera's field of view) are skipped; a task with none says so and trains without masks.
-- The model is downloaded once, checked against a pinned checksum, and kept in WebODM's media folder.
+- **Ignore Sky**, off by default; an option of the training (`ignore_sky`), kept when continuing. The node is
+  not told: the masks are in the training zip as `masks/<image's name>.png`.
+- The worker makes the masks after the export, from the exported (resized) photos, in a stage of its own
+  ("Finding the sky"). The sky is looked for only above each photo's horizon, from the shot's rotation and the
+  camera's focal length (less a 5 degree margin); photos with nothing above it never load the model. A fisheye
+  or a panorama is searched whole.
+- The model is downloaded once, checked against a pinned checksum, into the plugin's persistent folder
+  (`media/plugins/splatme/models`).
+- A finished training says in how many photos sky was found (`sky_masks`).
 
-Open: a task with sky to measure it on.
+Checked on the dev stack (2026-11-14), in a process of its own that left the task's model alone: the export of
+959 photos with stand-in masks, sent to the real node, which logged "Found 414 masks" and trained. The real
+model over the same export: before the horizon limit it masked bright patches (0.5 to 4 % of the picture) in
+125 photos of a task that shows no sky, which is why the limit was added; with it, 6 photos are searched and 1
+gets a mask (0.6 % of it, at its upper edge). The dialogs and the page in a headless browser, desktop and phone.
+
+**Not measured, by the user's decision (2026-11-14): whether it improves a model.** The dev task shows no sky.
+The mask's edge (the guided filter's radius at the mask's size) is untried on real sky.
 
 Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
 and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
 
-### 2. Crop
+### 1. Crop
 
 The user's request (2026-11-14): crop the splats with a GeoJSON file, as the model can be.
 
@@ -442,22 +456,22 @@ file is accepted today only by the Boundary option, at processing.
 To plan: train only inside the task's crop (the starting cloud and the trained model cut to it, the pixels
 outside masked), and whether the plugin takes a GeoJSON file for it or uses the task's crop.
 
-### 3. Thermal tasks
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 4. Native Windows app
+### 3. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 5. Docs and first release
+### 4. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
-### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

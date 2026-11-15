@@ -99,12 +99,18 @@ def guided_filter(guide, values, radius, eps):
     return mean(a) * guide + mean(b)
 
 
-def sky_mask(image_path, find):
-    """A photo's mask as a Pillow image (white is trained on, black is sky), or None when it shows no sky."""
+def sky_mask(image_path, find, view=None):
+    """
+    A photo's mask as a Pillow image (white is trained on, black is sky), or None when it shows no sky.
+    view: where the photo looks (photo_views); sky is then found only above its horizon.
+    """
     with Image.open(image_path) as opened:
         opened.draft("RGB", (MASK_SIDE, MASK_SIDE))
         image = opened.convert("RGB")
     image.thumbnail((MASK_SIDE, MASK_SIDE), Image.BOX)
+    above = above_horizon(view, *image.size) if view else None
+    if above is not None and above.mean() < MIN_SKY:
+        return None
     small = np.asarray(image.resize((MODEL_INPUT, MODEL_INPUT), Image.BOX), dtype=np.float32) / 255.0
     sky = find(small)
     if (sky > 0.5).mean() < MIN_SKY:
@@ -113,16 +119,30 @@ def sky_mask(image_path, find):
     blue = np.asarray(image, dtype=np.float32)[:, :, 2] / 255.0
     # ODX's radius is 20 pixels of the full photo and its eps 0.01
     refined = guided_filter(blue, np.clip(sky, 0.0, 1.0), radius=4, eps=0.01)
-    ground = refined <= 0.5
-    if 1.0 - ground.mean() < MIN_SKY:
+    found = refined > 0.5
+    if above is not None:
+        found &= above  # the model also takes bright roofs and water for sky
+    if found.mean() < MIN_SKY:
         return None
-    return Image.fromarray((ground * 255).astype(np.uint8), mode="L")
+    return Image.fromarray((~found * 255).astype(np.uint8), mode="L")
 
 
-def may_show_sky(task):
+def above_horizon(view, width, height):
+    """Which pixels of a photo of that size look above the horizon, less a margin (a pinhole's rays)."""
+    up, focal = view
+    side = max(width, height)
+    x = (np.arange(width, dtype=np.float32) + 0.5 - width / 2) / side
+    y = ((np.arange(height, dtype=np.float32) + 0.5 - height / 2) / side)[:, None]
+    # How far up each pixel's ray points: the camera's axes are x right, y down, z forward
+    rise = (up[0] * x + up[1] * y + up[2] * focal) / np.sqrt(x * x + y * y + focal * focal)
+    return rise > -math.sin(HORIZON_MARGIN)
+
+
+def photo_views(task):
     """
-    The file names of the task's photos that may show the sky: those not looking so far down that the horizon is
-    out of the picture. None when that cannot be told: every photo is then looked at.
+    Where each of the task's photos looks, by file name: (how far up its x, y and z axes point, its focal length
+    as a share of its longer side). None when that cannot be told (a fisheye, a panorama, no shots): the sky is
+    then searched for in the whole of every photo.
     """
     try:
         with open(task.assets_path(task.ASSETS_MAP["cameras.json"])) as f:
@@ -131,17 +151,18 @@ def may_show_sky(task):
             features = json.load(f).get("features", [])
     except (OSError, ValueError):
         return None
-    half_view = 0.0  # the widest camera's angle from the middle of the picture to its corner
+    focals = []
     for camera in cameras.values():
         try:
             if camera.get("projection_type") not in ("perspective", "brown"):
-                return None  # a fisheye or a panorama sees the sky whatever it points at
-            width, height = float(camera["width"]), float(camera["height"])
-            focal = float(camera.get("focal", camera.get("focal_x")))
-            half_view = max(half_view, math.atan(math.hypot(width, height) / (2 * max(width, height) * focal)))
-        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                return None
+            focals.append(float(camera.get("focal", camera.get("focal_x"))))
+        except (TypeError, ValueError):
             return None
-    names = set()
+    if not focals or min(focals) <= 0:
+        return None
+    focal = min(focals)  # the widest camera: a photo of another sees less sky than is searched
+    views = {}
     for feature in features:
         properties = feature.get("properties") or {}
         name = os.path.basename(properties.get("filename") or "")
@@ -150,14 +171,17 @@ def may_show_sky(task):
         try:
             rx, ry, rz = (float(v) for v in properties["rotation"])
         except (KeyError, TypeError, ValueError):
-            names.add(name)
-            continue
+            return None
+        # The rotation's third column (Rodrigues): the world's up as the camera sees it
         theta = math.sqrt(rx * rx + ry * ry + rz * rz)
-        # How far up the camera looks: 1 straight up, -1 straight down (as training.mostly_nadir)
-        view_z = 1.0 if theta < 1e-12 else math.cos(theta) + (rz / theta) ** 2 * (1.0 - math.cos(theta))
-        if math.asin(max(-1.0, min(1.0, view_z))) + half_view + HORIZON_MARGIN > 0:
-            names.add(name)
-    return names
+        if theta < 1e-12:
+            up = (0.0, 0.0, 1.0)
+        else:
+            kx, ky, kz = rx / theta, ry / theta, rz / theta
+            sin, cos = math.sin(theta), 1.0 - math.cos(theta)
+            up = (ky * sin + cos * kx * kz, -kx * sin + cos * ky * kz, 1.0 - cos * (kx * kx + ky * ky))
+        views[name] = (up, focal)
+    return views
 
 
 def make_masks(task, images, folder, progress):
@@ -165,8 +189,11 @@ def make_masks(task, images, folder, progress):
     Writes the masks of an export's images ([{"path", "name"}], WebODM's images.json) into the folder.
     Answers [(mask's path, image's name)] for the photos that show sky. progress(status, percent) may raise to stop.
     """
-    wanted = may_show_sky(task)
-    photos = [image for image in images if wanted is None or image["name"] in wanted]
+    views = photo_views(task)
+    photos = images
+    if views is not None:
+        # Only the photos with something above the horizon: the others never load the model
+        photos = [i for i in images if i["name"] in views and above_horizon(views[i["name"]], 64, 64).any()]
     if not photos:
         return []
     find = load(progress)
@@ -174,7 +201,7 @@ def make_masks(task, images, folder, progress):
     masks = []
     for i, image in enumerate(photos):
         progress(f"Photo {i + 1} of {len(photos)}", i * 100 / len(photos))
-        mask = sky_mask(image["path"], find)
+        mask = sky_mask(image["path"], find, views[image["name"]] if views is not None else None)
         if mask is not None:
             path = os.path.join(folder, f"{len(masks)}.png")
             mask.save(path, optimize=True)

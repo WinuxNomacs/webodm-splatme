@@ -52,8 +52,8 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    point straight down.
 
    **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the
-   model: SplatMe finds the sky in each photo and the training leaves those pixels out. Photos that look too
-   far down to show the horizon are not searched. Finding the sky takes a few minutes more (about 0.2 s a
+   model: SplatMe finds the sky in each photo and the training leaves those pixels out. It looks only above
+   each photo's horizon, known from where the camera pointed, so photos that look down are not searched. Finding the sky takes a few minutes more (about 0.2 s a
    photo on WebODM's CPU), and the task's line then says in how many photos it was found. The first training
    with it downloads the sky model (180 MB, the one ODX uses for its sky removal) from ODX's releases on
    github.com into WebODM's media folder (`plugins/splatme/models`), so WebODM must reach that address once.
