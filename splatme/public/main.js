@@ -1,6 +1,6 @@
 // On every page. Adds SplatMe's parts of the Dashboard, both built by WebODM's webpack: in a task's expanded
 // panel the Train Splats button and a training's progress (TrainSplats.jsx; nothing on a task that failed or was
-// canceled), and in the Edit Task Options dialog the task's automatic training (OptionsButton.jsx).
+// canceled), and beside a project's Select Images and GCP the New Task With Splats button (NewTaskButton.jsx).
 (function(){
     // A component is loaded once its place is on the page, not as a dependency of the hook: WebODM stops
     // listening after the first plugin's answer (ApiFactory.js), and an answer that waits for a script arrives
@@ -25,7 +25,7 @@
         };
         return Lazy;
     }
-    var TrainSplats = lazy("TrainSplats"), OptionsButton = lazy("OptionsButton");
+    var TrainSplats = lazy("TrainSplats"), NewTaskButton = lazy("NewTaskButton");
 
     PluginsAPI.Dashboard.addTaskActionButton(function(args){
         var task = args.task || {};
@@ -33,14 +33,7 @@
         return React.createElement(TrainSplats, {taskId: task.id, projectId: task.project});
     });
 
-    // WebODM draws a plugin's control only below one of the dialog's own options: the point cloud's quality,
-    // which every node has, or else the first option there is
-    PluginsAPI.Dashboard.presetDialogOptionsReady(function(args){
-        var options = args.options || {};
-        var below = options["pc-quality"] ? "pc-quality" : Object.keys(options)[0];
-        if (!below) return null;
-        var controls = {};
-        controls[below] = React.createElement(OptionsButton, {taskId: args.task && args.task.id ? String(args.task.id) : null});
-        return {controls: controls};
+    PluginsAPI.Dashboard.addNewTaskButton(function(args){
+        return React.createElement(NewTaskButton, {projectId: args.projectId});
     });
 })();

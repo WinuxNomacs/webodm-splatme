@@ -7,27 +7,23 @@ import { request } from './api';
 import { formFromOptions, optionsFromForm } from './trainingView';
 
 // A task's automatic training: whether its splats are trained when it completes processing, and with which
-// options. A task without a setting of its own follows the administrators' default (the SplatMe page).
-// Without a task (one that is not created yet) nothing is sent: the choice is handed to onSaved.
+// options. A task created with New Task With Splats starts with it on; any other task with it off.
 export default class AutoDialog extends React.Component {
     static propTypes = {
-        taskId: PropTypes.string,              // none for a task that is not created yet
-        auto: PropTypes.object.isRequired,     // the status' "auto": enabled, options, own
-        ranges: PropTypes.object,              // the node's ranges, when there is no task to ask them for
-        container: PropTypes.object,           // the element the dialog is drawn in (Dialog.jsx)
-        onSaved: PropTypes.func.isRequired,    // (auto); own false means following the default again
+        taskId: PropTypes.string.isRequired,
+        auto: PropTypes.object.isRequired,     // the status' "auto": enabled, options
+        onSaved: PropTypes.func.isRequired,    // (auto)
         onClose: PropTypes.func.isRequired
     };
 
     constructor(props){
         super(props);
-        this.state = {enabled: !!props.auto.enabled, form: formFromOptions(props.auto.options), ranges: props.ranges || null,
+        this.state = {enabled: !!props.auto.enabled, form: formFromOptions(props.auto.options), ranges: null,
                       advanced: false, saving: false, error: null};
     }
 
     componentDidMount(){
         this._mounted = true;
-        if (!this.props.taskId) return;
         // The node's ranges, to name a wrong number before saving; without them the server still checks
         request("GET", "task/" + this.props.taskId + "/check").then(check => {
             if (this._mounted) this.setState({ranges: check.ranges});
@@ -39,11 +35,6 @@ export default class AutoDialog extends React.Component {
     }
 
     send(body){
-        if (!this.props.taskId){
-            const { enabled, reset, ...options } = body;
-            this.props.onSaved(reset ? {own: false} : {enabled, options, own: true});
-            return;
-        }
         this.setState({saving: true, error: null});
         request("POST", "task/" + this.props.taskId + "/auto", body).then(auto => {
             if (this._mounted) this.props.onSaved(auto);
@@ -63,25 +54,17 @@ export default class AutoDialog extends React.Component {
 
     render(){
         const { enabled, form, advanced, saving, error } = this.state;
-        const isNew = !this.props.taskId;
         const footer = (
             <React.Fragment>
                 <button type="button" className="btn btn-default" onClick={this.props.onClose}>{_("Close")}</button>
-                {this.props.auto.own ?
-                    <button type="button" className="btn btn-default" disabled={saving} onClick={() => this.send({reset: true})}
-                            title={_("Forget this task's own setting and follow the default set by the administrators")}>
-                        {_("Use the Default")}
-                    </button> : ""}
                 <button type="button" className="btn btn-primary" disabled={saving} onClick={this.handleSave}>
                     <i className={saving ? "fa fa-circle-notch fa-spin fa-fw" : "fa fa-save fa-fw"}></i> {_("Save")}
                 </button>
             </React.Fragment>
         );
         return (
-            <Dialog title={_("Train Splats When Completed")} onClose={this.props.onClose} footer={footer} container={this.props.container}>
+            <Dialog title={_("Train Splats When Completed")} onClose={this.props.onClose} footer={footer}>
                 <p>{_("When this task completes processing, and each time it is processed again, its splats are trained on the splat node with these options. Nothing else is needed: the model then shows in the task's 3D view.")}</p>
-                {isNew ? <p className="text-muted">{_("This is kept for the new task whatever is done with the task's other options, and saved when the task is created.")}</p> : ""}
-                {!this.props.auto.own ? <p className="text-muted">{_("This task follows the default set by the administrators. Saving gives it a setting of its own.")}</p> : ""}
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleSave(); }}>
                     <div className="form-group">

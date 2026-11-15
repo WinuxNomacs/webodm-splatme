@@ -117,15 +117,15 @@ describe("a finished training", () => {
 });
 
 describe("a task's automatic training", () => {
-    test("it is named by its Quality, and says when it is the administrators' default", () => {
-        expect(autoText({enabled: true, options: {steps: 7000}, own: true})).toBe("On: Standard");
-        expect(autoText({enabled: true, options: {steps: 30000}, own: false})).toBe("On: High (the default)");
-        expect(autoText({enabled: false, options: {steps: 7000}, own: false})).toBe("Off (the default)");
-        expect(autoText({enabled: false, options: {}, own: true})).toBe("Off");
+    test("it is named by its Quality", () => {
+        expect(autoText({enabled: true, options: {steps: 7000}})).toBe("On: Standard");
+        expect(autoText({enabled: true, options: {steps: 30000}})).toBe("On: High");
+        expect(autoText({enabled: false, options: {steps: 7000}})).toBe("Off");
+        expect(autoText({enabled: false, options: {}})).toBe("Off");
     });
 
     test("steps no preset has are given as a number", () => {
-        expect(autoText({enabled: true, options: {steps: 12000}, own: true})).toBe("On: 12,000 steps");
+        expect(autoText({enabled: true, options: {steps: 12000}})).toBe("On: 12,000 steps");
     });
 
     test("every preset says what to expect of it", () => {

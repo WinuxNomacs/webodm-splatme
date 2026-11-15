@@ -1,6 +1,6 @@
-// The setting chosen for a task that does not exist yet. WebODM's Edit Task Options dialog, where it is chosen,
-// tells a plugin neither which task is created nor when: the setting waits here, with the New Task panel it was
-// chosen in, and is given to the task WebODM creates when that panel is saved. The page learns of that task from
+// The setting of a task that does not exist yet (NewTaskButton.jsx). WebODM tells a plugin neither which task
+// is created nor when: the setting waits here, with the New Task panel it is for, and is given to the task
+// WebODM creates when that panel is saved. The page learns of that task from
 // jQuery's notice of WebODM's own request (POST /api/projects/<id>/tasks/), which answers with the task.
 // No React and no page here: Jest tests it with a stand-in for jQuery.
 const CREATE = /^\/api\/projects\/\d+\/tasks\/$/;
@@ -50,7 +50,7 @@ export function createNewTaskSettings($, apply, every){
             return entry ? entry.setting : null;
         },
 
-        // setting: {enabled, options}, or null to follow the default again
+        // setting: what apply is given for the task, or null for none
         set(panel, setting){
             waiting = waiting.filter(e => e.panel !== panel);
             if (!setting) return;

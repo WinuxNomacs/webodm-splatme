@@ -4,14 +4,12 @@ import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 
 // A dialog with Bootstrap's markup, as WebODM's own are, drawn on the page's body: the task's panel it is opened
-// from may be redrawn or dimmed. Escape and the cross close it. Opened from one of WebODM's dialogs it is drawn
-// in that dialog's element (container): Bootstrap takes the focus back from anything outside an open dialog.
+// from may be redrawn or dimmed. Escape and the cross close it.
 export default class Dialog extends React.Component {
     static propTypes = {
         title: PropTypes.string.isRequired,
         onClose: PropTypes.func.isRequired,
         footer: PropTypes.node,
-        container: PropTypes.object,
         children: PropTypes.node
     };
 
@@ -47,6 +45,6 @@ export default class Dialog extends React.Component {
                     </div>
                 </div>
             </div>,
-            this.props.container || document.body);
+            document.body);
     }
 }
