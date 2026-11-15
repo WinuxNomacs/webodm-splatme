@@ -9,16 +9,13 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe in Administration: only administrators change the splat node, on a SplatMe page under
-   Administration; everyone sees the node's state and address; each user keeps their own New Task With Splats
-   defaults.
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-3. Native Windows app: a trainer run as a local program.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Native Windows app: a trainer run as a local program.
+3. Docs and first release.
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -30,6 +27,14 @@ other software. The plugin does that step.
   by hand once after installing or updating, as the README says.
 
 **Done**
+
+- SplatMe in Administration (2026-11-15): the splat node's address and token are changed on a SplatMe page
+  under Administration (superusers); every user sees the node's state and address on the side menu's SplatMe
+  page; each user saves their own New Task With Splats options, and the administrators' are the starting
+  point. `splatme/templates/admin.html`, `settings.html`, `node.html`, `options.html`, `public/main.js` (the
+  Administration item), `plugin.py` (`admin/`), `api.py` (`url` for everyone, `automation` per user,
+  `automation/shared`), `training.py` (`own_options`, `shared_options`). Tests: 2 new and 2 changed in
+  `test_splatme.py` (64). See "SplatMe in Administration (built)".
 
 - Time left (2026-11-15): "Step 4,650 of 7,000, about 12 min left" in the task's panel while it trains.
   `splatme/training.py` (`time_left`, `keep_window`, `left_text`, `step_status`, in `wait_for_node`),
@@ -151,7 +156,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 3. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 2. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -227,7 +232,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 4.
+  workflow, to decide in phase 3.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -385,13 +390,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 5).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 4).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 5).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
 
 ### SplatMe's panel (built)
 
@@ -439,7 +444,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 5.
+  is in phase 4.
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
 
@@ -601,7 +606,7 @@ model is imported. The step numbers are now written with thousands separators. N
 (the worker runs a training with the code it loaded, so it shows from a training started after WebODM's
 worker restarts).
 
-### 1. SplatMe in Administration
+### SplatMe in Administration (built)
 
 The user's request (2026-11-15): changing the splat node's address and token moves to a SplatMe item under
 Administration in the side menu, so only administrators can change it; the node's information (state, GPU,
@@ -638,14 +643,19 @@ Design:
   page's permissions; the browser check of both pages as a superuser and as a plain user (writes answered by
   the check), and of the Administration item at phone width.
 
-### 2. Thermal tasks
+Built so. The admin page's 403 for other accounts is Django's own. Checked in a headless browser as the dev
+superuser at desktop and phone width (the item, both pages, the saves answered by the check); a plain user's
+SplatMe page was checked by answering the node and options reads as the server answers a plain user (the
+server side of that is in the Django tests), not with a second account.
+
+### 1. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 3. Native Windows app
+### 2. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
@@ -695,7 +705,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 4. Docs and first release
+### 3. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -713,7 +723,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

@@ -42,10 +42,13 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 
 ## Using it
 
-1. **Connect the node** (administrators): **SplatMe** in WebODM's side menu. Enter the node's address as
-   WebODM's containers reach it (`http://<host>:3100`) and its token; **Test Connection** says what is wrong
-   (no answer, wrong token, no GPU, a node too old) before anything is saved. Other users see only whether the
-   node is ready, its GPU and its queue.
+1. **Connect the node** (superusers): **Administration → SplatMe** in WebODM's side menu. Enter the node's
+   address as WebODM's containers reach it (`http://<host>:3100`) and its token; **Test Connection** says what
+   is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved. Every user sees on the
+   **SplatMe** page in the side menu whether the node is ready, its address, its GPU and its queue (never the
+   token, and what is wrong with the node only as "ask an administrator"). WebODM has no plugin hook for
+   Administration, so SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is at
+   `/plugins/splatme/admin/`.
 2. **Train**: on the Dashboard, open a completed task and press **Train Splats**. Choose a **Quality**: Draft
    (2,000 steps), Standard (7,000) or High (30,000); **Advanced** has the steps, the image size and the most
    gaussians as numbers. The dialog says first if the task cannot be trained, and warns when nearly all photos
@@ -79,8 +82,9 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    as any other: its splats are trained when it completes processing, and again each time it is processed
    again. Unticked, or from a New Task panel without SplatMe's, the task is an ordinary one (pressing **New
    Task With Splats** while a New Task panel opened another way is open adds SplatMe's panel to it). The panel
-   starts with the options administrators choose on the **SplatMe** page (**New Task With Splats**; Standard
-   until they change them). A task's **Edit** panel has SplatMe's panel too: the training is switched on or
+   starts with the user's own options, saved on the **SplatMe** page (**New Task With Splats**); until they
+   save some, with the administrators' defaults from **Administration → SplatMe** (Standard until they change
+   them). A task's **Edit** panel has SplatMe's panel too: the training is switched on or
    off, and its options changed, with the Edit panel's **Save**. Every task's panel also shows **Train Splats
    When Completed** with **Change**, which does the same at once. A training that could not start shows on
    the task as a failed training, with the reason.
@@ -111,7 +115,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 
 | Request | Does |
 |---|---|
-| `GET node` | The node's state or that it is not available; for administrators also its address and what is wrong. The token is never sent back |
+| `GET node` | The node's state or that it is not available, and its `url`; for administrators also what is wrong and `token_set`. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
 | `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one) and `trained_steps`: the steps of the model a training can continue from |
 | `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out), `crop` (false keeps the splats outside the task's boundary). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
@@ -120,8 +124,9 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options |
 | `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train` |
-| `GET automation` | The options SplatMe's panel starts with for a new task, and `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
-| `POST automation` (options) | Administrators: sets those options |
+| `GET automation` | The options SplatMe's panel starts with for the user's new task: their own (`own` true) or the administrators' defaults, and `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
+| `POST automation` (options) | Saves the user's own options; with `reset` true drops them |
+| `GET automation/shared`, `POST automation/shared` (options) | The administrators' defaults, for users who saved none of their own; superusers set them |
 | `GET find-task?project=<name>&task=<name>` | The `id` of the only task of that name in the only project of that name the user may see (SplatMe's panel above an Edit Task panel, when the page does not say which task it edits); 404 when there is not exactly one |
 
 ## Development

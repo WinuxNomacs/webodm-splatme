@@ -49,7 +49,8 @@ it short; edit in place.
   `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),
   `public/trainingView.js` (what they show, as plain functions: this and `panelSettings.js` are what Jest
   tests) and
-  `templates/settings.html` (the side menu's SplatMe page, plain script). WebODM asks a plugin for a task's
+  `templates/settings.html` (the side menu's SplatMe page) and `templates/admin.html` (its page under
+  Administration, whose item `main.js` adds), both from `node.html` and `options.html` (plain script). WebODM asks a plugin for a task's
   button once, when the panel opens: the component follows the task itself through the status view.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what

@@ -1,0 +1,19 @@
+{% extends "app/plugins/templates/base.html" %}
+
+{% block content %}
+{% comment %}
+SplatMe under Administration (the item is added by main.js), for staff accounts: the splat node's address and
+token, and the New Task With Splats options for users who saved none of their own; superusers change them.
+{% endcomment %}
+<h3><i class="fa fa-splat fa-fw"></i> SplatMe</h3>
+<p>The splat node SplatMe trains on, and the options a user's New Task With Splats starts with until they save
+    their own. Every user sees the node's state and address on the <a href="/plugins/splatme/">SplatMe page</a>
+    in the side menu.</p>
+
+<h4>Splat Node</h4>
+{% include node_part with editable=True %}
+
+<h4>New Task With Splats Defaults</h4>
+<p>What SplatMe's panel starts with for a user who has not saved options of their own on the SplatMe page.</p>
+{% include options_part with shared=True %}
+{% endblock %}

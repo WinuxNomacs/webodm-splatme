@@ -639,19 +639,41 @@ class TestSplatMe(BootTestCase):
         self.assertContains(self.client.get("/dashboard/"), 'href="/plugins/splatme/"')
         self.assertEqual(APIClient().get("/plugins/splatme/").status_code, 302)
 
-    def test_everyone_sees_the_nodes_state_and_only_administrators_its_address(self):
+    def test_the_admin_page_is_for_staff_accounts_and_its_form_for_superusers(self):
+        self.assertEqual(self.client.get("/plugins/splatme/admin/").status_code, 403)
+        self.assertEqual(APIClient().get("/plugins/splatme/admin/").status_code, 302)
+        # The SplatMe page has no form for the node, and the admin page has it
+        self.assertNotContains(self.client.get("/plugins/splatme/"), 'id="splatme-form"')
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        res = admin.get("/plugins/splatme/admin/")
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'id="splatme-form"')
+        self.assertContains(res, "New Task With Splats Defaults")
+
+        # A staff account that is not a superuser sees Administration and so the page, but changes nothing on it
+        self.user.is_staff = True
+        self.user.save()
+        self.assertEqual(self.client.get("/plugins/splatme/admin/").status_code, 200)
+        self.assertEqual(self.client.post(f"{API}/node", {"url": "http://elsewhere:3100"}).status_code, 403)
+        self.assertEqual(self.client.post(f"{API}/automation/shared", {"steps": 30}).status_code, 403)
+
+    def test_everyone_sees_the_nodes_state_and_address_and_only_administrators_change_them(self):
         res = self.client.get(f"{API}/node")
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.data["admin"])
         self.assertEqual(res.data["node"]["trainer"], "OpenSplat fake")
-        self.assertNotIn("url", res.data)
-        self.assertNotIn(self.node.url, json.dumps(res.data))
+        self.assertEqual(res.data["url"], self.node.url)
+        self.assertNotIn("token_set", res.data)
+        self.assertNotIn(self.node.token, json.dumps(res.data))
         self.assertEqual(APIClient().get(f"{API}/node").status_code, 403)
 
+        # What is wrong with the node is for administrators; the address is still shown
         training.set_node("http://127.0.0.1:9")
         res = self.client.get(f"{API}/node")
         self.assertIn("Ask an administrator", res.data["error"])
-        self.assertNotIn("127.0.0.1", json.dumps(res.data))
+        self.assertNotIn("127.0.0.1", res.data["error"])
+        self.assertEqual(res.data["url"], "http://127.0.0.1:9")
 
     def test_test_connection_tries_an_address_without_saving_it(self):
         admin = APIClient()
@@ -727,15 +749,17 @@ class TestSplatMe(BootTestCase):
     def test_a_task_created_with_the_button_starts_with_the_options_the_administrators_chose(self):
         admin = APIClient()
         admin.login(username="testsuperuser", password="test1234")
-        self.assertEqual(self.client.post(f"{API}/automation", {"steps": 30}, format="json").status_code, 403)
-        res = admin.post(f"{API}/automation", {"steps": 30, "ignore_sky": True}, format="json")
+        self.assertEqual(self.client.post(f"{API}/automation/shared", {"steps": 30}, format="json").status_code, 403)
+        res = admin.post(f"{API}/automation/shared", {"steps": 30, "ignore_sky": True}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
         self.assertTrue(res.data["listening"])
         self.assertEqual(res.data["options"], {"steps": 30, "image_size": 1600, "ignore_sky": True})
 
-        # Everyone reads the options, and whether the worker listens: SplatMe's panel warns when it does not
+        # A user who saved none of their own reads them, and whether the worker listens: SplatMe's panel warns
+        # when it does not
         res = self.client.get(f"{API}/automation")
         self.assertEqual(res.data["options"]["steps"], 30)
+        self.assertFalse(res.data["own"])
         self.assertTrue(res.data["listening"])
 
         # The options alone train nothing: only a task given the setting is trained
@@ -754,13 +778,39 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}})
 
         # Options chosen later are for the tasks created later; the Edit Task panel's can switch it off
-        admin.post(f"{API}/automation", {"steps": 40}, format="json")
+        admin.post(f"{API}/automation/shared", {"steps": 40}, format="json")
         self.assertEqual(training.get_auto(task.id)["options"]["steps"], 30)
         self.assertEqual(self.auto(task, enabled=False, steps=30).data["enabled"], False)
         task.status = status_codes.COMPLETED
         task.save()
         self.complete(task)
         self.assertIsNone(training.get_job(task.id))
+
+    def test_each_user_saves_their_own_options_for_a_new_task(self):
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        admin.post(f"{API}/automation/shared", {"steps": 30}, format="json")
+
+        res = self.client.post(f"{API}/automation", {"steps": 2000, "crop": False}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertTrue(res.data["own"])
+        self.assertEqual(res.data["options"], {"steps": 2000, "image_size": 1600, "crop": False})
+        self.assertEqual(self.client.post(f"{API}/automation", {"steps": 0}, format="json").status_code, 400)
+        self.assertEqual(self.client.get(f"{API}/automation?ranges=1").data["options"]["steps"], 2000)
+
+        # Others are not changed by it, administrators included, nor the starting point
+        self.assertEqual(admin.get(f"{API}/automation").data["options"]["steps"], 30)
+        self.assertEqual(admin.get(f"{API}/automation/shared").data["options"]["steps"], 30)
+
+        # The Edit Task panel of a task with no setting starts with the user's own options
+        task = make_task(self.user)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/auto").data["options"]["steps"], 2000)
+        self.assertEqual(self.status(task)["auto"], {"enabled": False, "options": res.data["options"]})
+
+        # Dropping their own goes back to the administrators'
+        res = self.client.post(f"{API}/automation", {"reset": True}, format="json")
+        self.assertFalse(res.data["own"])
+        self.assertEqual(res.data["options"]["steps"], 30)
 
     def test_a_task_processed_again_is_trained_again(self):
         task = make_task(self.user)
