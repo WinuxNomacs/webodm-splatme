@@ -19,7 +19,7 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
-                      form: {steps: "7000", image_size: "1600", max_gaussians: ""}};
+                      form: {steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false}};
     }
 
     componentDidMount(){

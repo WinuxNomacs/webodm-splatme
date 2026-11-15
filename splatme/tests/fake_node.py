@@ -57,8 +57,9 @@ class FakeNode:
                     with zipfile.ZipFile(io.BytesIO(body)) as z:
                         names = z.namelist()
                         resume = z.read("resume.ply") if "resume.ply" in names else None
+                        masks = {name: z.read(name) for name in names if name.startswith("masks/")}
                     node.jobs[job_id] = {
-                        "options": options, "names": names, "resume": resume, "asked": 0, "deleted": False,
+                        "options": options, "names": names, "resume": resume, "masks": masks, "asked": 0, "deleted": False,
                     }  # fmt: skip
                     return self.send(201, node.describe(job_id))
                 job = node.jobs.get(parts[1]) if len(parts) > 1 and parts[0] == "jobs" else None

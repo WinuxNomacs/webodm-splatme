@@ -30,7 +30,7 @@ from . import training
 from .node import Node, NodeError
 
 # What a page may know of a job: not its run id, nor the node's job
-PUBLIC = ("state", "progress", "status", "error", "options", "user", "auto", "started", "finished")
+PUBLIC = ("state", "progress", "status", "error", "options", "user", "auto", "started", "finished", "sky_masks")
 UNAVAILABLE = "The splat node is not available. Ask an administrator to check SplatMe's settings."
 
 

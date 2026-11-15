@@ -50,6 +50,15 @@ export default class OptionsFields extends React.Component {
                 </div>
                 <div className="form-group">
                     <div className="col-sm-8 col-sm-offset-4">
+                        <div className="checkbox"><label>
+                            <input type="checkbox" className="splatme-ignore-sky" checked={!!form.ignore_sky}
+                                   onChange={e => this.props.onChange("ignore_sky", e.target.checked)} /> {_("Ignore Sky")}
+                        </label></div>
+                        <span className="help-block">{_("For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.")}</span>
+                    </div>
+                </div>
+                <div className="form-group">
+                    <div className="col-sm-8 col-sm-offset-4">
                         <a href="javascript:void(0)" className="splatme-advanced" onClick={() => this.props.onAdvanced(!advanced)}>
                             <i className={"fa fa-fw " + (advanced ? "fa-caret-down" : "fa-caret-right")}></i>{_("Advanced")}
                         </a>

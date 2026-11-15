@@ -88,6 +88,12 @@ the node's address and token and that default as a form (api.py: node, automatio
     </div>
     <div class="form-group">
         <div class="col-sm-9 col-sm-offset-3">
+            <div class="checkbox"><label><input type="checkbox" id="splatme-auto-sky"> Ignore Sky</label></div>
+            <span class="help-block">For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
             <button type="submit" class="btn btn-primary" id="splatme-auto-save"><i class="fa fa-save fa-fw"></i> Save</button>
             <span id="splatme-auto-saved" class="text-success" style="display: none; margin-left: 8px;">Saved.</span>
             <span id="splatme-auto-error" class="text-danger" style="margin-left: 8px;"></span>
@@ -192,6 +198,7 @@ the node's address and token and that default as a form (api.py: node, automatio
     var steps = document.getElementById("splatme-auto-steps");
     var size = document.getElementById("splatme-auto-size");
     var gaussians = document.getElementById("splatme-auto-gaussians");
+    var sky = document.getElementById("splatme-auto-sky");
     var saved = document.getElementById("splatme-auto-saved");
     var error = document.getElementById("splatme-auto-error");
 
@@ -229,6 +236,7 @@ the node's address and token and that default as a form (api.py: node, automatio
         steps.value = options.steps == null ? "" : options.steps;
         size.value = options.image_size == null ? "" : options.image_size;
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
+        sky.checked = !!options.ignore_sky;
         qualityOfSteps();
     }
 
@@ -254,7 +262,7 @@ the node's address and token and that default as a form (api.py: node, automatio
             url: API, type: "POST", contentType: "application/json",
             headers: {"X-CSRFToken": "{{ csrf_token }}"},
             data: JSON.stringify({enabled: enabled.checked, steps: steps.value, image_size: size.value,
-                max_gaussians: gaussians.value})
+                max_gaussians: gaussians.value, ignore_sky: sky.checked})
         }).done(function(data){
             show(data);
             saved.style.display = "";

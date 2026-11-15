@@ -15,7 +15,7 @@ describe("the Quality choice", () => {
 
 describe("the progress bar", () => {
     test("it never goes back from one stage to the next", () => {
-        const stages = ["starting", "exporting", "uploading", "queued", "training", "importing"];
+        const stages = ["starting", "exporting", "masking", "uploading", "queued", "training", "importing"];
         let last = 0;
         for (const state of stages){
             for (const progress of [0, 50, 100]){
@@ -26,6 +26,11 @@ describe("the progress bar", () => {
         }
         expect(last).toBe(100);
         expect(overallProgress({state: "completed"})).toBe(100);
+    });
+
+    test("finding the sky has its own stage between the export and the sending", () => {
+        expect(stageText({state: "masking", status: "Photo 3 of 40"})).toBe("Finding the sky: Photo 3 of 40");
+        expect(overallProgress({state: "masking", progress: 100})).toBe(overallProgress({state: "uploading", progress: 0}));
     });
 
     test("half of the training is past the export and well short of the end", () => {
@@ -101,6 +106,9 @@ describe("a finished training", () => {
     test("it is summed up beside the button", () => {
         expect(resultText({state: "completed", started: 100, finished: 326})).toBe("Splats trained in 3 min 46 s.");
         expect(resultText({state: "completed", options: {steps: 14000}, started: 100, finished: 160})).toBe("Splats trained (14,000 steps) in 1 min 0 s.");
+        expect(resultText({state: "completed", sky_masks: 120, started: 100, finished: 160})).toBe("Splats trained in 1 min 0 s. Sky ignored in 120 photos.");
+        expect(resultText({state: "completed", sky_masks: 1})).toBe("Splats trained. Sky ignored in 1 photo.");
+        expect(resultText({state: "completed", sky_masks: 0})).toBe("Splats trained. No photo shows the sky.");
         expect(resultText({state: "failed", error: "CUDA out of memory"})).toBe("Training failed: CUDA out of memory");
         expect(resultText({state: "canceled"})).toBe("Training canceled.");
         expect(resultText({state: null})).toBe("");
@@ -125,9 +133,16 @@ describe("a task's automatic training", () => {
 
     test("saved options fill the form, and the form gives them back", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000"});
+        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: ""});
+        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false});
+    });
+
+    test("Ignore Sky is an option only when it is ticked", () => {
+        const form = formFromOptions({steps: 2000, image_size: 1600, ignore_sky: true});
+        expect(form.ignore_sky).toBe(true);
+        expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 1600, ignore_sky: true});
+        expect(optionsFromForm({...form, ignore_sky: false}, null).options).toEqual({steps: 2000, image_size: 1600});
     });
 });
 

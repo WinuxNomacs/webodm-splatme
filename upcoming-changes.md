@@ -9,7 +9,7 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Masks: pixels the training ignores.
+1. Crop: train only inside the task's crop area.
 
 **Later**
 
@@ -26,6 +26,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- Ignore Sky (2026-11-14): a checkbox in the Train Splats dialog, the Train Splats When Completed dialog and
+  the SplatMe page's Automatic Training form; the worker masks the sky in the exported photos and the trainer
+  ignores it. `splatme/sky.py`, `training.py` (`export_and_send`, the `masking` state, `sky_masks`),
+  `public/OptionsFields.jsx`, `public/trainingView.js`, `templates/settings.html`. Tests: 9 in
+  `test_splatme.py`, 2 in Jest. See "Ignore Sky (built)".
 - Continue training (2026-11-14): the Train Splats dialog on a task's panel offers Start Over or Continue From
   Step N for a task SplatMe trained, and continuing asks only More Steps. Splat node 0.2.0 (`node/splatnode.py`:
   a job's model is a `.ply`; a zip that holds `resume.ply` continues it), `splatme/training.py` (`start` with
@@ -397,14 +402,59 @@ More Steps), not a button of its own.
   gaussians the model has. `--densify-until` could change that; not tried.
 - An existing 0.1.0 node is refused with "Update the node".
 
-### 1. Masks
+### Ignore Sky (built)
 
-OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
-no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
-area drawn by the user, moving objects) and how they are made.
+Decided with the user (2026-11-14): of the masks SplatMe could make, the sky first, found automatically; an
+area to train is the next phase (Crop); masks uploaded with the photos and moving objects are not planned.
+
+Checked:
+
+- OpenSplat 1.2.2 reads a mask per image from a `masks/` folder beside `images/` (`findMaskPath`,
+  `input_data.cpp`): `<image stem>.png`, a pixel above 127 is trained on, the others ignored; it resizes the
+  mask to the image. `--no-masks` turns that off.
+- A task keeps no masks: ODX's sky masks (its `sky-removal` option) are made in the processing node and not
+  returned.
+- ODX's sky model (`skyremoval.zip` v1.0.5 from ODX's GitHub release, an ONNX model with a 384 x 384 input)
+  runs with `onnxruntime`, which WebODM has (through `geodeep` in its `requirements.txt`). ODX's code around
+  it uses OpenCV, which WebODM lacks: the plugin does the same with Pillow, NumPy and SciPy.
+- The dev task (HomerunObliqueRGB) has no sky: its cameras look 40 to 50 degrees below the horizon or
+  straight down. The stack has no other task.
+
+Built:
+
+- **Ignore Sky**, off by default; an option of the training (`ignore_sky`), kept when continuing. The node is
+  not told: the masks are in the training zip as `masks/<image's name>.png`.
+- The worker makes the masks after the export, from the exported (resized) photos, in a stage of its own
+  ("Finding the sky"). The sky is looked for only above each photo's horizon, from the shot's rotation and the
+  camera's focal length (less a 5 degree margin); photos with nothing above it never load the model. A fisheye
+  or a panorama is searched whole.
+- The model is downloaded once, checked against a pinned checksum, into the plugin's persistent folder
+  (`media/plugins/splatme/models`).
+- A finished training says in how many photos sky was found (`sky_masks`).
+
+Checked on the dev stack (2026-11-14), in a process of its own that left the task's model alone: the export of
+959 photos with stand-in masks, sent to the real node, which logged "Found 414 masks" and trained. The real
+model over the same export: before the horizon limit it masked bright patches (0.5 to 4 % of the picture) in
+125 photos of a task that shows no sky, which is why the limit was added; with it, 6 photos are searched and 1
+gets a mask (0.6 % of it, at its upper edge). The dialogs and the page in a headless browser, desktop and phone.
+
+**Not measured, by the user's decision (2026-11-14): whether it improves a model.** The dev task shows no sky.
+The mask's edge (the guided filter's radius at the mask's size) is untried on real sky.
 
 Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
 and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
+
+### 1. Crop
+
+The user's request (2026-11-14): crop the splats with a GeoJSON file, as the model can be.
+
+Checked: a task has a crop polygon (`Task.crop`, drawn with the Crop button on the task's map), and WebODM's
+3D view already hides the splats outside it (`ModelView.jsx`, `sparkRenderer.cropVertices`), as it does the
+point cloud. The model file itself is not cut, and the training spends gaussians outside the area. A GeoJSON
+file is accepted today only by the Boundary option, at processing.
+
+To plan: train only inside the task's crop (the starting cloud and the trained model cut to it, the pixels
+outside masked), and whether the plugin takes a GeoJSON file for it or uses the task's crop.
 
 ### 2. Thermal tasks
 

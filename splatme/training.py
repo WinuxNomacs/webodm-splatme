@@ -28,6 +28,7 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError, connection, transaction
 from nodeodm import status_codes
 
+from . import sky
 from .node import Node, NodeError
 
 logger = logging.getLogger("app.logger")
@@ -36,7 +37,7 @@ logger = logging.getLogger("app.logger")
 NAME = __name__.split(".")[-2]
 PACKAGE = __name__.rsplit(".", 1)[0]
 
-ACTIVE = ("starting", "exporting", "uploading", "queued", "training", "importing")
+ACTIVE = ("starting", "exporting", "masking", "uploading", "queued", "training", "importing")
 STALE = 60  # seconds without a sign of the worker's job before another takes over
 BEAT = 10  # seconds between the signs
 POLL = 2  # seconds between questions to the node
@@ -307,6 +308,8 @@ def parse_options(given, node_info):
         if not limits["min"] <= value <= limits["max"]:
             raise TrainingError("{} must be between {} and {}.".format(name, limits["min"], limits["max"]))
         options[name] = value
+    if str(given.get("ignore_sky", "")).lower() in ("true", "1"):
+        options["ignore_sky"] = True  # masks made here: the node knows no such option
     return options
 
 
@@ -521,7 +524,7 @@ def run(task_id, run):
         finish(task_id, run, "canceled")
         if not Task.objects.filter(pk=task_id).exists():
             forget(task_id)
-    except (TrainingError, NodeError, ValueError, OSError) as e:
+    except (TrainingError, NodeError, sky.SkyError, ValueError, OSError) as e:
         # WebODM's export raises ValueError and FileNotFoundError with a message that names the problem
         logger.warning(f"SplatMe: training task {task_id} failed: {e}")
         finish(task_id, run, "failed", str(e))
@@ -564,8 +567,24 @@ def export_and_send(task_id, run, node, options, work, resume=None):
     splats.prepare_export(task, export_dir, image_size=options.get("image_size", 0), progress_callback=exporting)
     check_cancel(task_id)
 
-    update(task_id, run, state="uploading", status="", progress=0)
+    masks, sky_masks = [], None
+    if options.get("ignore_sky"):
+
+        def masking(status, perc):
+            check_cancel(task_id)
+            update(task_id, run, state="masking", status=str(status), progress=int(perc))
+
+        update(task_id, run, state="masking", status="", progress=0)
+        with open(os.path.join(export_dir, "images.json")) as f:
+            images = json.load(f)
+        masks = sky.make_masks(task, images, os.path.join(work, "masks"), masking)
+        sky_masks = len(masks)  # 0 says that no photo shows the sky
+        check_cancel(task_id)
+
+    update(task_id, run, state="uploading", status="", progress=0, sky_masks=sky_masks)
     archive = splats.export_zip(export_dir)
+    for path, image_name in masks:
+        archive.add_path(path, f"masks/{image_name}.png")  # the trainer looks for <image's name>.png
     if resume:
         archive.add_path(trained_model(task), RESUME_NAME)
     total = len(archive)
