@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, FAST, SLOW } from "../trainingView";
+import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -219,5 +219,17 @@ describe("the task panel's line on the Dashboard", () => {
         expect(splatsLine({state: null, task_status: 20, auto: {enabled: true}})).toBe("Trained when the task completes");
         expect(splatsLine({state: "failed", has_splats: false})).toBe("Training failed");
         expect(splatsLine({state: null, task_status: 40, auto: {enabled: false}})).toBe("None");
+    });
+});
+
+describe("a task's processing in its row", () => {
+    test("a running task shows how far WebODM is, in whole percent", () => {
+        expect(runningPercent({status: 20, running_progress: 0.456})).toBe(46);
+    });
+
+    test("a task that is not running shows no percent", () => {
+        expect(runningPercent({status: 10, running_progress: 0})).toBeNull();
+        expect(runningPercent({status: 40, running_progress: 1})).toBeNull();
+        expect(runningPercent({status: 20})).toBeNull();
     });
 });

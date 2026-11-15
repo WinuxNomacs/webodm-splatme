@@ -3,8 +3,8 @@ import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import OptionsFields from './OptionsFields';
 
-// SplatMe's panel above WebODM's New Task panel (NewTaskButton.jsx), drawn as WebODM's panels are: whether the task's splats are trained when it completes, and with which options. The values are
-// the parent's.
+// SplatMe's panel above WebODM's New Task panel on the Tasks page (NewTask.jsx), drawn as WebODM's panels are:
+// whether the task's splats are trained when it completes, and with which options. The values are the parent's.
 export default class SplatMePanel extends React.Component {
     static propTypes = {
         enabled: PropTypes.bool.isRequired,

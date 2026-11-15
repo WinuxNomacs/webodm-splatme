@@ -1,19 +1,25 @@
 import React from 'React';
 import { _ } from 'webodm/classes/gettext';
 import TrainSplats from './TrainSplats';
+import NewTask from './NewTask';
 import { request } from './api';
-import { panelMode, rowNote, taskStatusText, nextRefresh, resultText } from './trainingView';
+import { ACCEPT, projectByName } from './newTask';
+import { panelMode, rowNote, taskStatusText, nextRefresh, runningPercent, resultText, TASK_FAILED } from './trainingView';
 import './TrainSplats.scss';
 
 // SplatMe → Tasks (templates/tasks.html): the tasks the user may see, by project, each with its splats and what
 // can be done with them. One request for the whole list (api.py's tasks), asked again while a task trains or
 // processes. ?task=<id> (the task panel's Open in SplatMe) shows that task's project and marks the task.
+// New Task With Splats (NewTask.jsx) is in each project's heading; ?new=1 (the Dashboard's button) opens it for
+// ?project=<id>, or for the project ?name= names when only one has that name.
 export default class Tasks extends React.Component {
     constructor(props){
         super(props);
         const query = new URLSearchParams(window.location.search);
         this.focus = query.get("task");
-        this.state = {projects: null, error: null, project: query.get("project") || ""};
+        this.opening = query.get("new") ? {project: query.get("project"), name: query.get("name")} : null;
+        this.newTasks = 0;
+        this.state = {projects: null, error: null, project: query.get("project") || "", newTask: null};
     }
 
     componentDidMount(){
@@ -30,8 +36,12 @@ export default class Tasks extends React.Component {
         clearTimeout(this.timer);
         request("GET", "tasks").then(data => {
             if (!this._mounted) return;
-            const first = this.state.projects === null;
-            this.setState({projects: data.projects, error: null}, () => { if (first) this.showFocus(); });
+            const first = this.state.projects === null || this.focusNext;
+            this.focusNext = false;
+            this.setState({projects: data.projects, error: null}, () => {
+                if (first) this.showFocus();
+                if (this.opening) this.openFromAddress();
+            });
             this.schedule(data.projects);
         }).catch(e => {
             if (!this._mounted) return;
@@ -57,6 +67,49 @@ export default class Tasks extends React.Component {
             if (row && row.scrollIntoView) row.scrollIntoView({block: "center"});
         });
     }
+
+    // The Dashboard's New Task With Splats: the box opens with no files (a browser opens its file picker only on a
+    // click on this page)
+    openFromAddress(){
+        const { project, name } = this.opening;
+        this.opening = null;
+        const trainable = this.state.projects.filter(p => p.can_train);
+        const chosen = trainable.find(p => String(p.id) === project) || (name ? projectByName(trainable, name) : null);
+        this.setState({newTask: {projectId: chosen ? String(chosen.id) : null, files: [], key: ++this.newTasks}});
+    }
+
+    // The file picker for a project's new task (the hidden input, clicked inside the user's click)
+    pick(projectId){
+        this.pickFor = projectId;
+        if (this.fileInput) this.fileInput.click();
+    }
+
+    handlePicked = e => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = "";
+        if (!files.length) return;
+        this.setState({newTask: {projectId: this.pickFor, files, key: ++this.newTasks}}, () => {
+            const box = document.querySelector(".splatme-new-task-box");
+            if (box && box.scrollIntoView) box.scrollIntoView({block: "start"});
+        });
+    };
+
+    closeNewTask = () => {
+        this.setState({newTask: null});
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has("new")) return;
+        url.searchParams.delete("new");
+        url.searchParams.delete("name");
+        window.history.replaceState(null, "", url.pathname + url.search);
+    };
+
+    // WebODM committed the new task: it shows in its project, marked
+    handleCreated = taskId => {
+        this.closeNewTask();
+        this.focus = taskId;
+        this.focusNext = true;
+        this.load();
+    };
 
     // A row's action answered with the task's new status
     handleStatus = (taskId, status) => {
@@ -84,15 +137,17 @@ export default class Tasks extends React.Component {
         const result = hidden ? resultText(status) : "";
         const dashboard = "/dashboard/?project_task_open=" + project.id + "&project_task_expanded=" + task.id;
         const name = task.name || _("Task of") + " " + new Date(task.created_at).toLocaleString();
+        const percent = runningPercent(task);
         return (
             <li key={task.id} id={"splatme-task-" + task.id} className={"list-group-item splatme-row" + (task.id === this.focus ? " theme-border-primary splatme-focus" : "")}>
                 <div className="splatme-row-head">
                     <a href={dashboard} className="splatme-task-name"><i className="fa fa-tasks fa-fw"></i> {name}</a>
                     <span className="splatme-task-meta">
-                        {_(taskStatusText(task.status))}
+                        {_(taskStatusText(task.status))}{percent === null ? "" : ", " + percent + "%"}
                         {task.images_count ? " · " + Number(task.images_count).toLocaleString("en-US") + " " + (task.images_count === 1 ? _("image") : _("images")) : ""}
                     </span>
                 </div>
+                {task.status === TASK_FAILED && task.last_error ? <div className="text-danger splatme-task-error">{task.last_error}</div> : ""}
                 {hidden ?
                     <div className="splatme-task splatme-idle">
                         {status.has_splats ?
@@ -109,17 +164,24 @@ export default class Tasks extends React.Component {
     }
 
     render(){
-        const { projects, error, project } = this.state;
+        const { projects, error, project, newTask } = this.state;
         if (projects === null){
             return error ? <div className="alert alert-danger">{error}</div> :
                 <div><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading the tasks")}</div>;
         }
         const shown = projects.filter(p => !project || String(p.id) === project);
+        const trainable = projects.filter(p => p.can_train);
         return (
             <div className="splatme-tasks">
-                <p>{_("Train a completed task's Gaussian splats on the splat node, follow a training, and choose whether a task is trained when it completes processing.")}
-                    {" "}<a href="/dashboard/">{_("New Task With Splats")}</a> {_("is beside Select Images and GCP in a project on the Dashboard.")}</p>
+                <p>{_("Create a task whose Gaussian splats are trained when it completes processing, train a completed task's splats on the splat node, follow a training, and choose whether a task is trained when it completes.")}</p>
+                <input type="file" multiple accept={ACCEPT} className="hidden" ref={el => { this.fileInput = el; }} onChange={this.handlePicked} />
                 {error ? <div className="alert alert-warning">{error}</div> : ""}
+                {newTask ?
+                    <NewTask key={newTask.key} files={newTask.files} projects={trainable}
+                             project={trainable.find(p => String(p.id) === newTask.projectId) || null}
+                             onPick={() => this.pick(newTask.projectId)}
+                             onProject={id => this.setState({newTask: Object.assign({}, newTask, {projectId: id})})}
+                             onCreated={this.handleCreated} onClose={this.closeNewTask} /> : ""}
                 {projects.length ?
                     <div className="form-inline splatme-filter">
                         <label htmlFor="splatme-project">{_("Project")}</label>{" "}
@@ -131,7 +193,15 @@ export default class Tasks extends React.Component {
                     <p className="text-muted">{_("You have no projects yet. Create one on the Dashboard.")}</p>}
                 {shown.map(p =>
                     <div key={p.id} className="splatme-project">
-                        <h4><i className="fa fa-folder fa-fw"></i> {p.name}</h4>
+                        <h4 className="splatme-project-head">
+                            <span><i className="fa fa-folder fa-fw"></i> {p.name}</span>
+                            {p.can_train ?
+                                <button type="button" className="btn btn-default btn-sm splatme-new-task" disabled={!!newTask && newTask.projectId === String(p.id)}
+                                        onClick={() => this.pick(String(p.id))}
+                                        title={_("Create a task whose Gaussian splats are trained when it completes processing")}>
+                                    <i className="fa fa-splat fa-fw"></i> <span className="hidden-xs">{_("New Task With Splats")}</span>
+                                </button> : ""}
+                        </h4>
                         {p.tasks.length ?
                             <ul className="list-group">{p.tasks.map(t => this.renderTask(p, t))}</ul> :
                             <p className="text-muted">{_("No tasks in this project.")}</p>}

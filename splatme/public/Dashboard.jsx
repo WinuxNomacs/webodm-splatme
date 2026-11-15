@@ -6,8 +6,8 @@ import TaskLine from './TaskLine';
 import './TrainSplats.scss';
 
 // SplatMe's parts of the Dashboard (main.js starts this there), put in the page as WebODM draws it rather than
-// through WebODM's hooks, which keep only the first plugin's answer: the New Task With Splats button after a
-// project's buttons beside Select Images and GCP, and a line under a task panel's Task ID with the task's splats
+// through WebODM's hooks, which keep only the first plugin's answer: the New Task With Splats button (a link to
+// SplatMe's Tasks page) after a project's buttons beside Select Images and GCP, and a line under a task panel's Task ID with the task's splats
 // and Open in SplatMe. Where a place is not found, nothing is put there and WebODM's page works as ever.
 export default function start(){
     const parts = [];   // {anchor, container, element}: anchor is the element of WebODM's the part belongs to;

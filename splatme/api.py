@@ -17,8 +17,9 @@ The plugin's API, under /api/plugins/splatme/.
     POST automation          saves the user's own options; with reset true, drops them
     GET  automation/shared   the administrators' options, for users who saved none of their own
     POST automation/shared   sets them (administrators)
-    GET  tasks               the tasks the user may see, by project, each with its splats as task/<id>/status
-                             gives them (SplatMe's Tasks page, in one request); ?project=<id> for one project
+    GET  tasks               the tasks the user may see, by project, each with its processing (status, progress, error)
+                             and its splats as task/<id>/status gives them (SplatMe's Tasks page, in one request);
+                             ?project=<id> for one project
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
 """
@@ -230,7 +231,8 @@ class Tasks(APIView):
             for task in project.task_set.filter(partial=False).order_by("-created_at"):
                 tasks.append({
                     "id": str(task.id), "name": task.name, "status": task.status, "created_at": task.created_at,
-                    "images_count": task.images_count,
+                    "images_count": task.images_count, "running_progress": task.running_progress,
+                    "last_error": task.last_error,
                     "splats": summary(request, task, training.follow(task), may_train),
                 })  # fmt: skip
             out.append({"id": project.id, "name": project.name, "can_train": may_train, "tasks": tasks})

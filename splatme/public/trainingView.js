@@ -162,6 +162,12 @@ export function taskStatusText(code){
     return {10: "Queued", 20: "Running", 30: "Failed", 40: "Completed", 50: "Canceled"}[code] || "Waiting for a processing node";
 }
 
+// How far WebODM's processing of a running task is, in percent, or null when it is not running
+export function runningPercent(task){
+    if (!task || task.status !== TASK_RUNNING || task.running_progress == null) return null;
+    return Math.max(0, Math.min(100, Math.round(task.running_progress * 100)));
+}
+
 // Why a task's row has no Train Splats button, or "" when it has one or is training
 export function rowNote(status){
     if (!status || panelMode(status) !== "hidden") return "";
