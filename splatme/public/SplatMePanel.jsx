@@ -12,6 +12,7 @@ export default class SplatMePanel extends React.Component {
         form: PropTypes.object.isRequired,      // trainingView.formFromOptions
         advanced: PropTypes.bool.isRequired,
         error: PropTypes.string,
+        warning: PropTypes.string,              // shown above the form (WebODM not restarted since SplatMe came)
         showCrop: PropTypes.bool,               // false for a task known to have no boundary
         onEnabled: PropTypes.func.isRequired,   // (enabled)
         onChange: PropTypes.func.isRequired,    // (name, value)
@@ -23,6 +24,7 @@ export default class SplatMePanel extends React.Component {
         return (
             <div className="new-task-panel theme-background-highlight form-horizontal splatme-panel">
                 <p><b><i className="fa fa-splat fa-fw"></i> SplatMe</b> &mdash; {_("When this task completes processing, and each time it is processed again, its Gaussian splats are trained on the splat node. The model then shows in the task's 3D view.")}</p>
+                {this.props.warning ? <div className="alert alert-warning splatme-panel-warning"><i className="fa fa-exclamation-triangle fa-fw"></i> {this.props.warning}</div> : ""}
                 {error ? <div className="alert alert-warning splatme-panel-error">{error}</div> : ""}
                 <div className="checkbox">
                     <label>

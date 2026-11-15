@@ -16,6 +16,14 @@
 
     .splatme-auto{
         margin-top: 6px;
+
+        .splatme-auto-change{
+            margin-left: 8px;
+        }
+
+        .splatme-auto-warning{
+            margin-top: 4px;
+        }
     }
 
     .splatme-bar-row{
@@ -39,6 +47,33 @@
 // the look; the Edit Task panel's has its own spacing, which this one keeps
 .splatme-panel{
     margin-bottom: 8px;
+}
+
+// The New Task With Splats button, last in a project's button group: Bootstrap's group rules reach only the
+// group's own children, so the slot does what they do for a last button
+.splatme-button-slot{
+    float: left;
+
+    > .btn{
+        margin-left: -1px;
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+}
+
+// SplatMe's messages (notice.js), above the page's content at its bottom
+.splatme-notices{
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    z-index: 2000;
+    max-width: 640px;
+    margin-left: auto;
+
+    .alert{
+        margin-bottom: 8px;
+    }
 }
 
 .splatme-dialog{

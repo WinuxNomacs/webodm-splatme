@@ -14,12 +14,17 @@ The plugin's API, under /api/plugins/splatme/.
     GET  automation          the options SplatMe's panel starts with for a new task; with ?ranges=1 also the
                              node's range of each option (the panel is filled before the task exists)
     POST automation          sets them (administrators)
+    GET  find-task           ?project=<name>&task=<name>: the id of the only task so named in the only project so
+                             named that the user may see (SplatMe's panel above an Edit Task panel, when the page
+                             does not say which task it edits)
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
 """
 from app.api.common import check_project_perms
+from app.models import Project, Task
 from app.plugins.views import TaskView
 from django.http import HttpResponse
+from guardian.shortcuts import get_objects_for_user
 from rest_framework import exceptions, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -64,6 +69,8 @@ def describe(request, task, job):
     out["can_train"] = can_train(request, task)
     out["task_status"] = task.status
     out["auto"] = describe_auto(training.get_auto(task.id))
+    # Whether WebODM's worker tells the plugin of completed tasks, for a task set to train (None: not known)
+    out["listening"] = training.listens() if out["auto"]["enabled"] else None
     return out
 
 
@@ -150,8 +157,8 @@ class Automation(APIView):
 
     def describe(self, request):
         out = {"options": training.new_task_options(), "admin": request.user.is_superuser}
-        # Only an administrator can restart WebODM, so only they are told the worker does not listen yet
-        out["listening"] = training.worker_listens() if request.user.is_superuser else None
+        # Administrators, who can restart WebODM, are told what the worker says now; others what it said lately
+        out["listening"] = training.listens(fresh=request.user.is_superuser)
         return out
 
     def get(self, request):
@@ -168,6 +175,20 @@ class Automation(APIView):
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.describe(request))
+
+
+class FindTask(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        project, name = request.query_params.get("project", ""), request.query_params.get("task", "")
+        # As WebODM's own project list: a project's own permission, not the global one every user has
+        projects = get_objects_for_user(request.user, "app.view_project", Project, accept_global_perms=False)
+        projects = projects.filter(deleting=False, name=project)
+        found = list(Task.objects.filter(project__in=projects, name=name).values_list("id", flat=True)[:2])
+        if not project or not name or len(found) != 1:
+            raise exceptions.NotFound("No single task has that name.")
+        return Response({"id": str(found[0])})
 
 
 class NodeSettings(APIView):

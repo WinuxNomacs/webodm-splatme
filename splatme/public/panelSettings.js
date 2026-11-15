@@ -23,10 +23,13 @@ export function isEdit(settings){
     return method(settings) === "PATCH" && EDIT.test(path(settings));
 }
 
-// $: jQuery; isRequest(settings): whether a request is the one that saves a panel; apply(taskId, setting): gives
-// a choice to the task; every: milliseconds between two looks at whether a panel was closed without saving
-export function createPanelSettings($, isRequest, apply, every){
-    let waiting = [];   // {panel, setting, taskId}: panel is WebODM's panel's element; taskId, an Edit Task panel's
+// $: jQuery; isRequest(settings): whether a request is the one that saves a panel; apply(taskId, setting, task):
+// gives a choice to the task; every: milliseconds between two looks at whether a panel was closed without saving;
+// missed(setting): a panel whose save button was pressed closed and no request was heard (WebODM saves another
+// way than SplatMe knows): the choice did not reach the task
+export function createPanelSettings($, isRequest, apply, every, missed){
+    let waiting = [];   // {panel, setting, taskId, pressed}: panel is WebODM's panel's element; taskId, an Edit Task
+                        // panel's; pressed, whether its save button was the last pressed
     let saving = 0;     // WebODM's requests saving a panel that have no answer yet
     let listening = false, timer = null;
 
@@ -56,7 +59,7 @@ export function createPanelSettings($, isRequest, apply, every){
             const task = xhr.responseJSON;
             if (!(xhr.status >= 200 && xhr.status < 300 && task && task.id)) return;
             const entry = closed.find(e => !e.taskId || e.taskId === task.id);
-            if (entry) apply(task.id, entry.setting);
+            if (entry) apply(task.id, entry.setting, task);
         });
     }
 
@@ -68,12 +71,23 @@ export function createPanelSettings($, isRequest, apply, every){
 
         // setting: what apply is given for the task, or null for nothing; taskId: the task an Edit Task panel edits
         set(panel, setting, taskId){
+            const before = waiting.find(e => e.panel === panel);
             waiting = waiting.filter(e => e.panel !== panel);
             if (!setting) return;
-            waiting.push({panel, setting, taskId: taskId || null});
+            waiting.push({panel, setting, taskId: taskId || null, pressed: !!(before && before.pressed)});
             listen();
-            // A panel closed while nothing is being saved was canceled: its choice is forgotten
-            if (!timer) timer = setInterval(() => { if (saving === 0) takeClosed(); }, every || 1000);
+            // A panel closed while nothing is being saved was canceled, and its choice is forgotten; unless its
+            // save button was pressed last: then WebODM saved it without a request SplatMe knows
+            if (!timer) timer = setInterval(() => {
+                if (saving !== 0) return;
+                takeClosed().forEach(entry => { if (entry.pressed && missed) missed(entry.setting); });
+            }, every || 1000);
+        },
+
+        // pressed: whether the panel's save button (Review, Start Processing, Save) was pressed last, or Cancel
+        pressed(panel, pressed){
+            const entry = waiting.find(e => e.panel === panel);
+            if (entry) entry.pressed = pressed;
         }
     };
 }
