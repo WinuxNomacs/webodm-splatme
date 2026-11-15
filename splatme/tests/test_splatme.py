@@ -861,6 +861,35 @@ class TestSplatMe(BootTestCase):
         second.save()
         self.assertEqual(find(self.client, project="splatme test project", task="Survey").status_code, 404)
 
+    # The time left
+
+    def test_the_time_left_is_told_once_there_are_enough_steps_from_the_rate_of_the_last_minutes(self):
+        self.assertIsNone(training.time_left([], 7000))
+        self.assertIsNone(training.time_left([(0, 0), (20, 100)], 7000))  # too soon
+        self.assertIsNone(training.time_left([(0, 0), (60, 10)], 7000))  # too few steps
+        # 10 steps a second throughout: 6,000 steps left take 600 s
+        self.assertEqual(training.time_left([(0, 0), (60, 600), (100, 1000)], 7000), 600)
+        # Slower lately (5 steps a second for the last 3 minutes): that rate, not the average from the start
+        samples = [(0, 0), (100, 2000), (280, 2900)]
+        self.assertEqual(training.time_left(samples, 7000), 4100 / 5)
+        # A continued training's steps start at its model's
+        self.assertEqual(training.time_left([(0, 7000), (100, 8000)], 14000), 600)
+
+    def test_only_the_samples_the_estimate_needs_are_kept(self):
+        samples = [(t, t * 10) for t in range(0, 400, 20)]
+        kept = training.keep_window(samples)
+        self.assertEqual(kept[0], (200, 2000))  # the latest one a window old
+        self.assertEqual(kept[-1], samples[-1])
+        self.assertEqual(training.time_left(kept, 7000), training.time_left(samples, 7000))
+
+    def test_the_step_and_the_time_left_are_written_as_the_panel_writes_durations(self):
+        remote = {"step": 4650, "options": {"steps": 7000}}
+        self.assertEqual(training.step_status(remote, []), ("Step 4,650 of 7,000", None))
+        self.assertEqual(training.step_status(remote, [(0, 4000), (100, 4650)])[0], "Step 4,650 of 7,000, about 6 min left")
+        self.assertEqual(training.left_text(20), "less than a minute left")
+        self.assertEqual(training.left_text(3600), "about 1 h left")
+        self.assertEqual(training.left_text(4800), "about 1 h 20 min left")
+
     def test_deleting_a_task_removes_its_setting(self):
         task = make_task(self.user)
         self.auto(task, enabled=True)
