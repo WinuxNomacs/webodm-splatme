@@ -14,6 +14,7 @@ import urllib.error
 from unittest import mock
 
 import numpy as np
+from app import splats
 from app.models import Plugin, Project, Task
 from app.plugins import get_plugin_by_name, signals
 from app.tests.classes import BootTestCase
@@ -23,7 +24,7 @@ from nodeodm import status_codes
 from PIL import Image
 from rest_framework.test import APIClient
 
-from .. import crop, sky, training
+from .. import crop, sky, thermal, training
 from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
@@ -35,6 +36,28 @@ def add_file(task, name, data=b"x"):
     os.makedirs(task.task_path(), exist_ok=True)
     with open(task.task_path(name), "wb") as f:
         f.write(data)
+
+
+def write_tiff(path, temperatures, dtc=True):
+    """A TIFF of temperatures as DJI Thermal Analyzer writes one (float32, degrees Celsius, its XMP), or without
+    its metadata."""
+    xmp = b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+    xmp += b'<rdf:Description Camera:BandName="LWIR"' + (b' xmlns:dtc="urn:dji-thermal-cli:xmp:1.0"' if dtc else b"")
+    xmp += b"/></rdf:RDF></x:xmpmeta>"
+    Image.fromarray(np.asarray(temperatures, dtype=np.float32), "F").save(path, format="TIFF", tiffinfo={700: xmp})
+
+
+THERMAL = ["thermal_1.tif", "thermal_2.tif"]
+
+
+def make_thermal_task(user, dtc=True):
+    """A completed task of DJI Thermal Analyzer's TIFFs, 48 x 36: the first from 10 to 20 degrees left to right,
+    the second from 20 to 30."""
+    task = make_task(user, images=THERMAL)
+    for i, name in enumerate(THERMAL):
+        os.remove(task.task_path(name))
+        write_tiff(task.task_path(name), np.tile(np.linspace(10 + 10 * i, 20 + 10 * i, 48), (36, 1)), dtc)
+    return task
 
 
 def make_task(user, images=IMAGES, status=status_codes.COMPLETED, rotation=(0.1, 0.2, 0.3)):
@@ -1029,3 +1052,80 @@ class TestSplatMe(BootTestCase):
         task_id = task.id
         task.delete()
         self.assertFalse(training.get_auto(task_id)["enabled"])
+
+    # Thermal tasks
+
+    def test_a_thermal_task_is_trained_on_its_temperatures_drawn_in_its_palette(self):
+        task = make_thermal_task(self.user)
+        self.assertIsNone(training.problem(task))
+        self.assertTrue(self.client.get(f"{API}/task/{task.id}/check").data["thermal"])
+        res = self.train(task, steps=10, palette="iron")
+        self.assertEqual(res.status_code, 200, res.data)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed", status)
+        self.assertEqual(status["options"], {"steps": 10, "image_size": 1600, "palette": "iron"})
+        self.assertEqual(status["thermal"]["palette"], "iron")
+        # The 1st and 99th percentiles of every 4th pixel: within the photos' 10 to 30 degrees, near both ends
+        self.assertTrue(10 <= status["thermal"]["low"] < 11, status["thermal"])
+        self.assertTrue(29 < status["thermal"]["high"] <= 30, status["thermal"])
+        names = self.node.jobs["job1"]["names"]
+        self.assertIn("images/thermal_1.jpg", names)
+        self.assertIn("images/thermal_2.jpg", names)
+        self.assertFalse(any(name.endswith(".tif") for name in names))
+
+        # Continuing keeps the palette, as it does the other options
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        self.assertEqual(self.status(task)["thermal"]["palette"], "iron")
+
+    def test_the_thermal_photos_are_drawn_over_one_range_for_the_whole_task(self):
+        task = make_thermal_task(self.user)
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        stand_in, drawn = thermal.draw(task, "gray", folder)
+        first = np.asarray(Image.open(stand_in.get_image_path("thermal_1.jpg")).convert("L"), dtype=int)
+        second = np.asarray(Image.open(stand_in.get_image_path("thermal_2.jpg")).convert("L"), dtype=int)
+        self.assertEqual(first.shape, (36, 48))
+        self.assertLess(first[:, 0].mean(), 10)  # 10 degrees, the coldest: black
+        self.assertGreater(second[:, -1].mean(), 245)  # 30 degrees, the hottest: white
+        # 20 degrees is the right edge of the first photo and the left edge of the second: the same grey in both
+        self.assertLess(abs(first[:, -1].mean() - second[:, 0].mean()), 4)
+        self.assertLess(abs(first[:, -1].mean() - 128), 8)
+        # WebODM's export reads the drawn photos under their new names
+        shots = splats.load_scene(stand_in, 0)[1]
+        self.assertEqual(sorted(shot["filename"] for shot in shots), ["thermal_1.jpg", "thermal_2.jpg"])
+        self.assertEqual(drawn["palette"], "gray")
+
+    def test_each_thermal_palette_runs_from_cold_to_hot(self):
+        for key in thermal.palette_keys():
+            table = thermal.colours(key)
+            self.assertEqual(table.shape, (256, 3), key)
+        self.assertEqual(thermal.colours("gray")[255].tolist(), [255, 255, 255])
+        self.assertEqual(thermal.colours("gray_r")[255].tolist(), [0, 0, 0])
+        self.assertEqual(thermal.colours("iron")[0].tolist(), [0, 0, 0])
+        self.assertEqual(thermal.palette_name("gray_r"), "Black Hot")
+
+    def test_an_unknown_palette_is_refused(self):
+        task = make_thermal_task(self.user)
+        res = self.train(task, palette="ironred")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("palette", res.data["error"])
+        self.assertEqual(self.node.jobs, {})
+
+    def test_ignore_sky_is_not_applied_to_a_thermal_task(self):
+        task = make_thermal_task(self.user)
+        load = self.find_sky(sky.MODEL_INPUT // 2)
+        self.assertEqual(self.train(task, steps=10, ignore_sky="true").status_code, 200)
+        load.assert_not_called()
+        self.assertEqual(self.node.jobs["job1"]["masks"], {})
+        self.assertIsNone(self.status(task)["sky_masks"])
+
+    def test_tiffs_that_dji_thermal_analyzer_did_not_write_are_neither_listed_nor_trained(self):
+        dji = make_thermal_task(self.user)
+        other = make_thermal_task(self.user, dtc=False)
+        self.assertTrue(training.compatible(dji))
+        self.assertFalse(training.compatible(other))
+        self.assertIn("DJI Thermal Analyzer", training.problem(other))
+        self.assertFalse(self.client.get(f"{API}/task/{other.id}/check").data["thermal"])
+        listed = {t["id"] for p in self.client.get(f"{API}/tasks").data["projects"] for t in p["tasks"]}
+        self.assertIn(str(dji.id), listed)
+        self.assertNotIn(str(other.id), listed)

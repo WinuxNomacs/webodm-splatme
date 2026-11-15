@@ -28,7 +28,7 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError, connection, transaction
 from nodeodm import status_codes
 
-from . import crop, sky
+from . import crop, sky, thermal
 from .node import Node, NodeError
 
 logger = logging.getLogger("app.logger")
@@ -37,7 +37,7 @@ logger = logging.getLogger("app.logger")
 NAME = __name__.split(".")[-2]
 PACKAGE = __name__.rsplit(".", 1)[0]
 
-ACTIVE = ("starting", "exporting", "masking", "uploading", "queued", "training", "importing")
+ACTIVE = ("starting", "drawing", "exporting", "masking", "uploading", "queued", "training", "importing")
 STALE = 60  # seconds without a sign of the worker's job before another takes over
 BEAT = 10  # seconds between the signs
 POLL = 2  # seconds between questions to the node
@@ -266,26 +266,30 @@ def problem(task):
         return f"The task's camera results cannot be read: {e}"
     names = [shot["filename"] for shot in shots]
     other = [name for name in names if os.path.splitext(name)[1].lower() not in (".jpg", ".jpeg")]
-    if other:
-        return f"Only JPEG images can be trained on, and {other[0]} is not one."
+    if other and not thermal.is_thermal(task):
+        return f"Only JPEG images and DJI Thermal Analyzer's TIFFs can be trained on, and {other[0]} is neither."
     if not any(os.path.isfile(task.task_path(name)) for name in names):
         return "The task's images are gone, and training needs them."
     return None
 
 
-# Image files a task may have that are not JPEG: such a task cannot be trained (WebODM's export takes JPEG only)
+# Image files a task may have that are not JPEG: such a task cannot be trained (WebODM's export takes JPEG only),
+# unless its TIFFs are DJI Thermal Analyzer's (thermal.py)
 OTHER_IMAGES = (".tif", ".tiff", ".png", ".dng", ".nef", ".raw", ".webp", ".bmp", ".gif")
 
 
 def compatible(task):
     """
-    Whether SplatMe's Tasks page lists the task: it has splats, or its photos are JPEG and, once completed, it can
-    train. Cheaper than problem() (its files and assets, not its cameras), for every task of a list.
+    Whether SplatMe's Tasks page lists the task: it has splats, or its photos are JPEG (or DJI Thermal Analyzer's
+    TIFFs) and, once completed, it can train. Cheaper than problem() (its files and assets, not its cameras), for
+    every task of a list.
     """
     if "splats.rad" in task.available_assets:
         return True
-    names = [os.path.splitext(name)[1].lower() for name in task.scan_images()]
-    if not any(ext in (".jpg", ".jpeg") for ext in names) or any(ext in OTHER_IMAGES for ext in names):
+    images = task.scan_images()
+    names = [os.path.splitext(name)[1].lower() for name in images]
+    jpeg = any(ext in (".jpg", ".jpeg") for ext in names) and not any(ext in OTHER_IMAGES for ext in names)
+    if not jpeg and not thermal.is_thermal(task, images):
         return False
     if task.status != status_codes.COMPLETED:
         return True
@@ -373,6 +377,11 @@ def parse_options(given, node_info):
         options["ignore_sky"] = True  # masks made here: the node knows no such option
     if str(given.get("crop", "")).lower() in ("false", "0"):
         options["crop"] = False  # a task with a boundary is cropped to it unless this says not to
+    palette = given.get("palette")
+    if palette not in (None, "", thermal.DEFAULT_PALETTE):
+        if palette not in thermal.palette_keys():
+            raise TrainingError("palette must be one of {}.".format(", ".join(thermal.palette_keys())))
+        options["palette"] = palette  # a thermal task's colours; kept for any task, as its setting may be reused
     return options
 
 
@@ -584,7 +593,7 @@ def run(task_id, run):
         finish(task_id, run, "canceled")
         if not Task.objects.filter(pk=task_id).exists():
             forget(task_id)
-    except (TrainingError, NodeError, sky.SkyError, ValueError, OSError) as e:
+    except (TrainingError, NodeError, sky.SkyError, thermal.ThermalError, ValueError, OSError) as e:
         # WebODM's export raises ValueError and FileNotFoundError with a message that names the problem
         logger.warning(f"SplatMe: training task {task_id} failed: {e}")
         finish(task_id, run, "failed", str(e))
@@ -623,12 +632,25 @@ def export_and_send(task_id, run, node, options, work, resume=None):
         check_cancel(task_id)
         update(task_id, run, state="exporting", status=str(status), progress=int(perc))
 
+    source = task
+    if thermal.is_thermal(task):
+
+        def drawing(status, perc):
+            check_cancel(task_id)
+            update(task_id, run, state="drawing", status=str(status), progress=int(perc))
+
+        update(task_id, run, state="drawing", status="", progress=0)
+        palette = options.get("palette", thermal.DEFAULT_PALETTE)
+        source, drawn = thermal.draw(task, palette, os.path.join(work, "thermal"), drawing)
+        update(task_id, run, thermal=drawn)
+        check_cancel(task_id)
+
     update(task_id, run, state="exporting", status="", progress=0)
-    splats.prepare_export(task, export_dir, image_size=options.get("image_size", 0), progress_callback=exporting)
+    splats.prepare_export(source, export_dir, image_size=options.get("image_size", 0), progress_callback=exporting)
     check_cancel(task_id)
 
     masks, sky_masks = [], None
-    if options.get("ignore_sky"):
+    if options.get("ignore_sky") and source is task:  # the sky model is for colour photos, not a thermal task's
 
         def masking(status, perc):
             check_cancel(task_id)

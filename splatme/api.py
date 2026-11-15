@@ -34,13 +34,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import crop, training
+from . import crop, thermal, training
 from .node import Node, NodeError
 
 # What a page may know of a job: not its run id, nor the node's job
 PUBLIC = (
     "state", "progress", "status", "error", "options", "user", "auto", "started", "finished", "sky_masks", "cropped",
-    "time_left",
+    "time_left", "thermal",
 )  # fmt: skip
 UNAVAILABLE = "The splat node is not available. Ask an administrator to check SplatMe's settings."
 
@@ -110,6 +110,7 @@ class Check(TaskView):
             "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None,
             "defaults": training.DEFAULTS, "has_splats": "splats.rad" in task.available_assets,
             "trained_steps": training.trained_steps(task), "boundary": bool(crop.boundary(task)),
+            "thermal": thermal.is_thermal(task),
         }  # fmt: skip
         if out["problem"] is None:
             out["warnings"] = training.warnings(task)
