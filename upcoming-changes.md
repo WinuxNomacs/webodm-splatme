@@ -9,15 +9,16 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. New tasks in SplatMe: SplatMe → Tasks creates a task itself (photos, GCP, processing node, options) and
+   follows its processing, through WebODM's API.
 
 **Later**
 
-2. New tasks in SplatMe: SplatMe → Tasks creates a task itself (photos, GCP, processing node, options) and
-   follows its processing, through WebODM's API.
-3. Native Windows app: a trainer run as a local program.
-4. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
+2. Native Windows app: a trainer run as a local program.
+3. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
    OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
+4. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+   After the phases above, so thermal tasks get what they build, and released with the next webodm-dji-thermal.
 5. Docs and first release.
 6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
@@ -169,7 +170,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 3. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 2. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -182,9 +183,9 @@ other software. The plugin does that step.
   the structure-from-motion results: each photo's solved position and rotation (`shots.geojson`), the calibrated
   cameras with their lens distortion (`cameras.json`) and the dense georeferenced point cloud
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
-  redoes the alignment. What more to use is phases 1 to 3.
+  redoes the alignment.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (1): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (4): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
@@ -278,7 +279,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 3).
+  candidate for the native Windows app (phase 2).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -286,7 +287,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 1 (Thermal tasks).
+  starting. Converting them is phase 4 (Thermal tasks).
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -686,7 +687,7 @@ Decisions (2026-11-15, the user's):
   Tasks page. If a WebODM draws the panel differently, the line is missing and nothing else is lost.
 - **SplatMe's panel above Edit Task goes**: a task's Train Splats When Completed and its options are set on the
   Tasks page only. The panel above New Task (New Task With Splats) stays.
-- **Creating a task in SplatMe is a later phase** (2): until then the Tasks page's New Task With Splats points
+- **Creating a task in SplatMe is the next phase** (1): until then the Tasks page's New Task With Splats points
   to the Dashboard's button.
 
 Design:
@@ -724,20 +725,13 @@ the Tasks page lists only their own project, Settings shows the node and its add
 admin page answers 403, and `node` sends no `token_set`. Not checked: a list of many tasks (one request, but a
 data store read or two per task); a project shared with a user for viewing only (Django tests cover it).
 
-### 1. Thermal tasks
-
-WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
-plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
-task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
-that the export can be given the converted images (it reads `task.get_image_path`).
-
-### 2. New tasks in SplatMe
+### 1. New tasks in SplatMe
 
 SplatMe → Tasks creates a task itself, as WebODM's New Task panel does (photos and GCP uploaded in parts:
 `POST /api/projects/<id>/tasks/` with `partial`, `upload/`, `commit/`; the processing node and options), with
 Train Splats When Completed, and follows its processing and training. To plan with the user.
 
-### 3. Native Windows app
+### 2. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
@@ -787,7 +781,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 4. OpenSplat presets
+### 3. OpenSplat presets
 
 Requested 2026-11-15 (`new.md`): become an expert in OpenSplat, to choose the best presets SplatMe should offer
 to guide users. Part of the plugin's refinement, before the first release.
@@ -811,6 +805,17 @@ Image Size, Max Gaussians), `training.DEFAULTS` (7,000 steps, 1,600 px), the nod
 Open decisions (with the user, after the study): the presets themselves; new options exposed (and through the
 node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
 moving the node to OpenSplat's newer commit.
+
+### 4. Thermal tasks
+
+WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
+plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
+task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
+that the export can be given the converted images (it reads `task.get_image_path`).
+
+Moved later (2026-11-15, the user's decision): it is released at the same time as the next webodm-dji-thermal,
+whose release the user makes, and thermal tasks are to benefit from the work before it (new tasks in SplatMe,
+the presets). webodm-dji-thermal itself is still not touched from here.
 
 ### 5. Docs and first release
 
