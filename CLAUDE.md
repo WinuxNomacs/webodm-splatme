@@ -26,7 +26,8 @@ it short; edit in place.
   - The manifest says `"experimental": true` until the user decides otherwise; licence AGPL-3.0.
   - The guide's "no tests unless asked" does not apply: the user's rules ask for tests.
 - **WebODM 4.0.0, Docker installs** (Python 3.14, Django 5.2, DRF 3.18): `webodmMinVersion` is 4.0.0 and Ruff
-  targets py314. The native Windows app and 3.3.2 are not supported yet.
+  targets py314. The native Windows app is not supported (it has no `splat-tools` and cannot build a plugin's
+  page scripts); 3.3.2 is not supported yet.
 - **WebODM's own splat code is reused, not copied**: the export (`app/splats.py`, `prepare_export`), the
   conversion (`splat-tools`, run as `worker/tasks.py`'s `process_splats` runs it, on the `.ply` the trainer writes) and the asset (`splats.rad`,
   `assets/splats/model.rad`), which the 3D view, the download and the share links already serve. The plugin adds

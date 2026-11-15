@@ -9,20 +9,22 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Native Windows app: SplatMe on WebODM's native Windows app, with the same splat node in Docker Desktop.
-
+1. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
+   OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
 **Later**
 
-2. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
-   OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
-3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
    After the phases above, so thermal tasks get what they build, and released with the next webodm-dji-thermal.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Docs and first release.
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
 
+- Native Windows app (2026-11-15, the user's decision after checking their native install): WebODM's native
+  app is not ready for it. It ships no `splat-tools` (WebODM's own Splats import cannot convert there either)
+  and no Node or webpack to build a plugin's page scripts. SplatMe supports Docker installs of WebODM only. See
+  "Native Windows app (dropped)".
 - Denser starting cloud (2026-11-14, the user's decision after the measurements): more starting points gave no
   better result on the dev task at several times the training time. See "Denser starting cloud (dropped)".
 - Restarting WebODM's worker from the SplatMe page, and starting a training from the task's panel when the
@@ -175,7 +177,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 1, with the splat node in Docker (decided 2026-11-15). 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app was planned, then dropped (2026-11-15: see "Native Windows app (dropped)"). 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -190,7 +192,7 @@ other software. The plugin does that step.
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
   redoes the alignment.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (3): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (2): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
@@ -251,7 +253,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 4.
+  workflow, to decide in phase 3.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -284,7 +286,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 1).
+  candidate for the native Windows app (since dropped).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -292,7 +294,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 3 (Thermal tasks).
+  starting. Converting them is phase 2 (Thermal tasks).
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -409,13 +411,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 5).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 4).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 5).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
 
 ### SplatMe's panel (built)
 
@@ -463,7 +465,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 5. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 4. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -793,7 +795,7 @@ Remove. An upload canceled after the creation: `remove/` sent, the box closed, t
 refused (404). Afterwards neither task nor its setting was left. Not checked live: a file in parts (the photos
 were under 8 MB; Jest covers the fields), Try Again after a failed file (Jest), a slow connection.
 
-### 1. Native Windows app
+### Native Windows app (dropped)
 
 Decided with the user (2026-11-15): **SplatMe requires Docker for the splat node on Windows too.** On WebODM's
 native Windows app, the administrator runs the same node image in Docker Desktop (WSL2, NVIDIA driver), as on a
@@ -832,8 +834,9 @@ temporary relay (the app listens on Windows' 127.0.0.1 only):
   "as seen from WebODM's own containers" on the settings pages assume Docker.
 - Left on the instance: SplatMe installed and enabled, the node set, one failed training.
 
-Open decisions (with the user): how the native app gets `splat-tools`; whether the release's zip ships the built
-page scripts for every install (WebODM's Docker image builds them, but a built zip works on both).
+Dropped by the user after this check (2026-11-15): WebODM's native app is not ready for SplatMe, which is
+fine. Not pursued: Splat-Tools' Windows build downloaded by the plugin, the node doing the conversion, a zip
+with the page scripts built for the native app.
 
 ### Less fragile page parts (built)
 
@@ -881,7 +884,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 2. OpenSplat presets
+### 1. OpenSplat presets
 
 Requested 2026-11-15 (`new.md`): become an expert in OpenSplat, to choose the best presets SplatMe should offer
 to guide users. Part of the plugin's refinement, before the first release.
@@ -906,7 +909,7 @@ Open decisions (with the user, after the study): the presets themselves; new opt
 node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
 moving the node to OpenSplat's newer commit.
 
-### 3. Thermal tasks
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
@@ -917,7 +920,7 @@ Moved later (2026-11-15, the user's decision): it is released at the same time a
 whose release the user makes, and thermal tasks are to benefit from the work before it (new tasks in SplatMe,
 the presets). webodm-dji-thermal itself is still not touched from here.
 
-### 4. Docs and first release
+### 3. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -935,7 +938,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
