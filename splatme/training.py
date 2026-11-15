@@ -42,6 +42,11 @@ STALE = 60  # seconds without a sign of the worker's job before another takes ov
 BEAT = 10  # seconds between the signs
 POLL = 2  # seconds between questions to the node
 NODE_PATIENCE = 300  # seconds a node may not answer mid-training (it is being updated) before the job fails
+# The time the steps left take, from the rate of the last few minutes (OpenSplat's steps slow down as the model
+# grows: a rate from the start would promise too little), once there are enough steps to tell
+ESTIMATE_WINDOW = 180
+ESTIMATE_AFTER = 30
+ESTIMATE_STEPS = 20
 
 # What a job trains with when the request does not say; the node's ranges apply to all but image_size
 DEFAULTS = {"steps": 7000, "image_size": 1600}
@@ -627,8 +632,52 @@ def export_and_send(task_id, run, node, options, work, resume=None):
     return node_job
 
 
+def time_left(samples, total):
+    """
+    The seconds the steps left should take, from (time, step) samples of this training in the order seen (a
+    continued training's steps start at its model's), or None while there are too few to tell.
+    """
+    if not samples:
+        return None
+    (first_time, first_step), (now, step) = samples[0], samples[-1]
+    if now - first_time < ESTIMATE_AFTER or step - first_step < ESTIMATE_STEPS:
+        return None
+    # From the latest sample at least a window old, or the first
+    since, since_step = next(((t, s) for t, s in reversed(samples) if now - t >= ESTIMATE_WINDOW), samples[0])
+    if now <= since or step <= since_step:
+        return None
+    return max(0.0, (total - step) * (now - since) / (step - since_step))
+
+
+def keep_window(samples):
+    """The samples time_left needs: those of the last window, and the latest one before it."""
+    now = samples[-1][0]
+    older = [i for i, (t, _s) in enumerate(samples) if now - t >= ESTIMATE_WINDOW]
+    return samples[older[-1]:] if older else samples
+
+
+def left_text(seconds):
+    """"about 12 min left", as the panel writes durations (trainingView.js)."""
+    minutes = round(seconds / 60)
+    if minutes < 1:
+        return "less than a minute left"
+    if minutes < 60:
+        return f"about {minutes} min left"
+    return f"about {minutes // 60} h {minutes % 60} min left" if minutes % 60 else f"about {minutes // 60} h left"
+
+
+def step_status(remote, samples):
+    """"Step 4,650 of 7,000, about 12 min left" (the time once it can be told), and the seconds left or None."""
+    step, total = remote.get("step", 0), remote.get("options", {}).get("steps")
+    if not isinstance(total, int):
+        return f"Step {step:,}", None
+    left = time_left(samples, total)
+    return (f"Step {step:,} of {total:,}" + (f", {left_text(left)}" if left is not None else "")), left
+
+
 def wait_for_node(task_id, run, node, node_job):
     silent_since = None
+    samples = []  # (time, step) of this training, for the time left
     while True:
         check_cancel(task_id)
         try:
@@ -660,8 +709,11 @@ def wait_for_node(task_id, run, node, node_job):
             status = "Position {} in the node's queue".format(remote.get("position") or 1)
             update(task_id, run, state="queued", progress=0, status=status)
         else:
-            status = "Step {} of {}".format(remote.get("step", 0), remote.get("options", {}).get("steps", "?"))
-            update(task_id, run, state="training", progress=remote.get("progress", 0), status=status)
+            if isinstance(remote.get("step"), int) and (not samples or remote["step"] != samples[-1][1]):
+                samples = keep_window(samples + [(time.time(), remote["step"])])
+            status, left = step_status(remote, samples)
+            update(task_id, run, state="training", progress=remote.get("progress", 0), status=status,
+                   time_left=None if left is None else round(left))
         time.sleep(POLL)
 
 
@@ -680,7 +732,7 @@ def convert(trained, model):
 
 
 def import_model(task_id, run, node, node_job, work):
-    update(task_id, run, state="importing", status="", progress=0)
+    update(task_id, run, state="importing", status="", progress=0, time_left=None)
     trained = os.path.join(work, "model.ply")
     node.result(node_job, trained)
     if os.path.getsize(trained) == 0:

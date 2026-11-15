@@ -9,15 +9,13 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Time left: the training's stage says about how long its steps have left ("Step 4,650 of 7,000, about 12 min
-   left"). See "1. Time left".
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-3. Native Windows app: a trainer run as a local program.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Native Windows app: a trainer run as a local program.
+3. Docs and first release.
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -29,6 +27,10 @@ other software. The plugin does that step.
   by hand once after installing or updating, as the README says.
 
 **Done**
+
+- Time left (2026-11-15): "Step 4,650 of 7,000, about 12 min left" in the task's panel while it trains.
+  `splatme/training.py` (`time_left`, `keep_window`, `left_text`, `step_status`, in `wait_for_node`),
+  `api.py` (`time_left` in the status). Tests: 3 new in `test_splatme.py` (62). See "Time left (built)".
 
 - Less fragile page parts (2026-11-15): SplatMe says where it cannot add its parts to WebODM's pages (notices,
   the Edit Task panel's "cannot tell which task"), warns while WebODM's worker does not hear of completed tasks,
@@ -570,12 +572,12 @@ Checked on the dev stack: the task's real model cropped into a scratch file (246
 and converted by WebODM's converter; the dialogs and the page in a headless browser. Not checked: a training
 from the browser, and the cropped model in the 3D view.
 
-### 1. Time left
+### Time left (built)
 
 The user's request (2026-11-15): the estimated time left beside the current step and the total, in the task's
 panel while a training runs ("Training Splats: Step 4,650 of 7,000, about 12 min left").
 
-Design (no decision open):
+Design (no decision open), built so:
 
 - **Worked out where the training is followed**: the worker's loop that asks the node for its job every few
   seconds (`training.py`, `follow`). It keeps the steps it saw with their times, in memory (the loop is one
@@ -590,14 +592,20 @@ Design (no decision open):
   are not in it; the text says "left" of the steps, beside "Step N of M". The node's API is unchanged.
 - Tests: the estimate from a series of (time, step) samples, as a plain function (Django test), and its text.
 
-### 2. Thermal tasks
+Built: the samples are kept for the last 3 minutes plus the latest one before (`keep_window`); the estimate
+shows after 30 s and 20 steps of this training; the status also has `time_left` in seconds, cleared when the
+model is imported. The step numbers are now written with thousands separators. Not checked: a real training
+(the worker runs a training with the code it loaded, so it shows from a training started after WebODM's
+worker restarts).
+
+### 1. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 3. Native Windows app
+### 2. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
@@ -647,7 +655,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 4. Docs and first release
+### 3. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -665,7 +673,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

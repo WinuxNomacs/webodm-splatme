@@ -44,7 +44,7 @@ describe("the progress bar", () => {
     });
 
     test("the stage is named, with the job's own detail when it gives one", () => {
-        expect(stageText({state: "training", status: "Step 1200 of 7000"})).toBe("Training: Step 1200 of 7000");
+        expect(stageText({state: "training", status: "Step 1,200 of 7,000"})).toBe("Training: Step 1,200 of 7,000");
         expect(stageText({state: "importing", status: ""})).toBe("Importing the model");
         expect(stageText({state: null})).toBe("");
     });

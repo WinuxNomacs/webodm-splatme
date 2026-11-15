@@ -69,8 +69,9 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    adds few new gaussians, so a model that lacks detail everywhere is better started over at a higher
    Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
    be continued.
-3. **Follow it**: the task's panel shows the stage, a progress bar, **Cancel** and **Show Log** (the trainer's
-   output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
+3. **Follow it**: the task's panel shows the stage (while training, the step, such as "Step 4,650 of 7,000,
+   about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
+   progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
 
 4. **Train automatically**: in a project on the Dashboard, press **New Task With Splats**, beside **Select
    Images and GCP**, and pick the photos. WebODM's New Task panel opens with SplatMe's panel above it: **Train
@@ -114,7 +115,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
 | `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one) and `trained_steps`: the steps of the model a training can continue from |
 | `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out), `crop` (false keeps the splats outside the task's boundary). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
-| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), `time_left` (while training, the seconds the steps left should take, once known), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options |
