@@ -11,6 +11,14 @@ export const PRESETS = [
     {key: "high", label: "High", steps: 30000, hint: "The sharpest model. Training takes about 25 minutes and 7 GB of GPU memory on a laptop GPU."}
 ];
 
+// Thermal Colours: the palettes a thermal task's temperatures are drawn in (thermal.py's PALETTES), coldest to hottest
+export const THERMAL_PALETTES = [
+    {key: "gray", label: "Grayscale"}, {key: "gray_r", label: "Black Hot"}, {key: "iron", label: "Iron"},
+    {key: "magma", label: "Magma"}, {key: "inferno", label: "Inferno"}, {key: "plasma", label: "Plasma"},
+    {key: "viridis", label: "Viridis"}, {key: "cividis", label: "Cividis"}, {key: "jet", label: "Jet"}
+];
+export const DEFAULT_PALETTE = "gray";
+
 // What a number of steps the trainer handles badly does, from its schedule (densification runs until half the
 // steps, from step 500, every 500; a final prune every 3,000 steps after it); "" for any other
 export function stepsNote(steps){
@@ -25,6 +33,7 @@ export function stepsNote(steps){
 // training take nearly all of the time)
 const STAGES = [
     {state: "starting", label: "Starting", share: 0},
+    {state: "drawing", label: "Drawing the thermal photos", share: 0},  // a thermal task's only, and quick
     {state: "exporting", label: "Exporting the photos", share: 25},
     {state: "masking", label: "Finding the sky", share: 5},
     {state: "uploading", label: "Sending to the splat node", share: 5},
@@ -101,6 +110,7 @@ export function optionsFromForm(form, ranges){
     }
     if (form.ignore_sky) options.ignore_sky = true;
     if (form.crop === false) options.crop = false;
+    if (form.palette && form.palette !== DEFAULT_PALETTE) options.palette = form.palette;
     return {options};
 }
 
@@ -128,7 +138,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false};
+    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"
@@ -152,8 +162,23 @@ export function duration(seconds){
     return Math.floor(minutes / 60) + " h " + (minutes % 60) + " min";
 }
 
-// How a finished job is summed up beside the button, or "" when there is nothing to say
-export function resultText(job){
+// A temperature in degrees Celsius as the user reads them: Fahrenheit when WebODM's unit system is imperial
+export function temperatureText(celsius, imperial){
+    const value = imperial ? celsius * 9 / 5 + 32 : celsius;
+    return value.toLocaleString("en-US", {minimumFractionDigits: 1, maximumFractionDigits: 1}) + (imperial ? " °F" : " °C");
+}
+
+// A thermal task's colours and the range they span ({palette, low, high}, from the job)
+export function thermalText(drawn, imperial){
+    if (!drawn) return "";
+    const palette = THERMAL_PALETTES.find(p => p.key === drawn.palette);
+    return "Thermal Colours: " + (palette ? palette.label : drawn.palette) + ", from " +
+        temperatureText(drawn.low, imperial) + " to " + temperatureText(drawn.high, imperial) + ".";
+}
+
+// How a finished job is summed up beside the button, or "" when there is nothing to say.
+// imperial: temperatures in Fahrenheit (WebODM's unit system)
+export function resultText(job, imperial){
     if (!job || !job.state) return "";
     if (job.state === "completed"){
         const took = job.started && job.finished ? " in " + duration(job.finished - job.started) : "";
@@ -163,7 +188,7 @@ export function resultText(job){
             " Sky ignored in " + Number(job.sky_masks).toLocaleString("en-US") + (job.sky_masks === 1 ? " photo." : " photos.") :
             " No photo shows the sky.";
         return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + "." + sky +
-            (job.cropped ? " Cropped to the task's boundary." : "");
+            (job.cropped ? " Cropped to the task's boundary." : "") + (job.thermal ? " " + thermalText(job.thermal, imperial) : "");
     }
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
     if (job.state === "canceled") return "Training canceled.";

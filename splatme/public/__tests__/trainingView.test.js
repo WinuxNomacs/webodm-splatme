@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -159,9 +159,9 @@ describe("a task's automatic training", () => {
 
     test("saved options fill the form, and the form gives them back", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false, crop: true});
+        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true});
+        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
     });
 
     test("Crop To Boundary is on unless it is unticked", () => {
@@ -175,6 +175,35 @@ describe("a task's automatic training", () => {
         expect(form.ignore_sky).toBe(true);
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 1600, ignore_sky: true});
         expect(optionsFromForm({...form, ignore_sky: false}, null).options).toEqual({steps: 2000, image_size: 1600});
+    });
+});
+
+describe("a thermal task's colours", () => {
+    test("the palettes are thermal.py's, Grayscale first and the default", () => {
+        expect(THERMAL_PALETTES.map(p => p.key)).toEqual(["gray", "gray_r", "iron", "magma", "inferno", "plasma", "viridis", "cividis", "jet"]);
+        expect(DEFAULT_PALETTE).toBe("gray");
+    });
+
+    test("a palette is an option only when it is not the default", () => {
+        const form = formFromOptions({steps: 7000, image_size: 1600, palette: "iron"});
+        expect(form.palette).toBe("iron");
+        expect(optionsFromForm(form, null).options).toEqual({steps: 7000, image_size: 1600, palette: "iron"});
+        expect(optionsFromForm({...form, palette: "gray"}, null).options).toEqual({steps: 7000, image_size: 1600});
+    });
+
+    test("the row names the palette and the range it spans, in the user's unit", () => {
+        const drawn = {palette: "iron", low: 10.31, high: 43.49};
+        expect(thermalText(drawn, false)).toBe("Thermal Colours: Iron, from 10.3 °C to 43.5 °C.");
+        expect(thermalText(drawn, true)).toBe("Thermal Colours: Iron, from 50.6 °F to 110.3 °F.");
+        expect(temperatureText(-5, false)).toBe("-5.0 °C");
+        expect(resultText({state: "completed", options: {steps: 7000}, thermal: {palette: "gray", low: 1, high: 2}}))
+            .toBe("Splats trained (7,000 steps). Thermal Colours: Grayscale, from 1.0 °C to 2.0 °C.");
+        expect(thermalText(null)).toBe("");
+    });
+
+    test("drawing the thermal photos is a stage of its own", () => {
+        expect(stageText({state: "drawing", status: "Finding the temperature range"})).toBe("Drawing the thermal photos: Finding the temperature range");
+        expect(overallProgress({state: "drawing", progress: 50})).toBe(0);
     });
 });
 

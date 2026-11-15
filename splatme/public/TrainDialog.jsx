@@ -4,7 +4,7 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, DEFAULT_PALETTE } from './trainingView';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
 // that all point down, the options, and Start Training. A task whose trained model SplatMe kept can be continued
@@ -19,7 +19,7 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
-                      form: {steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true}};
+                      form: {steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
     }
 
     componentDidMount(){
@@ -105,7 +105,7 @@ export default class TrainDialog extends React.Component {
                                 </span>
                             </div>
                         </div> :
-                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
+                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>
         );

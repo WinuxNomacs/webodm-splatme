@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps, stepsNote } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote, THERMAL_PALETTES } from './trainingView';
 
 // A training's options as form rows: the Quality choice, and under Advanced the numbers. Used by the Train Splats
 // and Change dialogs and by SplatMe's panel above WebODM's New Task panel; the form's values are the parent's.
@@ -11,7 +11,8 @@ export default class OptionsFields extends React.Component {
         advanced: PropTypes.bool.isRequired,
         onChange: PropTypes.func.isRequired,   // (name, value)
         onAdvanced: PropTypes.func.isRequired, // (open)
-        showCrop: PropTypes.bool               // false for a task known to have no boundary
+        showCrop: PropTypes.bool,              // false for a task known to have no boundary
+        thermal: PropTypes.bool                // a thermal task: Thermal Colours, and no Ignore Sky
     };
 
     handlePreset = e => {
@@ -49,6 +50,16 @@ export default class OptionsFields extends React.Component {
                         <span className="help-block">{preset ? _(preset.hint) : _(stepsNote(form.steps) || "More steps give a sharper model and take longer.")}</span>
                     </div>
                 </div>
+                {this.props.thermal ?
+                    <div className="form-group">
+                        <label className="col-sm-4 control-label">{_("Thermal Colours")}</label>
+                        <div className="col-sm-8">
+                            <select className="form-control splatme-palette" value={form.palette} onChange={e => this.props.onChange("palette", e.target.value)}>
+                                {THERMAL_PALETTES.map(p => <option key={p.key} value={p.key}>{_(p.label)}</option>)}
+                            </select>
+                            <span className="help-block">{_("The colours the temperatures are drawn in, which the model shows. They run from the task's coldest to its hottest, the same in every photo.")}</span>
+                        </div>
+                    </div> :
                 <div className="form-group">
                     <div className="col-sm-8 col-sm-offset-4">
                         <div className="checkbox"><label>
@@ -57,7 +68,7 @@ export default class OptionsFields extends React.Component {
                         </label></div>
                         <span className="help-block">{_("For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.")}</span>
                     </div>
-                </div>
+                </div>}
                 {this.props.showCrop === false ? "" :
                     <div className="form-group">
                         <div className="col-sm-8 col-sm-offset-4">

@@ -6,6 +6,7 @@ import LogDialog from './LogDialog';
 import AutoDialog from './AutoDialog';
 import { NOT_LISTENING } from './restartText';
 import { request } from './api';
+import { getUnitSystem } from 'webodm/classes/Units';
 import { overallProgress, stageText, panelMode, resultText, autoText } from './trainingView';
 
 // A task's splats on SplatMe's Tasks page (Tasks.jsx): the Train Splats button, while a training runs its stage,
@@ -103,7 +104,7 @@ export default class TrainSplats extends React.Component {
     }
 
     renderButton(status, waiting){
-        const result = waiting ? "" : resultText(status);
+        const result = waiting ? "" : resultText(status, getUnitSystem() === "imperial");
         return (
             <div className="splatme-idle">
                 <button type="button" className="btn btn-sm btn-primary" disabled={waiting} onClick={() => this.setState({dialog: true})}
