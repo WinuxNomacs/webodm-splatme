@@ -580,7 +580,7 @@ The release is experimental, so some fragility is accepted; this lessens it with
 internals; the panels and the button are placed by WebODM's page markup; the choice is saved on hearing
 WebODM's own requests; New Task With Splats presses Select Images and GCP.
 
-Proposed (the user agreed to the second way of finding the task and to the button; the rest awaits them):
+Decided with the user (2026-11-15):
 
 - **Never fail silently**: New Task With Splats that opens no New Task panel says so in the project; an Edit
   Task panel whose task is not found says the training cannot be set there; a setting that could not be saved
@@ -595,8 +595,10 @@ Proposed (the user agreed to the second way of finding the task and to the butto
   immediate answer drops DJI Thermal's (which answers after loading its script), and any other plugin's that
   answers late. Out of the hook, SplatMe drops none. (Agreed in principle; the Import menu and the New Task
   panel's item were weighed and have the same race.)
-- **Open**: bring back Change beside "Train Splats When Completed" in the task's panel, as the way that uses
-  only WebODM's hooks.
+- **Change comes back** beside "Train Splats When Completed" in the task's panel, which shows the line on every
+  task (Off too), with its dialog (Train Splats When Completed, Quality, Ignore Sky, Crop To Boundary,
+  Advanced): the way to set the training that uses only WebODM's hooks (`addTaskActionButton`), so it works
+  when the page-placed panels do not, and shows whether a task is set to train without opening Edit.
 - For the release phase: a committed browser check run against each new WebODM before supporting it, and the
   page parts turned off on a WebODM newer than tested.
 
