@@ -35,8 +35,8 @@ other software. The plugin does that step.
   then continued to 3,000 (the node's job started at step 2,010; WebODM's converter took 15 s for a 125 MB
   `.ply`), run in a process of its own because the dev worker still has the old code; the dialog in a headless
   browser at desktop and phone width, with the train request answered by the check. Not checked: the continued
-  model in the 3D view; a training started from the browser through WebODM's worker (it needs the worker
-  restarted, as after any update of the plugin).
+  model in the 3D view. The user then continued the task from the browser through WebODM's worker, which had
+  not been restarted: 3,000 to 6,000 steps, imported as a `.rad` with the `.ply` kept.
 
 - Task Options (2026-11-14): a task's automatic training in WebODM's Edit Task Options dialog (the Options
   row's Edit button in the New Task and Edit Task panels), below `pc-quality` in the Point Cloud section,

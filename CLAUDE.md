@@ -77,8 +77,9 @@ it short; edit in place.
 - The plugin's code runs in two containers: views in `sm-webapp`, `run_function_async` jobs in `sm-worker`. They
   share `/webodm/app/media` (tasks, the plugin's persistent folder). The worker imports every plugin once, when it
   starts (Celery's Django checks import `app.urls`), without calling `register()`: a module-level signal
-  receiver is connected there, and after a change to `splatme/` the worker runs the old code, receivers
-  included, until it restarts.
+  receiver is connected there, and after a change to `splatme/` it keeps the receivers it connected until it
+  restarts. A `run_function_async` job started after a change was seen running the new code without a restart
+  (2026-11-15, a continued training from the browser); why was not looked into, so do not count on either.
 - The first start runs WebODM's dev setup (npm install, webpack, migrations) for several minutes before the server
   answers. The startup log then shows `Registered [coreplugins.splatme.plugin]`.
 - Host tools: `uv venv --python 3.13 .venv && uv pip install -r requirements-dev.txt` (Django and DRF for the IDE,
