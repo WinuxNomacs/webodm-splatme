@@ -957,6 +957,92 @@ Open decisions (with the user, after the study): the presets themselves; new opt
 node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
 moving the node to OpenSplat's newer commit.
 
+**Study of OpenSplat's code (2026-11-15, at e33f9dd).** The trainer is FastGS-style (multi-view scored
+densification and pruning), not the original 3DGS schedule.
+
+- **The two commits after the node's pin** (688944f, e33f9dd): a CI change, and a fix to the image decoder. A
+  decode failure was printed and its slot dropped, which could leave training waiting for that frame forever; it
+  now fails the training with "Image decode failed". The staging buffers move from each slot to each decoder
+  thread. No change to training or options: a reason to move the node to e33f9dd, nothing else.
+- **The schedule follows the steps** (`-n`, default 30,000):
+  - Densification (clone and split, from a score over 10 random training photos) every `--refine-every` (500)
+    steps, after `--densify-from` (500) and while below `--densify-until` (-1: half the steps, at most 15,000).
+    The opacity is reset every 3,000 steps while densifying.
+  - After densification, a final prune every 3,000 steps (faint gaussians and the worst scored).
+  - The optimiser steps every step while densifying, then accumulates gradients and steps every 32 steps, and
+    every 64 after two thirds of the steps (at most 20,000): the late steps are cheaper.
+  - The position learning rate decays over the steps; SH degree grows by one every `--sh-degree-interval`
+    (1,000) steps up to `--sh-degree` (3).
+- **Draft (2,000 steps) never densifies**: densification runs only at a step above 500, below 1,000 and a
+  multiple of 500, and none is. Its model is the starting point cloud, optimised and never grown. 3,000 steps
+  densifies at 1,000 only; 4,000 at 1,000 and 1,500.
+- **Max Gaussians is a soft cap**: a densification stops growing only once the count is already at the cap, so
+  one refine can go past it (the extra clones it allows are those that would be cloned anyway).
+- **GPU memory** follows the gaussians (each carries 59 floats at SH degree 3, plus Adam's two moments and the
+  gradients) and the image size (the rasteriser's tiles and per-pixel buffers). Images are decoded on demand from
+  a compressed cache in RAM (90% of it), so the photo count costs RAM and preparation time, not GPU memory.
+- **Other options**: `--downscale-factor` (the node's `downscale`, which SplatMe does not use: its Image Size
+  resizes in WebODM's export instead), `--num-downscales` and `--resolution-schedule` (train at lower
+  resolution first), `--ssim-weight` (0.2), `--loss-thresh` (0.1), `--no-edge-guidance`, `--no-masks`, `--val`
+  (holds one photo out and prints its PSNR at the end).
+- **A resumed training** (`--resume`, SplatMe's Continue Training) loads the gaussians and the step count from
+  the `.ply` header; the optimiser's state starts over, and the schedule continues from that step against the new
+  `-n`.
+
+**Measured (2026-11-15).** OpenSplat 62fd86f (the node's pin) run by hand in `sm-splat-node` on WebODM's own
+export (`prepare_export`, 1,600 px unless said), RTX 5060 Laptop GPU (8 GB, about 1.2 GB used by the desktop
+before a run; the memory below is the peak above that), one photo held out (`--val`). The time includes the
+trainer's preparation of the photos. HomerunObliqueII9: 217 oblique photos. Photo A is `…_0133_V.JPG`, photo B
+`…_0071_V.JPG`; PSNR compares only within a photo.
+
+| Steps | Time | GPU memory | Gaussians at the end | PSNR, photo A | PSNR, photo B |
+|---|---|---|---|---|---|
+| 2,000 | 82 s | 2.2 GB | 405,004 (none grown) | 16.77 | 17.69 |
+| 2,000, refining every 250 from 250 | 87 s | 2.5 GB | 408,347 | 17.69 | |
+| 3,000 | 119 s | 2.3 GB | 406,657 | 17.68 | 19.21 |
+| 4,000 | 139 s | 2.6 GB | 208,192 | 15.58 | |
+| 6,000 | 200 s | 2.7 GB | 415,057 | 19.61 | 21.49 |
+| 7,000 | 270 s | 3.5 GB | 224,455 | 20.63 | 21.76 |
+| 9,000 | 304 s | 3.8 GB | 206,569 | 20.95 | |
+| 10,000 | 339 s | 3.8 GB | 206,308 | 21.10 | 23.32 |
+| 12,000 | 500 s | 4.3 GB | 240,854 | 22.06 | |
+| 15,000 | 603 s | 4.7 GB | 236,416 | 22.44 | |
+| 20,000 | 1,003 s | 5.6 GB | 265,498 | 23.06 | |
+| 30,000 | 1,558 s | 6.5 GB | 326,504 | 23.77 | 27.57 |
+| 30,000, Max Gaussians 1 million | 1,597 s | 6.2 GB | 330,888 | 23.81 | |
+| 7,000, 1,000 px | 170 s | 1.8 GB | 207,567 | 20.51 (at 1,000 px) | |
+| 7,000, 2,400 px | 564 s | 6.8 GB | 233,306 | 20.23 (at 2,400 px) | |
+| 7,000, SH degree 1 | 264 s | 3.3 GB | 216,526 | 19.89 | |
+| 7,000, SH degree 2 | 269 s | 3.4 GB | 226,430 | 20.26 | |
+
+HomerunObliqueRGB, 1,005 photos (the trainer's own pick of a held-out photo, `…151152_0038_V.JPG`):
+
+| Steps | Time | GPU memory | Gaussians at the end | PSNR |
+|---|---|---|---|---|
+| 7,000 | 275 s | 4.9 GB | 262,024 | 19.66 |
+| 30,000 | 1,252 s | 6.6 GB | 543,634 (858,204 at its peak, step 14,500) | 21.56 |
+
+- **More steps keep paying up to 30,000**: from 7,000, each doubling of the time gave about 1 dB on photo A;
+  photo B gained 5.8 dB from 7,000 to 30,000. No plateau was reached.
+- **The step count interacts with the schedule.** 2,000 steps grows nothing (see the study); 4,000 steps is
+  worse than 3,000, because its final prune at 3,000 halves a weak model and the optimiser then steps only
+  every 32 steps. 6,000 has no final prune, 7,000 one at 6,000, and 7,000 is still better: a prune late in a
+  longer training does no harm.
+- **Time and memory follow the steps and the image size, hardly the photo count**: 1,005 photos at 30,000
+  steps took less time than 217 (21 against 26 minutes) and 0.1 GB more memory. The photos are decoded on
+  demand from RAM.
+- **Max Gaussians did not matter on these tasks**: no training came near 5 million (the trainer's default) or
+  1 million. Memory is driven by the image size (2,400 px: 6.8 GB at 7,000 steps) and the steps.
+- **Image Size**: 2,400 px gave nothing at 7,000 steps for twice the time and nearly all of the GPU; 1,000 px
+  saved half the memory and a third of the time.
+- **SH degree** below 3 lost 0.4 to 0.7 dB and saved almost nothing.
+- **30,000 steps on 8 GB** peaked at 6.6 GB above the desktop's 1.2 GB: it fits, with about 0.3 GB to spare.
+- Earlier runs on HomerunObliqueRGB ("Denser starting cloud") measured 6.5 GB at 7,000 steps where this one
+  measured 4.9 GB; not looked into (a different export, 959 photos then, and a different way of sampling).
+- Not measured: a nadir-only task (the dev stack has none; the one from the spike is on the user's own WebODM),
+  a small task (under 100 photos), a GPU other than the 8 GB one, OpenSplat at e33f9dd (it changes no training
+  code).
+
 ### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
