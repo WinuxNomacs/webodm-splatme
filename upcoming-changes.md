@@ -727,9 +727,49 @@ data store read or two per task); a project shared with a user for viewing only 
 
 ### 1. New tasks in SplatMe
 
-SplatMe → Tasks creates a task itself, as WebODM's New Task panel does (photos and GCP uploaded in parts:
-`POST /api/projects/<id>/tasks/` with `partial`, `upload/`, `commit/`; the processing node and options), with
-Train Splats When Completed, and follows its processing and training. To plan with the user.
+SplatMe → Tasks creates a task itself, with Train Splats When Completed, and follows its processing and
+training.
+
+Builds on: the Tasks page (one `tasks` request, asked again while a task processes or trains), SplatMePanel
+(Train Splats When Completed, Quality, Ignore Sky, Crop To Boundary, Advanced, from the user's New Task With
+Splats defaults), `POST task/<id>/auto`, and WebODM's own task API, which its New Task panel uses
+(`ProjectListItem.jsx`): `POST /api/projects/<pid>/tasks/` with `partial: true` (name, options,
+processing_node, auto_processing_node, align_to, resize_to: resizing is done by the server), then each file to
+`.../tasks/<tid>/upload/` (Dropzone's chunk fields optional; WebODM's nginx has no body size limit), then
+`.../tasks/<tid>/commit/`, which starts processing.
+
+Design (checked in WebODM's and webodm-dji-thermal's code):
+
+- **New Task With Splats on the Tasks page**: a button in each project's heading (the user needs
+  `change_project`, as for training). It opens the browser's file picker (WebODM's accepted types: images,
+  text files such as GCP, geo.txt and image_groups.txt, .las/.laz, video, .srt, .dng, .nef, .gpx), then a
+  panel in that project's section: SplatMe's panel (as on the Dashboard today) above **WebODM's own New Task
+  panel**, imported from WebODM (`webodm/components/NewTaskPanel`, as webodm-dji-thermal does), so the name,
+  processing node, options and presets, resize, align to and the GCP and map previews are WebODM's, and stay
+  WebODM's when it changes them.
+- **SplatMe uploads the task itself**: create the partial task, save its training setting with `POST
+  task/<id>/auto` *before* any file goes (so it is there whenever the task completes, with no listening to
+  WebODM's requests), upload the files a few at a time with retries (as webodm-dji-thermal's `upload.js`),
+  then commit. The row shows the upload's progress; leaving the page while it runs asks first (it would stop
+  the upload). If a file still fails after the retries: Try Again for the files left, or Cancel, which deletes
+  the partial task.
+- **Processing followed in the row**: WebODM's status with its progress (`running_progress`) and, for a failed
+  task, WebODM's error (`last_error`); the `tasks` answer gains both. Then the training as today. Processing
+  actions (cancel, restart, delete) stay on the Dashboard, linked from the task's name.
+- Tests: Jest for the upload's steps (the order, retries, cancel) with WebODM's API stubbed; Django for the new
+  fields; a browser check that creates a small task on the dev stack and deletes it afterwards (a write the
+  user is asked about first).
+
+Decided with the user (2026-11-15):
+
+- **The Dashboard's New Task With Splats opens SplatMe's**: the button (still placed by SplatMe beside Select
+  Images and GCP) goes to SplatMe → Tasks with that project's new task open (`?project=<id>&new=1`). A browser
+  opens a file picker only on a click on that page, so the panel there starts with Select Images and GCP.
+  SplatMe's panel above WebODM's New Task panel on the Dashboard goes, and with it the saving on hearing
+  WebODM's requests (`panelSettings.js`): a task made from WebODM's own New Task panel is not trained by itself,
+  as today, and can be set with Change.
+- **Processing actions stay on the Dashboard**: the row shows the status, the progress and WebODM's error; the
+  task's name links to its panel.
 
 ### 2. Native Windows app
 
