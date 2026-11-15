@@ -28,7 +28,7 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError, connection, transaction
 from nodeodm import status_codes
 
-from . import sky
+from . import crop, sky
 from .node import Node, NodeError
 
 logger = logging.getLogger("app.logger")
@@ -310,6 +310,8 @@ def parse_options(given, node_info):
         options[name] = value
     if str(given.get("ignore_sky", "")).lower() in ("true", "1"):
         options["ignore_sky"] = True  # masks made here: the node knows no such option
+    if str(given.get("crop", "")).lower() in ("false", "0"):
+        options["crop"] = False  # a task with a boundary is cropped to it unless this says not to
     return options
 
 
@@ -668,12 +670,25 @@ def import_model(task_id, run, node, node_job, work):
     node.result(node_job, trained)
     if os.path.getsize(trained) == 0:
         raise TrainingError("The splat node sent an empty model.")
-    update(task_id, run, status="Converting the model")
+    task = Task.objects.get(pk=task_id)
+    shown, cropped = trained, None
+    rings = crop.boundary(task) if (get_job(task_id) or {}).get("options", {}).get("crop", True) else []
+    if rings:
+        # Only the model the task shows is cropped: a later training continues from all the trainer made
+        update(task_id, run, status="Cropping to the task's boundary")
+        inside = os.path.join(work, "cropped.ply")
+        try:
+            kept, total = crop.crop_ply(trained, inside, rings)
+        except (ValueError, KeyError) as e:
+            raise TrainingError(f"The trained model could not be cropped to the task's boundary: {e}") from None
+        if 0 < kept < total:
+            shown, cropped = inside, total - kept
+    update(task_id, run, status="Converting the model", cropped=cropped)
     model = os.path.join(work, "model.rad")
-    convert(trained, model)
+    convert(shown, model)
 
     # As WebODM's own import does (worker/tasks.py, process_splats); the model replaces the task's only now
-    task = Task.objects.get(pk=task_id)
+    task.refresh_from_db()
     if task.status != status_codes.COMPLETED or "georeferenced_model.laz" not in task.available_assets:
         raise TrainingError("The task was processed again while its splats trained. Start the training again.")
     dest = task.get_asset_file_or_stream("splats.rad")

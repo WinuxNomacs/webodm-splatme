@@ -34,6 +34,7 @@ it short; edit in place.
   containers: they have no GPU.
 - **The plugin's code**: `training.py` (a task's job and its record, automatic training and its settings),
   `sky.py` (Ignore Sky: masks of the sky in a training's photos, made with ODX's sky model),
+  `crop.py` (Crop To Boundary: the trained model cut to the task's boundary GeoJSON),
   `node.py` (the splat node's API as the plugin uses it), `api.py` (the views), `plugin.py` (the mount points,
   the menu item, the scripts, the signal receivers). State is
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,

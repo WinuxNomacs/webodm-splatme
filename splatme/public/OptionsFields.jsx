@@ -10,7 +10,8 @@ export default class OptionsFields extends React.Component {
         form: PropTypes.object.isRequired,
         advanced: PropTypes.bool.isRequired,
         onChange: PropTypes.func.isRequired,   // (name, value)
-        onAdvanced: PropTypes.func.isRequired  // (open)
+        onAdvanced: PropTypes.func.isRequired, // (open)
+        showCrop: PropTypes.bool               // false for a task known to have no boundary
     };
 
     handlePreset = e => {
@@ -57,6 +58,16 @@ export default class OptionsFields extends React.Component {
                         <span className="help-block">{_("For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.")}</span>
                     </div>
                 </div>
+                {this.props.showCrop === false ? "" :
+                    <div className="form-group">
+                        <div className="col-sm-8 col-sm-offset-4">
+                            <div className="checkbox"><label>
+                                <input type="checkbox" className="splatme-crop" checked={form.crop !== false}
+                                       onChange={e => this.props.onChange("crop", e.target.checked)} /> {_("Crop To Boundary")}
+                            </label></div>
+                            <span className="help-block">{_("For a task processed with a boundary (a GeoJSON file): the splats outside it are left out, as they are of the point cloud and the mesh.")}</span>
+                        </div>
+                    </div>}
                 <div className="form-group">
                     <div className="col-sm-8 col-sm-offset-4">
                         <a href="javascript:void(0)" className="splatme-advanced" onClick={() => this.props.onAdvanced(!advanced)}>

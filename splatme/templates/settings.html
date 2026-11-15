@@ -88,6 +88,12 @@ the node's address and token and that default as a form (api.py: node, automatio
     </div>
     <div class="form-group">
         <div class="col-sm-9 col-sm-offset-3">
+            <div class="checkbox"><label><input type="checkbox" id="splatme-auto-crop"> Crop To Boundary</label></div>
+            <span class="help-block">For a task processed with a boundary (a GeoJSON file): the splats outside it are left out, as they are of the point cloud and the mesh.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
             <div class="checkbox"><label><input type="checkbox" id="splatme-auto-sky"> Ignore Sky</label></div>
             <span class="help-block">For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.</span>
         </div>
@@ -199,6 +205,7 @@ the node's address and token and that default as a form (api.py: node, automatio
     var size = document.getElementById("splatme-auto-size");
     var gaussians = document.getElementById("splatme-auto-gaussians");
     var sky = document.getElementById("splatme-auto-sky");
+    var crop = document.getElementById("splatme-auto-crop");
     var saved = document.getElementById("splatme-auto-saved");
     var error = document.getElementById("splatme-auto-error");
 
@@ -237,6 +244,7 @@ the node's address and token and that default as a form (api.py: node, automatio
         size.value = options.image_size == null ? "" : options.image_size;
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
         sky.checked = !!options.ignore_sky;
+        crop.checked = options.crop !== false;
         qualityOfSteps();
     }
 
@@ -262,7 +270,7 @@ the node's address and token and that default as a form (api.py: node, automatio
             url: API, type: "POST", contentType: "application/json",
             headers: {"X-CSRFToken": "{{ csrf_token }}"},
             data: JSON.stringify({enabled: enabled.checked, steps: steps.value, image_size: size.value,
-                max_gaussians: gaussians.value, ignore_sky: sky.checked})
+                max_gaussians: gaussians.value, ignore_sky: sky.checked, crop: crop.checked})
         }).done(function(data){
             show(data);
             saved.style.display = "";

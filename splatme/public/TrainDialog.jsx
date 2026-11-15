@@ -19,7 +19,7 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
-                      form: {steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false}};
+                      form: {steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true}};
     }
 
     componentDidMount(){
@@ -105,7 +105,7 @@ export default class TrainDialog extends React.Component {
                                 </span>
                             </div>
                         </div> :
-                        <OptionsFields form={form} advanced={advanced} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
+                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>
         );
