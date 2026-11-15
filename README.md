@@ -34,7 +34,7 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 | Request | Does |
 |---|---|
 | `GET /info` | The node, its trainer, its GPU, its queue and the options a job accepts |
-| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total |
+| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`. Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total |
 | `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error |
 | `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
 | `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
@@ -50,6 +50,13 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    (2,000 steps), Standard (7,000) or High (30,000); **Advanced** has the steps, the image size and the most
    gaussians as numbers. The dialog says first if the task cannot be trained, and warns when nearly all photos
    point straight down.
+
+   **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the
+   model: SplatMe finds the sky in each photo and the training leaves those pixels out. Photos that look too
+   far down to show the horizon are not searched. Finding the sky takes a few minutes more (about 0.2 s a
+   photo on WebODM's CPU), and the task's line then says in how many photos it was found. The first training
+   with it downloads the sky model (180 MB, the one ODX uses for its sky removal) from ODX's releases on
+   github.com into WebODM's media folder (`plugins/splatme/models`), so WebODM must reach that address once.
 
    A task SplatMe has trained can be trained further instead of starting over: the dialog then opens with
    **Start Over** and **Continue From Step** (the steps the model has), and continuing asks only **More
@@ -93,8 +100,8 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET node` | The node's state or that it is not available; for administrators also its address and what is wrong. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
 | `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, and `trained_steps`: the steps of the model a training can continue from |
-| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`. With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
-| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, whether the task has a splat model and whether the user may train it |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), whether the task has a splat model and whether the user may train it |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options, and whether that is the task's `own` setting or the default |
