@@ -813,6 +813,28 @@ To check on the user's native install (it runs on their Windows machine): the ve
 enabled, its pages built; the node's address saved and tested; one training, imported and shown in 3D; a task
 trained by itself after the app's restart. Then the README's install steps for Windows and the restart wording.
 
+Checked on the user's native app (2026-11-15, a throwaway instance; writes approved), from WSL through a
+temporary relay (the app listens on Windows' 127.0.0.1 only):
+
+- **WebODM 4.0.0** on Python 3.14 (waitress, Celery with eventlet, PostgreSQL 18, Valkey), in desktop mode (the
+  login page signs the local user in).
+- **No Node, npm or webpack**: WebODM's plugin build skips the page scripts, so **the zip must ship
+  `public/build`** (it is used as is when present). A zip with the dev stack's build installed and enabled from
+  Administration → Plugins; SplatMe → Tasks, Settings, its admin page and the Dashboard's buttons all worked, with
+  no errors in the page.
+- **The splat node in Docker Desktop is reached at `http://localhost:3108`** from the native app: Test Connection
+  showed the node and its GPU. A thermal task was refused before starting (TIFF), as on Docker.
+- **A Draft training ran to the end** (export on Windows, the node's training, the model downloaded) and then
+  **failed: no `splat-tools`**. The native app has none anywhere, so WebODM's own Splats import cannot convert
+  there either. Splat-Tools publishes a Windows build (v1.0.3, `x86_64-pc-windows-msvc.zip`) beside the Linux
+  one WebODM's Docker image installs.
+- `listening` is false until the app is restarted (not done: the app is the user's); the restart wording and
+  "as seen from WebODM's own containers" on the settings pages assume Docker.
+- Left on the instance: SplatMe installed and enabled, the node set, one failed training.
+
+Open decisions (with the user): how the native app gets `splat-tools`; whether the release's zip ships the built
+page scripts for every install (WebODM's Docker image builds them, but a built zip works on both).
+
 ### Less fragile page parts (built)
 
 The release is experimental, so some fragility is accepted; this lessens it without a pull request to WebODM
