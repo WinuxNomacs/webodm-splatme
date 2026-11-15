@@ -84,22 +84,26 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    task's panel itself: WebODM keeps only the first plugin's answer to that panel's hook, so a SplatMe button
    there dropped other plugins' buttons (such as Lightning's Share).
 
-4. **Train automatically**: in a project on the Dashboard, press **New Task With Splats**, beside **Select
-   Images and GCP**, and pick the photos. WebODM's New Task panel opens with SplatMe's panel above it: **Train
-   Splats When Completed**, ticked, with the Quality, Ignore Sky, Crop To Boundary and Advanced. Create the task
-   as any other: its splats are trained when it completes processing, and again each time it is processed
-   again. Unticked, or from a New Task panel without SplatMe's, the task is an ordinary one (pressing **New
-   Task With Splats** while a New Task panel opened another way is open adds SplatMe's panel to it). The panel
+4. **Train automatically**: on **SplatMe → Tasks**, press **New Task With Splats** in a project's heading
+   (or beside **Select Images and GCP** in a project on the Dashboard, which opens it there) and pick the
+   photos, with a GCP file and other text files if the task has them. WebODM's own New Task panel opens (name,
+   processing node, options, resize, alignment), with SplatMe's panel above it: **Train Splats When
+   Completed**, ticked, with the Quality, Ignore Sky, Crop To Boundary and Advanced. On **Start Processing**,
+   SplatMe creates the task through WebODM's API, saves its training setting, uploads the files (a large file
+   in parts, each sent again if the connection drops) and starts its processing; the row then follows the
+   processing (its progress, and WebODM's error if it fails) and the training. If some files still fail,
+   **Try Again** sends them, or **Cancel** removes the task. Leaving the page during the upload stops it.
+   Unticked, or made from WebODM's own Select Images and GCP, the task is an ordinary one. The panel
    starts with the user's own options, saved on **SplatMe → Settings** (**New Task With Splats**); until they
    save some, with the administrators' defaults from **Administration → SplatMe** (Standard until they change
    them). On **SplatMe → Tasks**, every task shows **Train Splats When Completed** with **Change**, which
    switches the training on or off and changes its options. A training that could not start shows on the task
    as a failed training, with the reason.
 
-   WebODM has no plugin hooks for the button, SplatMe's panel and the task panel's line, so SplatMe puts them
-   in the page as WebODM 4.0.0 draws it (the button beside other plugins' buttons, such as DJI Thermal
-   Analyzer's). If a WebODM version draws its page differently, SplatMe says so where it cannot add them, and
-   the Tasks page still trains and sets the training.
+   WebODM has no plugin hooks for the Dashboard's button and the task panel's line, so SplatMe puts them in the
+   page as WebODM 4.0.0 draws it (the button beside other plugins' buttons, such as DJI Thermal Analyzer's). If
+   a WebODM version draws its page differently, they are not there, and the Tasks page still creates, trains
+   and sets the training.
 
    **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`): WebODM's worker
    loads plugins only when it starts, and it is the worker that tells SplatMe a task has completed. Until
@@ -134,7 +138,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET automation` | The options SplatMe's panel starts with for the user's new task: their own (`own` true) or the administrators' defaults, and `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
 | `POST automation` (options) | Saves the user's own options; with `reset` true drops them |
 | `GET automation/shared`, `POST automation/shared` (options) | The administrators' defaults, for users who saved none of their own; superusers set them |
-| `GET tasks` | The tasks of the projects the user may see (`?project=<id>` for one), by project, each with WebODM's `status` and its `splats` as `task/<id>/status` gives them: SplatMe's Tasks page, in one request |
+| `GET tasks` | The tasks of the projects the user may see (`?project=<id>` for one), by project, each with WebODM's `status`, `running_progress` and `last_error`, and its `splats` as `task/<id>/status` gives them: SplatMe's Tasks page, in one request |
 
 ## Development
 

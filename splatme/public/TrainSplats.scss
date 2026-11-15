@@ -43,14 +43,14 @@
     }
 }
 
-// SplatMe's panel above WebODM's New Task and Edit Task panels (SplatMePanel.jsx): WebODM's panel class gives it
-// the look; the Edit Task panel's has its own spacing, which this one keeps
+// SplatMe's panel above WebODM's New Task panel (SplatMePanel.jsx, on the Tasks page): WebODM's panel class gives
+// it the look
 .splatme-panel{
     margin-bottom: 8px;
 }
 
-// The New Task With Splats button, last in a project's button group: Bootstrap's group rules reach only the
-// group's own children, so the slot does what they do for a last button
+// The Dashboard's New Task With Splats button, last in a project's button group: Bootstrap's group rules reach
+// only the group's own children, so the slot does what they do for a last button
 .splatme-button-slot{
     float: left;
 
@@ -58,21 +58,6 @@
         margin-left: -1px;
         border-top-left-radius: 0;
         border-bottom-left-radius: 0;
-    }
-}
-
-// SplatMe's messages (notice.js), above the page's content at its bottom
-.splatme-notices{
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    left: 16px;
-    z-index: 2000;
-    max-width: 640px;
-    margin-left: auto;
-
-    .alert{
-        margin-bottom: 8px;
     }
 }
 
@@ -121,6 +106,39 @@
 
     .splatme-focus{
         border-width: 2px;
+    }
+
+    // A project's name with its New Task With Splats
+    .splatme-project-head{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 20px;
+
+        > span{
+            margin-right: 10px;
+            word-break: break-word;
+        }
+    }
+
+    .splatme-task-error{
+        margin-bottom: 6px;
+        word-break: break-word;
+    }
+
+    .splatme-new-task-box{
+        .panel-heading{
+            font-weight: bold;
+        }
+
+        .new-task-panel{
+            margin-bottom: 0;
+        }
+
+        .splatme-upload .progress{
+            margin: 8px 0;
+        }
     }
 
     .splatme-idle .text-muted{

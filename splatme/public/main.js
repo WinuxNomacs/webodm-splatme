@@ -1,6 +1,6 @@
 // On every page. On the Dashboard starts SplatMe's parts of it (Dashboard.jsx, built by WebODM's webpack): the New
-// Task With Splats button with SplatMe's panel above the New Task panel, and a task panel's line with its splats
-// and Open in SplatMe. Splats are trained on SplatMe's Tasks page, not through WebODM's task panel hook, whose
+// Task With Splats button, which opens the new task on SplatMe's Tasks page, and a task panel's line with its
+// splats and Open in SplatMe. Splats are trained on SplatMe's Tasks page, not through WebODM's task panel hook, whose
 // first answer drops the other plugins' buttons. In the side menu's Administration, SplatMe's admin page.
 (function(){
     // Not through WebODM's hooks (addNewTaskButton, addTaskActionButton): they keep only the first plugin's answer,

@@ -897,7 +897,9 @@ class TestSplatMe(BootTestCase):
 
     def test_the_tasks_list_has_the_tasks_of_the_projects_the_user_may_see_with_their_splats(self):
         task = make_task(self.user)
-        running = Task.objects.create(project=task.project, status=status_codes.RUNNING, name="Still running")
+        running = Task.objects.create(
+            project=task.project, status=status_codes.RUNNING, name="Still running", running_progress=0.4
+        )
         Task.objects.create(project=task.project, partial=True)  # still receiving its photos: not listed
         hidden = make_task(User.objects.get(username="testuser2"))
         self.assertEqual(self.train(task, steps=10).status_code, 200)
@@ -913,6 +915,9 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(listed[str(task.id)]["splats"]["can_train"])
         self.assertEqual(listed[str(running.id)]["status"], status_codes.RUNNING)
         self.assertEqual(listed[str(running.id)]["name"], "Still running")
+        # WebODM's processing, followed in the row
+        self.assertEqual(listed[str(running.id)]["running_progress"], 0.4)
+        self.assertIn("last_error", listed[str(running.id)])
         self.assertIsNone(listed[str(running.id)]["splats"]["state"])
         # As task/<id>/status says it, so a row and the task's panel agree
         self.assertEqual(listed[str(task.id)]["splats"], self.status(task))

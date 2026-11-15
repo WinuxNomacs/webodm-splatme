@@ -1,5 +1,5 @@
-// Requests to the plugin's API (api.py). WebODM checks Django's CSRF token on a plugin's API, so every request
-// that changes something sends the session's.
+// Requests to the plugin's API (api.py), and to WebODM's own for a new task (newTask.js). WebODM checks Django's
+// CSRF token, so every request that changes something sends the session's.
 const BASE = "/api/plugins/splatme/";
 
 function csrfToken(){
@@ -8,27 +8,52 @@ function csrfToken(){
 }
 
 function failure(res, data){
-    const message = data && (data.error || data.detail || (Array.isArray(data) && data[0]));
+    // SplatMe's {error}, Django REST framework's {detail}, [reason] or {field: [reason]}
+    const fields = data && typeof data === "object" && !Array.isArray(data) ? Object.keys(data).map(k => [].concat(data[k])[0]) : [];
+    const message = data && (data.error || data.detail || (Array.isArray(data) && data[0]) || fields.find(f => typeof f === "string"));
     return new Error(message || (res.status === 404 ? "The task is gone, or you may not change it." : "The request failed (" + res.status + ")."));
 }
 
-function send(method, path, body){
+function sendTo(url, method, body){
     const init = {method, credentials: "same-origin", headers: {}};
     if (method !== "GET"){
         init.headers["X-CSRFToken"] = csrfToken();
-        init.headers["Content-Type"] = "application/json";
-        init.body = JSON.stringify(body || {});
+        // A form (files) sets its own type, with its boundary
+        if (typeof FormData !== "undefined" && body instanceof FormData) init.body = body;
+        else {
+            init.headers["Content-Type"] = "application/json";
+            init.body = JSON.stringify(body || {});
+        }
     }
-    return fetch(BASE + path, init);
+    return fetch(url, init);
 }
 
-// The answer's JSON; a refusal rejects with the server's reason as the error's message
+function send(method, path, body){
+    return sendTo(BASE + path, method, body);
+}
+
+function answer(res){
+    return res.json().catch(() => null).then(data => {
+        if (!res.ok){
+            const error = failure(res, data);
+            error.status = res.status;
+            throw error;
+        }
+        return data;
+    });
+}
+
+// The answer's JSON; a refusal rejects with the server's reason as the error's message and its status
 export function request(method, path, body){
-    return send(method, path, body).then(res =>
-        res.json().catch(() => null).then(data => {
-            if (!res.ok) throw failure(res, data);
-            return data;
-        }));
+    return send(method, path, body).then(answer);
+}
+
+// The same for a URL of WebODM's own API (/api/projects/...), or SplatMe's given whole; a server that never
+// answered rejects with no status
+export function webodm(method, url, body){
+    return sendTo(url, method, body).catch(() => {
+        throw new Error("WebODM did not answer. Check the connection, then try again.");
+    }).then(answer);
 }
 
 // The trainer's output from a byte on: {text, offset}, the offset being where to read on
