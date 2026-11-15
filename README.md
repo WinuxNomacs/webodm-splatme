@@ -50,8 +50,11 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    token, and what is wrong with the node only as "ask an administrator"). WebODM has no plugin hook for
    Administration, so SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is at
    `/plugins/splatme/admin/`.
-2. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks of every project the user can see
-   (a **Project** filter narrows it), press **Train Splats** on a completed task. Choose a **Quality**: Draft
+2. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks SplatMe can train in the projects
+   the user can see (a **Project** filter narrows it), press **Train Splats** on a completed task. A task is
+   listed when its photos are JPEG and, once completed, it has what a training needs (a point cloud, its photos),
+   or when it already has splats; a project with no such task is not listed. **New Task With Splats** above the
+   list creates a task in any project the user may change, listed or not. Choose a **Quality**: Draft
    (2,000 steps), Standard (7,000) or High (30,000); **Advanced** has the steps, the image size and the most
    gaussians as numbers. The dialog says first if the task cannot be trained, and warns when nearly all photos
    point straight down.
@@ -139,7 +142,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET automation` | The options SplatMe's panel starts with for the user's new task: their own (`own` true) or the administrators' defaults, and `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
 | `POST automation` (options) | Saves the user's own options; with `reset` true drops them |
 | `GET automation/shared`, `POST automation/shared` (options) | The administrators' defaults, for users who saved none of their own; superusers set them |
-| `GET tasks` | The tasks of the projects the user may see (`?project=<id>` for one), by project, each with WebODM's `status`, `running_progress` and `last_error`, and its `splats` as `task/<id>/status` gives them: SplatMe's Tasks page, in one request |
+| `GET tasks` | The tasks SplatMe can train in the projects the user may see (`?project=<id>` for one), by project (a project with none is left out), each with WebODM's `status`, `running_progress` and `last_error`, and its `splats` as `task/<id>/status` gives them; and `addable`, the projects the user may add a task to: SplatMe's Tasks page, in one request |
 
 ## Development
 

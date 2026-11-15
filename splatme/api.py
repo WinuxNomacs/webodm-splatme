@@ -17,9 +17,10 @@ The plugin's API, under /api/plugins/splatme/.
     POST automation          saves the user's own options; with reset true, drops them
     GET  automation/shared   the administrators' options, for users who saved none of their own
     POST automation/shared   sets them (administrators)
-    GET  tasks               the tasks the user may see, by project, each with its processing (status, progress, error)
-                             and its splats as task/<id>/status gives them (SplatMe's Tasks page, in one request);
-                             ?project=<id> for one project
+    GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
+                             with its processing (status, progress, error) and its splats as task/<id>/status gives
+                             them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
+                             projects the user may add a task to (New Task With Splats). ?project=<id> for one project
 
 Starting and canceling need the right to change the task's project; the node's token never leaves the server.
 """
@@ -223,20 +224,26 @@ class Tasks(APIView):
             if not wanted.isdigit():
                 raise exceptions.ValidationError(detail="Invalid project")
             projects = projects.filter(id=int(wanted))
-        out = []
+        out, addable = [], []
         for project in projects:
             may_train = request.user.has_perm("change_project", project)
+            all_tasks = project.task_set.filter(partial=False)
+            if may_train:
+                addable.append({"id": project.id, "name": project.name, "has_tasks": all_tasks.exists()})
             tasks = []
             # A task still receiving its photos (partial) is not one yet, as on the Dashboard
-            for task in project.task_set.filter(partial=False).order_by("-created_at"):
+            for task in all_tasks.order_by("-created_at"):
+                if not training.compatible(task):
+                    continue
                 tasks.append({
                     "id": str(task.id), "name": task.name, "status": task.status, "created_at": task.created_at,
                     "images_count": task.images_count, "running_progress": task.running_progress,
                     "last_error": task.last_error,
                     "splats": summary(request, task, training.follow(task), may_train),
                 })  # fmt: skip
-            out.append({"id": project.id, "name": project.name, "can_train": may_train, "tasks": tasks})
-        return Response({"projects": out})
+            if tasks:
+                out.append({"id": project.id, "name": project.name, "can_train": may_train, "tasks": tasks})
+        return Response({"projects": out, "addable": addable})
 
 
 class NodeSettings(APIView):

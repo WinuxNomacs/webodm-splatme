@@ -33,6 +33,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- Only compatible tasks on SplatMe → Tasks (2026-11-15, from `new.md`): `training.compatible` (JPEG photos,
+  and once completed what a training needs; or splats already), used by api.py's `tasks`, which leaves out
+  projects with no such task and adds `addable`; New Task With Splats above the list (`Tasks.jsx`). Test:
+  `test_the_tasks_list_leaves_out_tasks_splatme_cannot_train_and_projects_with_none`. See "Only compatible
+  tasks on SplatMe → Tasks (built)".
 - New tasks in SplatMe (2026-11-15): New Task With Splats in each project's heading on SplatMe → Tasks
   (`public/NewTask.jsx`: SplatMe's panel above WebODM's own `NewTaskPanel`; `public/newTask.js`: the task
   created, its training setting saved, the files uploaded, the task committed, through WebODM's task API);
@@ -883,6 +888,49 @@ width); the task's line with Change and its dialog, and the warning in it and in
 while the status says the worker does not listen (the check changed the answer); the Edit Task panel's task
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
+
+### Only compatible tasks on SplatMe → Tasks (built)
+
+Requested 2026-11-15 (`new.md`): in the SplatMe Tasks view, don't show empty projects or projects that don't
+have any compatible tasks.
+
+Builds on: the Tasks page (api.py's `tasks`, one request; `Tasks.jsx`), `training.problem` (why a task cannot
+train: not completed, no point cloud, compacted, cameras unreadable, images not JPEG, images gone) and New Task
+With Splats in each project's heading.
+
+Today (from the code and the native check): every project the user may see is listed, an empty one with "No
+tasks in this project."; every task is a row, and a completed thermal task shows Train Splats, whose dialog then
+says only JPEG images can be trained on. The Project filter lists every project.
+
+Proposed:
+
+- **A task is compatible** when its photos are JPEG (the image files in its folder, by extension: a directory
+  listing, cheap for a list; `problem` reads the task's cameras, too slow for every row), whatever its status:
+  one still processing is listed, and trains when it completes. Tasks that already have splats are always
+  listed. Decided by the server, in `tasks`.
+- **A project is listed when it has a compatible task**; the Project filter lists only those.
+- **New Task With Splats for a project not listed** (an empty one, the user's first): a New Task With Splats
+  above the projects, which opens the box with its project choice (`NewTask.jsx` has it, for the Dashboard's
+  link when the name is not one project's). The Dashboard's button keeps opening the box for its project, listed
+  or not.
+- When nothing is listed: a sentence saying no task can be trained yet, with New Task With Splats.
+- Thermal tasks (phase 2) become compatible when that phase converts them.
+
+Decided with the user (2026-11-15):
+
+- **Incompatible tasks are hidden inside a listed project too, silently** (no count).
+- **A completed task is compatible only if it can train or already has splats**: one with JPEG photos but no
+  point cloud, compacted, or whose images are gone is hidden like a thermal task (checked from its assets and
+  files, not its cameras).
+- **Next, before the presets.**
+
+As built (2026-11-15): as designed. An image file other than JPEG (TIFF, PNG, DNG, NEF, RAW, WebP, BMP, GIF)
+makes a task incompatible, text files (GCP, geo.txt) do not; a task with no photo left is incompatible. A failed
+or canceled task with JPEG photos is listed (it can be processed again). New Task With Splats above the list
+opens the file picker for a user's only project, or the box with a project choice; the projects' own buttons
+stay. A project asked for in the address that is not listed shows them all. Checked in the browser (read only):
+as admin, the empty First Project not listed and in the box's choice; as testuser, the sentence for nothing to
+list and the picker at once; 390 px. The dev stack has no thermal task (the Django test covers them).
 
 ### 1. OpenSplat presets
 

@@ -8,8 +8,8 @@ import { panelMode, rowNote, taskStatusText, nextRefresh, runningPercent, result
 import './TrainSplats.scss';
 
 // SplatMe → Tasks (templates/tasks.html): the tasks the user may see, by project, each with its splats and what
-// can be done with them. One request for the whole list (api.py's tasks), asked again while a task trains or
-// processes. ?task=<id> (the task panel's Open in SplatMe) shows that task's project and marks the task.
+// can be done with them: only the tasks SplatMe can train (api.py's tasks leaves out the others, and projects
+// with none). One request for the whole list, asked again while a task trains or processes. ?task=<id> (the task panel's Open in SplatMe) shows that task's project and marks the task.
 // New Task With Splats (NewTask.jsx) is in each project's heading; ?new=1 (the Dashboard's button) opens it for
 // ?project=<id>, or for the project ?name= names when only one has that name.
 export default class Tasks extends React.Component {
@@ -19,7 +19,7 @@ export default class Tasks extends React.Component {
         this.focus = query.get("task");
         this.opening = query.get("new") ? {project: query.get("project"), name: query.get("name")} : null;
         this.newTasks = 0;
-        this.state = {projects: null, error: null, project: query.get("project") || "", newTask: null};
+        this.state = {projects: null, addable: [], error: null, project: query.get("project") || "", newTask: null};
     }
 
     componentDidMount(){
@@ -38,7 +38,7 @@ export default class Tasks extends React.Component {
             if (!this._mounted) return;
             const first = this.state.projects === null || this.focusNext;
             this.focusNext = false;
-            this.setState({projects: data.projects, error: null}, () => {
+            this.setState({projects: data.projects, addable: data.addable || [], error: null}, () => {
                 if (first) this.showFocus();
                 if (this.opening) this.openFromAddress();
             });
@@ -73,8 +73,8 @@ export default class Tasks extends React.Component {
     openFromAddress(){
         const { project, name } = this.opening;
         this.opening = null;
-        const trainable = this.state.projects.filter(p => p.can_train);
-        const chosen = trainable.find(p => String(p.id) === project) || (name ? projectByName(trainable, name) : null);
+        const addable = this.state.addable.map(p => Object.assign({can_train: true}, p));
+        const chosen = addable.find(p => String(p.id) === project) || (name ? projectByName(addable, name) : null);
         this.setState({newTask: {projectId: chosen ? String(chosen.id) : null, files: [], key: ++this.newTasks}});
     }
 
@@ -101,6 +101,13 @@ export default class Tasks extends React.Component {
         url.searchParams.delete("new");
         url.searchParams.delete("name");
         window.history.replaceState(null, "", url.pathname + url.search);
+    };
+
+    // New Task With Splats above the projects: for the user's only project at once, or with a project choice
+    newTaskAnyProject = () => {
+        const { addable } = this.state;
+        if (addable.length === 1) this.pick(String(addable[0].id));
+        else this.setState({newTask: {projectId: null, files: [], key: ++this.newTasks}});
     };
 
     // WebODM committed the new task: it shows in its project, marked
@@ -169,28 +176,40 @@ export default class Tasks extends React.Component {
             return error ? <div className="alert alert-danger">{error}</div> :
                 <div><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading the tasks")}</div>;
         }
-        const shown = projects.filter(p => !project || String(p.id) === project);
-        const trainable = projects.filter(p => p.can_train);
+        const { addable } = this.state;
+        // A project asked for in the address that has nothing to list shows them all
+        const known = projects.some(p => String(p.id) === project) ? project : "";
+        const shown = projects.filter(p => !known || String(p.id) === known);
         return (
             <div className="splatme-tasks">
                 <p>{_("Create a task whose Gaussian splats are trained when it completes processing, train a completed task's splats on the splat node, follow a training, and choose whether a task is trained when it completes.")}</p>
                 <input type="file" multiple accept={ACCEPT} className="hidden" ref={el => { this.fileInput = el; }} onChange={this.handlePicked} />
                 {error ? <div className="alert alert-warning">{error}</div> : ""}
                 {newTask ?
-                    <NewTask key={newTask.key} files={newTask.files} projects={trainable}
-                             project={trainable.find(p => String(p.id) === newTask.projectId) || null}
+                    <NewTask key={newTask.key} files={newTask.files} projects={addable}
+                             project={addable.find(p => String(p.id) === newTask.projectId) || null}
                              onPick={() => this.pick(newTask.projectId)}
                              onProject={id => this.setState({newTask: Object.assign({}, newTask, {projectId: id})})}
                              onCreated={this.handleCreated} onClose={this.closeNewTask} /> : ""}
-                {projects.length ?
-                    <div className="form-inline splatme-filter">
-                        <label htmlFor="splatme-project">{_("Project")}</label>{" "}
-                        <select id="splatme-project" className="form-control" value={project} onChange={this.handleProject}>
-                            <option value="">{_("All Projects")}</option>
-                            {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-                        </select>
-                    </div> :
-                    <p className="text-muted">{_("You have no projects yet. Create one on the Dashboard.")}</p>}
+                <div className="splatme-filter">
+                    {projects.length ?
+                        <div className="form-inline">
+                            <label htmlFor="splatme-project">{_("Project")}</label>{" "}
+                            <select id="splatme-project" className="form-control" value={known} onChange={this.handleProject}>
+                                <option value="">{_("All Projects")}</option>
+                                {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                            </select>
+                        </div> : <span></span>}
+                    {addable.length ?
+                        <button type="button" className="btn btn-primary btn-sm splatme-new-task-any" disabled={!!newTask}
+                                onClick={this.newTaskAnyProject}
+                                title={_("Create a task whose Gaussian splats are trained when it completes processing")}>
+                            <i className="fa fa-splat fa-fw"></i> {_("New Task With Splats")}
+                        </button> : ""}
+                </div>
+                {!projects.length ?
+                    <p className="text-muted splatme-none">{_("No task here can be trained by SplatMe yet: it trains tasks whose photos are JPEG.")}
+                        {" "}{addable.length ? _("Create one with New Task With Splats.") : _("Create a project on the Dashboard first.")}</p> : ""}
                 {shown.map(p =>
                     <div key={p.id} className="splatme-project">
                         <h4 className="splatme-project-head">
