@@ -52,8 +52,9 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    `/plugins/splatme/admin/`.
 2. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks SplatMe can train in the projects
    the user can see (a **Project** filter narrows it), press **Train Splats** on a completed task. A task is
-   listed when its photos are JPEG and, once completed, it has what a training needs (a point cloud, its photos),
-   or when it already has splats; a project with no such task is not listed. **New Task With Splats** above the
+   listed when its photos are JPEG (or DJI Thermal Analyzer's TIFFs, below) and, once completed, it has what a
+   training needs (a point cloud, its photos), or when it already has splats; a project with no such task is not
+   listed. **New Task With Splats** above the
    list creates a task in any project the user may change, listed or not. Choose a **Quality**: Draft
    (3,000 steps), Standard (7,000), Fine (15,000) or High (30,000). On an 8 GB laptop GPU at the default image
    size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU memory, whatever the
@@ -73,6 +74,15 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    Boundary option) and is ticked: the splats outside the boundary are left out of the model the task shows,
    as the processing leaves them out of the point cloud and the mesh. The training itself still sees the
    photos whole, and the model kept for continuing is not cropped.
+
+   **Thermal tasks**: a task made by the DJI Thermal Analyzer plugin's Thermal Task button holds TIFFs of
+   temperatures, which SplatMe draws as pictures to train on. It uses one range for the whole task, from its coldest to its hottest pixels (the coldest and hottest 1% left
+   out), so a surface has the same colour in every photo. **Thermal Colours** in the dialog, which takes the
+   place of Ignore Sky, chooses the palette: Grayscale (white is hot, the default), Black Hot, Iron, Magma,
+   Inferno, Plasma, Viridis, Cividis or Jet (all but Iron are WebODM's own colour maps). The task's line then
+   names the palette and the temperatures it spans, in WebODM's unit system. DJI Thermal Analyzer itself need
+   not be installed for this; TIFFs from other software, whose temperatures may be in another unit, are not
+   listed.
 
    A task SplatMe has trained can be trained further instead of starting over: the dialog then opens with
    **Start Over** and **Continue From Step** (the steps the model has), and continuing asks only **More
@@ -95,7 +105,8 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    (or beside **Select Images and GCP** in a project on the Dashboard, which opens it there) and pick the
    photos, with a GCP file and other text files if the task has them. WebODM's own New Task panel opens (name,
    processing node, options, resize, alignment), with SplatMe's panel above it: **Train Splats When
-   Completed**, ticked, with the Quality, Ignore Sky, Crop To Boundary and Advanced. On **Start Processing**,
+   Completed**, ticked, with the Quality, Ignore Sky (or Thermal Colours when the photos picked are TIFFs), Crop
+   To Boundary and Advanced. On **Start Processing**,
    SplatMe creates the task through WebODM's API, saves its training setting, uploads the files (a large file
    in parts, each sent again if the connection drops) and starts its processing; the row then follows the
    processing (its progress, and WebODM's error if it fails) and the training. If some files still fail,
@@ -118,7 +129,7 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    themselves yet; **Train Splats** works without a restart.
 
 Training needs the right to change the task's project. The task must have completed with a point cloud and
-still have its photos (JPEG). The trained model replaces the task's splat model only when training succeeds,
+still have its photos (JPEG, or DJI Thermal Analyzer's TIFFs). The trained model replaces the task's splat model only when training succeeds,
 and then shows in the task's 3D view like a model uploaded by hand. WebODM converts it for its viewer with its
 own converter, as it does a model uploaded by hand; the model as the trainer wrote it is kept in the task's
 folder (`assets/splats/splatme-model.ply`, about 250 bytes per gaussian) for continuing, and counts in the
@@ -135,9 +146,9 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 |---|---|
 | `GET node` | The node's state or that it is not available, and its `url`; for administrators also what is wrong and `token_set`. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
-| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one) and `trained_steps`: the steps of the model a training can continue from |
-| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out), `crop` (false keeps the splats outside the task's boundary). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
-| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), `time_left` (while training, the seconds the steps left should take, once known), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
+| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one), `thermal` (whether its photos are DJI Thermal Analyzer's TIFFs) and `trained_steps`: the steps of the model a training can continue from |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out; not for a thermal task), `crop` (false keeps the splats outside the task's boundary), `palette` (a thermal task's colours: `gray`, the default, `gray_r`, `iron`, `magma`, `inferno`, `plasma`, `viridis`, `cividis`, `jet`). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), `thermal` (a thermal task's `palette` and the range it spans, `low` and `high`, in degrees Celsius), `time_left` (while training, the seconds the steps left should take, once known), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options |
