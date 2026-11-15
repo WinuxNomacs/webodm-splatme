@@ -19,8 +19,10 @@ other software. The plugin does that step.
 3. New tasks in SplatMe: SplatMe → Tasks creates a task itself (photos, GCP, processing node, options) and
    follows its processing, through WebODM's API.
 4. Native Windows app: a trainer run as a local program.
-5. Docs and first release.
-6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+5. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
+   OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
+6. Docs and first release.
+7. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -176,7 +178,7 @@ other software. The plugin does that step.
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
   redoes the alignment. What more to use is phases 2 to 4.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (6): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (2): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
@@ -237,7 +239,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 5.
+  workflow, to decide in phase 6.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -395,13 +397,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 6).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 7).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 6).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 7).
 
 ### SplatMe's panel (built)
 
@@ -449,7 +451,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 6. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 7. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -764,7 +766,32 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 5. Docs and first release
+### 5. OpenSplat presets
+
+Requested 2026-11-15 (`new.md`): become an expert in OpenSplat, to choose the best presets SplatMe should offer
+to guide users. Part of the plugin's refinement, before the first release.
+
+Builds on: the Quality choice and Advanced section (Draft 2,000 steps, Standard 7,000, High 30,000; Steps,
+Image Size, Max Gaussians), `training.DEFAULTS` (7,000 steps, 1,600 px), the node's option ranges
+(`NODE_OPTIONS`: steps, max_gaussians, sh_degree) and the measurements in "Denser starting cloud" (dropped).
+
+- **Study**: OpenSplat's source in `ignored/OpenSplat` (a clone of https://github.com/WebODM/OpenSplat, at
+  e33f9dd, two commits after the node's pinned 62fd86f: check what they change). Every command-line option,
+  its default and what it does in training (densification and pruning schedule, SH degree steps, downscaling,
+  learning rates, refinement intervals, `--val`), what drives GPU memory and time, and what a resumed training
+  keeps.
+- **Measure** on the dev stack's tasks (an RGB task with oblique photos, a nadir-only task, a small one):
+  steps against held-out PSNR, time and GPU memory, and the options the study points to, on the dev GPU (8 GB).
+- **Propose** to the user: the presets (names, what each sets, the default), which options the Advanced
+  section shows and their ranges, guidance in the dialogs (what a preset costs in time and memory, a warning
+  when a task is likely to exceed the node's GPU), and whether the node should report its GPU so the plugin
+  suggests a preset.
+
+Open decisions (with the user, after the study): the presets themselves; new options exposed (and through the
+node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
+moving the node to OpenSplat's newer commit.
+
+### 6. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -782,7 +809,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 7. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
