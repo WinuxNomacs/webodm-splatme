@@ -1,15 +1,40 @@
-import { PRESETS, presetOfSteps, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
         expect(presetOfSteps(7000)).toBe("standard");
-        expect(presetOfSteps("2000")).toBe("draft");
-        expect(PRESETS.map(p => p.key)).toEqual(["draft", "standard", "high"]);
+        expect(presetOfSteps("3000")).toBe("draft");
+        expect(PRESETS.map(p => [p.key, p.steps])).toEqual([["draft", 3000], ["standard", 7000], ["fine", 15000], ["high", 30000]]);
     });
 
-    test("a number of steps no preset has is Custom", () => {
+    test("a number of steps no preset has is Custom, the earlier Draft's 2,000 too", () => {
         expect(presetOfSteps(12345)).toBe("custom");
+        expect(presetOfSteps("2000")).toBe("custom");
         expect(presetOfSteps("")).toBe("custom");
+    });
+
+    test("no preset is a number of steps the trainer handles badly", () => {
+        for (const preset of PRESETS) expect(stepsNote(preset.steps)).toBe("");
+    });
+
+    test("up to 2,000 steps is said to grow nothing", () => {
+        expect(stepsNote(2000)).toMatch(/does not grow the model/);
+        expect(stepsNote("1")).toMatch(/does not grow the model/);
+        expect(stepsNote(2001)).toBe("");
+    });
+
+    test("between 3,001 and 5,999 steps is said to train worse than 3,000", () => {
+        expect(stepsNote(3001)).toMatch(/trains worse than 3,000/);
+        expect(stepsNote("4000")).toMatch(/trains worse than 3,000/);
+        expect(stepsNote(5999)).toMatch(/trains worse than 3,000/);
+        expect(stepsNote(6000)).toBe("");
+    });
+
+    test("a value that is not a number of steps has no note", () => {
+        expect(stepsNote("")).toBe("");
+        expect(stepsNote("abc")).toBe("");
+        expect(stepsNote(0)).toBe("");
+        expect(stepsNote(2500.5)).toBe("");
     });
 });
 

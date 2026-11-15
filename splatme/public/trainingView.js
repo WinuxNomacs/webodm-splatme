@@ -1,12 +1,25 @@
 // What SplatMe's Tasks page, its dialogs and the task panel's line show, as plain functions of the plugin's
 // answers (api.py): no React here, so Jest tests them as they are.
 
-// The Quality choice: the trainer's steps, and what to expect of each
+// The Quality choice: the trainer's steps, and what to expect of each. The times and memory were measured on an
+// 8 GB laptop GPU at Image Size 1,600; they hardly depend on the number of photos (upcoming-changes.md, OpenSplat
+// presets). Draft is 3,000 steps: up to 2,000 the trainer grows nothing.
 export const PRESETS = [
-    {key: "draft", label: "Draft", steps: 2000, hint: "A quick look at whether the dataset trains well. Soft detail."},
-    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets. The place to start."},
-    {key: "high", label: "High", steps: 30000, hint: "The sharpest model. Takes several times longer than Standard."}
+    {key: "draft", label: "Draft", steps: 3000, hint: "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory on a laptop GPU."},
+    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets. The place to start. Training takes about 5 minutes and 5 GB of GPU memory on a laptop GPU."},
+    {key: "fine", label: "Fine", steps: 15000, hint: "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory on a laptop GPU."},
+    {key: "high", label: "High", steps: 30000, hint: "The sharpest model. Training takes about 25 minutes and 7 GB of GPU memory on a laptop GPU."}
 ];
+
+// What a number of steps the trainer handles badly does, from its schedule (densification runs until half the
+// steps, from step 500, every 500; a final prune every 3,000 steps after it); "" for any other
+export function stepsNote(steps){
+    const n = Number(steps);
+    if (!Number.isInteger(n) || n < 1) return "";
+    if (n <= 2000) return "Up to 2,000 steps the trainer does not grow the model, only refines the starting points. 3,000 steps or more grow it.";
+    if (n > 3000 && n < 6000) return "Between 3,001 and 5,999 steps trains worse than 3,000: the trainer prunes the model at step 3,000 and has too few steps left to recover. Choose 3,000, or 6,000 or more.";
+    return "";
+}
 
 // A job's states in order, with the share of the whole bar each takes (measured on 220 photos: the export and the
 // training take nearly all of the time)

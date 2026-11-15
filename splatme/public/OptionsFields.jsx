@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote } from './trainingView';
 
 // A training's options as form rows: the Quality choice, and under Advanced the numbers. Used by the Train Splats
 // and Change dialogs and by SplatMe's panel above WebODM's New Task panel; the form's values are the parent's.
@@ -46,7 +46,7 @@ export default class OptionsFields extends React.Component {
                             {PRESETS.map(p => <option key={p.key} value={p.key}>{_(p.label) + " (" + p.steps.toLocaleString() + " " + _("steps") + ")"}</option>)}
                             <option value="custom">{_("Custom")}</option>
                         </select>
-                        <span className="help-block">{preset ? _(preset.hint) : _("More steps give a sharper model and take longer.")}</span>
+                        <span className="help-block">{preset ? _(preset.hint) : _(stepsNote(form.steps) || "More steps give a sharper model and take longer.")}</span>
                     </div>
                 </div>
                 <div className="form-group">
@@ -78,8 +78,8 @@ export default class OptionsFields extends React.Component {
                 {advanced ?
                     <React.Fragment>
                         {this.numberField("steps", _("Steps"), _("How long the trainer works on the model."))}
-                        {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. 0 keeps the photos as they are, which needs more GPU memory."))}
-                        {this.numberField("max_gaussians", _("Max Gaussians"), _("The most points the model may grow to. Lower it when the GPU runs out of memory."), _("The trainer's own limit"))}
+                        {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. GPU memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are."))}
+                        {this.numberField("max_gaussians", _("Max Gaussians"), _("The most points the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit"))}
                     </React.Fragment> : ""}
             </React.Fragment>
         );

@@ -9,8 +9,9 @@ shared (the admin page) the administrators', for users who saved none, which onl
         <label class="col-sm-3 control-label" for="splatme-auto-quality">Quality</label>
         <div class="col-sm-9">
             <select class="form-control" id="splatme-auto-quality">
-                <option value="2000">Draft (2,000 steps)</option>
+                <option value="3000">Draft (3,000 steps)</option>
                 <option value="7000">Standard (7,000 steps)</option>
+                <option value="15000">Fine (15,000 steps)</option>
                 <option value="30000">High (30,000 steps)</option>
                 <option value="custom">Custom</option>
             </select>
@@ -28,15 +29,16 @@ shared (the admin page) the administrators', for users who saved none, which onl
         <label class="col-sm-3 control-label" for="splatme-auto-size">Image Size</label>
         <div class="col-sm-9">
             <input type="number" min="0" class="form-control" id="splatme-auto-size">
-            <span class="help-block">The photos' longer side in pixels as the trainer sees them. 0 keeps the photos as
-                they are, which needs more GPU memory.</span>
+            <span class="help-block">The photos' longer side in pixels as the trainer sees them. GPU memory depends on
+                it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are.</span>
         </div>
     </div>
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-auto-gaussians">Max Gaussians</label>
         <div class="col-sm-9">
             <input type="number" min="1" class="form-control" id="splatme-auto-gaussians" placeholder="The trainer's own limit">
-            <span class="help-block">The most points the model may grow to. Lower it when the GPU runs out of memory.</span>
+            <span class="help-block">The most points the model may grow to, a limit for very large scenes. When the GPU
+                runs out of memory, lower Image Size first.</span>
         </div>
     </div>
     <div class="form-group">
@@ -66,12 +68,28 @@ shared (the admin page) the administrators', for users who saved none, which onl
 (function(){
     var SHARED = {% if shared %}true{% else %}false{% endif %};
     var API = "/api/plugins/splatme/automation" + (SHARED ? "/shared" : "");
+    // As public/trainingView.js's PRESETS and stepsNote
     var HINTS = {
-        "2000": "A quick look at whether the dataset trains well. Soft detail.",
-        "7000": "A good model for most datasets. The place to start.",
-        "30000": "The sharpest model. Takes several times longer than Standard.",
+        "3000": "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory on a laptop GPU.",
+        "7000": "A good model for most datasets. The place to start. Training takes about 5 minutes and 5 GB of GPU memory on a laptop GPU.",
+        "15000": "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory on a laptop GPU.",
+        "30000": "The sharpest model. Training takes about 25 minutes and 7 GB of GPU memory on a laptop GPU.",
         "custom": "More steps give a sharper model and take longer."
     };
+    var NAMES = {3000: "Draft", 7000: "Standard", 15000: "Fine", 30000: "High"};
+
+    function stepsNote(value){
+        var n = Number(value);
+        if (!(n >= 1) || Math.floor(n) !== n) return "";
+        if (n <= 2000) return "Up to 2,000 steps the trainer does not grow the model, only refines the starting points. 3,000 steps or more grow it.";
+        if (n > 3000 && n < 6000) return "Between 3,001 and 5,999 steps trains worse than 3,000: the trainer prunes the model at step 3,000 and has too few steps left to recover. Choose 3,000, or 6,000 or more.";
+        return "";
+    }
+
+    function showHint(){
+        document.getElementById("splatme-auto-hint").textContent =
+            quality.value === "custom" ? (stepsNote(steps.value) || HINTS.custom) : HINTS[quality.value];
+    }
     var state = document.getElementById("splatme-auto-state");
     var form = document.getElementById("splatme-auto-form");
     var quality = document.getElementById("splatme-auto-quality");
@@ -96,12 +114,12 @@ shared (the admin page) the administrators', for users who saved none, which onl
 
     function qualityOfSteps(){
         quality.value = HINTS[steps.value] && steps.value !== "custom" ? steps.value : "custom";
-        document.getElementById("splatme-auto-hint").textContent = HINTS[quality.value];
+        showHint();
     }
 
     function show(data){
         var options = data.options || {};
-        var name = {2000: "Draft", 7000: "Standard", 30000: "High"}[options.steps] || (options.steps + " steps");
+        var name = NAMES[options.steps] || (options.steps + " steps");
         state.innerHTML = "";
         // The worker imports plugins when it starts: one installed since then hears of no completed task
         if (data.listening === false){
@@ -137,7 +155,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
     quality.addEventListener("change", function(){
         if (quality.value !== "custom") steps.value = quality.value;
         else steps.focus();
-        document.getElementById("splatme-auto-hint").textContent = HINTS[quality.value];
+        showHint();
     });
     steps.addEventListener("input", qualityOfSteps);
 
