@@ -9,20 +9,17 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's Tasks page (a bug: SplatMe's answer to the task panel's hook drops other plugins' buttons):
-   training and its settings move from the Dashboard's task panels to SplatMe → Tasks; the side menu's SplatMe
-   page becomes SplatMe → Settings.
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-3. New tasks in SplatMe: SplatMe → Tasks creates a task itself (photos, GCP, processing node, options) and
+2. New tasks in SplatMe: SplatMe → Tasks creates a task itself (photos, GCP, processing node, options) and
    follows its processing, through WebODM's API.
-4. Native Windows app: a trainer run as a local program.
-5. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
+3. Native Windows app: a trainer run as a local program.
+4. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
    OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
-6. Docs and first release.
-7. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+5. Docs and first release.
+6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -35,6 +32,15 @@ other software. The plugin does that step.
 
 **Done**
 
+- SplatMe's Tasks page (2026-11-15; a bug: SplatMe's answer to the task panel's hook dropped other plugins'
+  buttons): the side menu's SplatMe is a submenu, SplatMe → Tasks (`templates/tasks.html`,
+  `public/Tasks.jsx`, rows of `TrainSplats.jsx`; api.py's `tasks`) and SplatMe → Settings (`settings.html`,
+  now at `/plugins/splatme/settings/`); the Dashboard's task panel has only a Splats line with Open in SplatMe
+  (`TaskLine.jsx`, placed by `Dashboard.jsx`); SplatMe's panel above Edit Task, `find-task` and the task panel
+  hook's button are gone. Tests: `test_the_tasks_list_has_the_tasks_of_the_projects_the_user_may_see_with_their_splats`,
+  `test_the_tasks_and_settings_pages_are_in_the_menu_and_need_a_login`, Jest's rows and line
+  (`trainingView.test.js`); the browser check showed Lightning's Share on the first task panel opened. See
+  "SplatMe's Tasks page (built)".
 - SplatMe in Administration (2026-11-15): the splat node's address and token are changed on a SplatMe page
   under Administration (superusers); every user sees the node's state and address on the side menu's SplatMe
   page; each user saves their own New Task With Splats options, and the administrators' are the starting
@@ -163,7 +169,7 @@ other software. The plugin does that step.
 - **Training starts from a button** on a completed task; automatic training on completion came later (Automation, built),
   as a setting that is off by default.
 - **First release: Docker installs of WebODM 4.0.0 only** (`webodmMinVersion` 4.0.0, Python 3.14). The native
-  Windows app is phase 4. 3.3.2 is not supported (its splat code is the same, so it could be added).
+  Windows app is phase 3. 3.3.2 is not supported (its splat code is the same, so it could be added).
 - **The node's address is a plugin setting, not one of WebODM's Processing Nodes** (Administration → Processing
   Nodes). A node listed there must speak NodeODX's API, is offered in the New Task form's "Processing Node"
   list and is picked automatically for ordinary tasks when its queue is the shortest
@@ -176,9 +182,9 @@ other software. The plugin does that step.
   the structure-from-motion results: each photo's solved position and rotation (`shots.geojson`), the calibrated
   cameras with their lens distortion (`cameras.json`) and the dense georeferenced point cloud
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
-  redoes the alignment. What more to use is phases 2 to 4.
+  redoes the alignment. What more to use is phases 1 to 3.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (2): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (1): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
@@ -216,11 +222,11 @@ other software. The plugin does that step.
   existing one: `assets/splats/model.rad`, then `update_available_assets_field()`, `update_size()`, `save()`,
   as `process_splats` does. The 3D view, the download and the share links then work unchanged.
 - There is no hook for a task's **⋯** menu. `Dashboard.addTaskActionButton` puts a button in the task's expanded
-  panel, is called once when the panel opens and not again when the task changes: the button's component
-  follows the task itself, through the plugin's status view.
-- WebODM stops listening after the first plugin's answer to a hook (`ApiFactory.js`): a button that waits for
-  its script (the hook's dependency list) is dropped when another plugin answers first. `main.js` answers at
-  once with a wrapper that loads the component afterwards.
+  panel, is called once when the panel opens and not again when the task changes.
+- WebODM stops listening one moment after the first plugin's answer to a hook (`ApiFactory.js`): a button that
+  waits for its script (the hook's dependency list) is dropped when another plugin answers first, and an
+  immediate answer drops the others'. SplatMe answers none of the task panel's hooks (see "SplatMe's Tasks
+  page (built)"): it trains on its own page and puts its line in the panel itself.
 - `/api/workers/check|get|cancel/<id>` need no login (the id is the only secret): the plugin's own views check
   the project's permissions (`TaskView.get_and_check_task`, and `check_project_perms(..., ("change_project",))`
   to start, cancel or delete).
@@ -239,7 +245,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 6.
+  workflow, to decide in phase 5.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -272,7 +278,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 - **Brush v0.3.0: no GPU in Docker under WSL2.** It has released binaries (42 MB, Apache-2.0) and reads COLMAP
   data, but renders through Vulkan, and a container under WSL2 has only the CPU's Vulkan (llvmpipe): 200 steps
   produced nothing in two minutes. Not tried on a Linux host, where NVIDIA's Vulkan driver is available. A
-  candidate for the native Windows app (phase 4).
+  candidate for the native Windows app (phase 3).
 - **nerfstudio: not tried.** Its image (`dromni/nerfstudio:1.1.5`, 13 GB, November 2024) has PyTorch 2.1.2 for
   CUDA 11.8, which does not support an RTX 50; it would have to be rebuilt, and its poses are centred, oriented
   and scaled by default.
@@ -280,7 +286,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 2 (Thermal tasks).
+  starting. Converting them is phase 1 (Thermal tasks).
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -397,13 +403,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 7).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 6).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 7).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 6).
 
 ### SplatMe's panel (built)
 
@@ -451,7 +457,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 7. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 6. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -656,7 +662,7 @@ superuser at desktop and phone width (the item, both pages, the saves answered b
 SplatMe page was checked by answering the node and options reads as the server answers a plain user (the
 server side of that is in the Django tests), not with a second account.
 
-### 1. SplatMe's Tasks page
+### SplatMe's Tasks page (built)
 
 The bug (found 2026-11-15, when the user asked whether the button clash remains): WebODM stops listening to a
 hook one moment after the first plugin's answer (`ApiFactory.js`). SplatMe answers the task panel's
@@ -680,7 +686,7 @@ Decisions (2026-11-15, the user's):
   Tasks page. If a WebODM draws the panel differently, the line is missing and nothing else is lost.
 - **SplatMe's panel above Edit Task goes**: a task's Train Splats When Completed and its options are set on the
   Tasks page only. The panel above New Task (New Task With Splats) stays.
-- **Creating a task in SplatMe is a later phase** (3): until then the Tasks page's New Task With Splats points
+- **Creating a task in SplatMe is a later phase** (2): until then the Tasks page's New Task With Splats points
   to the Dashboard's button.
 
 Design:
@@ -703,20 +709,33 @@ Design:
   the Tasks page (desktop, phone), the panel's line, and Lightning's Share button on the first panel opened
   (with its script given a key, as in the bug's check).
 
-### 2. Thermal tasks
+As built (2026-11-15): as designed, with these details. Each row's `TrainSplats.jsx` is given its status by the
+page and has no timer of its own; the page asks for the list every 3 s while a task trains and every 15 s while
+one processes (`trainingView.nextRefresh`), not otherwise. A task's name opens it on the Dashboard; a task that
+cannot be trained shows View in 3D when it has a model, and why. `tasks` leaves out tasks still receiving their
+photos (`partial`), as the Dashboard does, and takes `?project=<id>`; it calls `training.follow` for each task,
+as the status does, so a job that lost its worker is taken over from the page too. The panel's line is a row of
+WebODM's info table under Task ID, following a training (3 s) or a processing task (15 s) by itself. Checked in
+a headless browser: panel 1 showed Share and SplatMe's line (Share was missing there before), no Train Splats
+button; the Tasks page at 1280 px and 390 px (no horizontal scroll), `?task=` marking the task, the Train Splats
+and Change dialogs, a training row and a failed task (the list rewritten in the browser). Not checked: a real
+plain user's account (Django tests cover the permissions); a list of many tasks (one request, but a data store
+read or two per task).
+
+### 1. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 3. New tasks in SplatMe
+### 2. New tasks in SplatMe
 
 SplatMe → Tasks creates a task itself, as WebODM's New Task panel does (photos and GCP uploaded in parts:
 `POST /api/projects/<id>/tasks/` with `partial`, `upload/`, `commit/`; the processing node and options), with
 Train Splats When Completed, and follows its processing and training. To plan with the user.
 
-### 4. Native Windows app
+### 3. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
@@ -766,7 +785,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 5. OpenSplat presets
+### 4. OpenSplat presets
 
 Requested 2026-11-15 (`new.md`): become an expert in OpenSplat, to choose the best presets SplatMe should offer
 to guide users. Part of the plugin's refinement, before the first release.
@@ -791,7 +810,7 @@ Open decisions (with the user, after the study): the presets themselves; new opt
 node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
 moving the node to OpenSplat's newer commit.
 
-### 6. Docs and first release
+### 5. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -809,7 +828,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 7. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

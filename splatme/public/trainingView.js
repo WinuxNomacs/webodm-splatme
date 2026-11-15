@@ -1,5 +1,5 @@
-// What the Train Splats button, its dialog and the progress show, as plain functions of the plugin's answers
-// (api.py): no React here, so Jest tests them as they are.
+// What SplatMe's Tasks page, its dialogs and the task panel's line show, as plain functions of the plugin's
+// answers (api.py): no React here, so Jest tests them as they are.
 
 // The Quality choice: the trainer's steps, and what to expect of each
 export const PRESETS = [
@@ -21,7 +21,11 @@ const STAGES = [
 ];
 
 // WebODM's task status codes (nodeodm/status_codes.py)
-export const TASK_QUEUED = 10, TASK_RUNNING = 20, TASK_COMPLETED = 40;
+export const TASK_QUEUED = 10, TASK_RUNNING = 20, TASK_FAILED = 30, TASK_COMPLETED = 40, TASK_CANCELED = 50;
+
+// Milliseconds between two askings for the Tasks page's list: often while a training runs, now and then while a
+// task processes (it may start training when it completes), not at all otherwise (0)
+export const FAST = 3000, SLOW = 15000;
 
 export function presetOfSteps(steps){
     const preset = PRESETS.find(p => p.steps === Number(steps));
@@ -50,7 +54,7 @@ export function stageText(job){
     return job.status ? stage.label + ": " + job.status : stage.label;
 }
 
-// What the panel shows for a task: "hidden", "waiting" (the task is still processing), "progress" or "button"
+// What a task's row shows: "hidden", "waiting" (the task is still processing), "progress" or "button"
 export function panelMode(status){
     if (!status) return "hidden";
     if (status.active) return "progress";
@@ -151,4 +155,43 @@ export function resultText(job){
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
     if (job.state === "canceled") return "Training canceled.";
     return "";
+}
+
+// WebODM's status of a task, as its Dashboard words it
+export function taskStatusText(code){
+    return {10: "Queued", 20: "Running", 30: "Failed", 40: "Completed", 50: "Canceled"}[code] || "Waiting for a processing node";
+}
+
+// Why a task's row has no Train Splats button, or "" when it has one or is training
+export function rowNote(status){
+    if (!status || panelMode(status) !== "hidden") return "";
+    if (status.task_status === TASK_FAILED) return "The task failed processing: process it again to train its splats.";
+    if (status.task_status === TASK_CANCELED) return "The task's processing was canceled: process it again to train its splats.";
+    if (!status.can_train) return "Only those who may change this project train its tasks.";
+    return "";
+}
+
+// When to ask for the Tasks page's list again (FAST, SLOW or 0), from its projects ({tasks: [{status, splats}]})
+export function nextRefresh(projects){
+    let wait = 0;
+    for (const project of projects || []){
+        for (const task of project.tasks || []){
+            if (task.splats && task.splats.active) return FAST;
+            if (task.status == null || task.status === TASK_QUEUED || task.status === TASK_RUNNING) wait = SLOW;
+        }
+    }
+    return wait;
+}
+
+// The task panel's line on the Dashboard: "Trained, 7,000 steps", "Training: Step 400 of 7,000", "None"...
+export function splatsLine(status){
+    if (!status) return "";
+    if (status.active) return stageText(status) || "Training";
+    const steps = ((status.state === "completed" && status.options) || {}).steps;
+    if (status.has_splats) return "Trained" + (steps ? ", " + Number(steps).toLocaleString("en-US") + " steps" : "");
+    if (status.state === "failed") return "Training failed";
+    if (status.auto && status.auto.enabled && (status.task_status == null || status.task_status === TASK_QUEUED || status.task_status === TASK_RUNNING)){
+        return "Trained when the task completes";
+    }
+    return "None";
 }

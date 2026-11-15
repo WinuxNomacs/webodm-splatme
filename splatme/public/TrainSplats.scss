@@ -94,3 +94,36 @@
         margin-right: 4px;
     }
 }
+
+// SplatMe → Tasks (Tasks.jsx): a project's tasks as WebODM's list groups, and the task asked for in the address
+// marked with the theme's primary border
+.splatme-tasks{
+    .splatme-filter{
+        margin-bottom: 12px;
+
+        label{
+            margin-right: 6px;
+        }
+    }
+
+    .splatme-row-head{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        margin-bottom: 6px;
+
+        .splatme-task-name{
+            font-weight: bold;
+            margin-right: 10px;
+            word-break: break-word;
+        }
+    }
+
+    .splatme-focus{
+        border-width: 2px;
+    }
+
+    .splatme-idle .text-muted{
+        vertical-align: middle;
+    }
+}

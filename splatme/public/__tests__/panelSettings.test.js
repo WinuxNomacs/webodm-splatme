@@ -1,4 +1,4 @@
-import { createPanelSettings, isCreation, isEdit } from '../panelSettings';
+import { createPanelSettings, isCreation } from '../panelSettings';
 
 // jQuery, as far as the module uses it: $(document).on(event, handler)
 function fakeJQuery(){
@@ -90,57 +90,6 @@ describe("a New Task panel's choice", () => {
         settings.set(panel, SETTING);
         settings.set(panel, null);
         expect(settings.get(panel)).toBeNull();
-    });
-});
-
-describe("an Edit Task panel's choice", () => {
-    const EDIT = {type: "PATCH", url: "/api/projects/3/tasks/abc/"};
-    let $, applied, settings;
-
-    beforeEach(() => {
-        jest.useFakeTimers();
-        $ = fakeJQuery();
-        applied = [];
-        settings = createPanelSettings($, isEdit, (taskId, setting) => applied.push([taskId, setting]), 1000);
-    });
-
-    afterEach(() => jest.useRealTimers());
-
-    test("goes to its task when WebODM has saved the panel", () => {
-        const panel = {isConnected: true};
-        settings.set(panel, SETTING, "abc");
-        $.send(EDIT);
-        panel.isConnected = false;  // WebODM closes the panel once the task is saved
-        $.complete(EDIT, 200, {id: "abc"});
-        expect(applied).toEqual([["abc", SETTING]]);
-    });
-
-    test("stays while the save fails and the panel stays open", () => {
-        const panel = {isConnected: true};
-        settings.set(panel, SETTING, "abc");
-        $.send(EDIT);
-        $.complete(EDIT, 500, null);
-        expect(applied).toEqual([]);
-        expect(settings.get(panel)).toBe(SETTING);
-    });
-
-    test("does not go to another task saved while its panel was canceled", () => {
-        const panel = {isConnected: true};
-        settings.set(panel, SETTING, "abc");
-        const other = {type: "PATCH", url: "/api/projects/3/tasks/xyz/"};
-        $.send(other);
-        panel.isConnected = false;
-        $.complete(other, 200, {id: "xyz"});
-        expect(applied).toEqual([]);
-    });
-
-    test("ignores the creation of a task", () => {
-        const panel = {isConnected: true};
-        settings.set(panel, SETTING, "abc");
-        panel.isConnected = false;
-        $.send(CREATE);
-        $.complete(CREATE, 201, {id: "abc"});
-        expect(applied).toEqual([]);
     });
 });
 
