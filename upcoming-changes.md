@@ -9,14 +9,15 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Masks: pixels the training ignores.
+1. Ignore Sky: the training ignores the sky in the photos.
 
 **Later**
 
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-3. Native Windows app: a trainer run as a local program.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Crop: train only inside the task's crop area.
+3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+4. Native Windows app: a trainer run as a local program.
+5. Docs and first release.
+6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -397,31 +398,66 @@ More Steps), not a button of its own.
   gaussians the model has. `--densify-until` could change that; not tried.
 - An existing 0.1.0 node is refused with "Update the node".
 
-### 1. Masks
+### 1. Ignore Sky
 
-OpenSplat applies a `masks/` folder (white keeps, black ignores) named after the images. A task's results hold
-no masks (ODX's sky and background masks are not kept), so the plugin makes them. Open: which masks (sky, an
-area drawn by the user, moving objects) and how they are made.
+Decided with the user (2026-11-14): of the masks SplatMe could make, the sky first, found automatically; an
+area to train is phase 2; masks uploaded with the photos and moving objects are not planned.
+
+Checked:
+
+- OpenSplat 1.2.2 reads a mask per image from a `masks/` folder beside `images/` (`findMaskPath`,
+  `input_data.cpp`): `<image stem>.png`, a pixel above 127 is trained on, the others ignored; it resizes the
+  mask to the image. `--no-masks` turns that off.
+- A task keeps no masks: ODX's sky masks (its `sky-removal` option) are made in the processing node and not
+  returned.
+- ODX's sky model (`skyremoval.zip` v1.0.5 from ODX's GitHub release, an ONNX model with a 384 x 384 input)
+  runs with `onnxruntime`, which WebODM has (through `geodeep` in its `requirements.txt`). ODX's code around
+  it uses OpenCV, which WebODM lacks: the plugin does the same with Pillow, NumPy and SciPy.
+- The dev task (HomerunObliqueRGB) has no sky: its cameras look 40 to 50 degrees below the horizon or
+  straight down. The stack has no other task.
+
+Design:
+
+- **Ignore Sky**, a checkbox in the Train Splats dialog on a task's panel (Dashboard) and in the Train Splats
+  When Completed dialog, off by default; an option of the training (`ignore_sky`), kept when continuing.
+- The worker makes the masks after the export, from the exported (resized) photos, and adds them to the
+  training zip as `masks/<stem>.png`. Photos that cannot show the sky (looking too far down, from the shot's
+  rotation and the camera's field of view) are skipped; a task with none says so and trains without masks.
+- The model is downloaded once, checked against a pinned checksum, and kept in WebODM's media folder.
+
+Open: a task with sky to measure it on.
 
 Not usable from a task: the mesh, the DSM and depth maps. OpenSplat v1.2.2 has no depth or normal supervision,
 and the task keeps no depth maps or undistorted photos (OpenSplat undistorts from the camera model itself).
 
-### 2. Thermal tasks
+### 2. Crop
+
+The user's request (2026-11-14): crop the splats with a GeoJSON file, as the model can be.
+
+Checked: a task has a crop polygon (`Task.crop`, drawn with the Crop button on the task's map), and WebODM's
+3D view already hides the splats outside it (`ModelView.jsx`, `sparkRenderer.cropVertices`), as it does the
+point cloud. The model file itself is not cut, and the training spends gaussians outside the area. A GeoJSON
+file is accepted today only by the Boundary option, at processing.
+
+To plan: train only inside the task's crop (the starting cloud and the trained model cut to it, the pixels
+outside masked), and whether the plugin takes a GeoJSON file for it or uses the task's crop.
+
+### 3. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 3. Native Windows app
+### 4. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 4. Docs and first release
+### 5. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
