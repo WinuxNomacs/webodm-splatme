@@ -124,6 +124,7 @@ export class Upload {
 
     sendFiles(files){
         const queue = files.slice();
+        this.report();  // the task exists: the files are on their way
         const worker = () => {
             if (this.canceled || !queue.length) return Promise.resolve();
             const file = queue.shift();
