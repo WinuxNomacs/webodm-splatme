@@ -9,13 +9,16 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. SplatMe in Administration: only administrators change the splat node, on a SplatMe page under
+   Administration; everyone sees the node's state and address; each user keeps their own New Task With Splats
+   defaults.
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-2. Native Windows app: a trainer run as a local program.
-3. Docs and first release.
-4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Native Windows app: a trainer run as a local program.
+4. Docs and first release.
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -382,13 +385,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 4).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 5).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 5).
 
 ### SplatMe's panel (built)
 
@@ -436,7 +439,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 4.
+  is in phase 5.
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
 
@@ -598,14 +601,51 @@ model is imported. The step numbers are now written with thousands separators. N
 (the worker runs a training with the code it loaded, so it shows from a training started after WebODM's
 worker restarts).
 
-### 1. Thermal tasks
+### 1. SplatMe in Administration
+
+The user's request (2026-11-15): changing the splat node's address and token moves to a SplatMe item under
+Administration in the side menu, so only administrators can change it; the node's information (state, GPU,
+OpenSplat, jobs) stays on the side menu's SplatMe page too, with the configured Node Address, so every user sees
+it. Checked in the code: WebODM's Administration list is fixed in `logged_in_base.html` (drawn only for staff
+accounts), and plugins have no hook to add to it; `main_menu()` items show to every user.
+
+Decisions (2026-11-15, the user's):
+
+- **Under Administration**, placed by `main.js` (every page): after WebODM draws the side menu, a "SplatMe"
+  item is added at the end of Administration's list (found by its Plugins link, `/admin/app/plugin/`). Not an
+  official hook: if a WebODM changes the menu, the item is missing and the page still works by its address.
+- **New Task With Splats defaults: each user their own.** On the side menu's SplatMe page every user saves their
+  own set, which fills their New Task With Splats panel (and an Edit Task panel of a task with no setting yet).
+  The administrators' set, edited on the admin page, is the starting point for users who have not saved one;
+  "Use The Administrators' Defaults" drops a user's own set.
+
+Design:
+
+- **The admin page** (`/plugins/splatme/admin/`, new mount point, title "SplatMe"): the node's information, the
+  Node Address and Token form with Save and Test Connection (moved from the SplatMe page), and the
+  administrators' New Task With Splats defaults ("for users who have not saved their own"). For superusers, as
+  today's settings are; a staff account that is not a superuser sees Administration and so the link: the page
+  shows it the information read-only and says only a superuser can change it. Other accounts get WebODM's 403.
+- **The SplatMe page** (side menu): the node's information plus "Node Address: http://splat-node:3100" for every
+  user (the token is never shown); for superusers a link to the admin page; the user's own New Task With
+  Splats form.
+- **API**: `node` gives `url` to every user (POST stays superusers only). `automation` reads and saves the
+  user's own defaults (any user; `own` says whether they saved one; a reset drops it), kept in the plugin's
+  per-user data store (`get_user_data_store`); `automation/shared` (superusers to save) holds the
+  administrators' set, the store key used today, so a saved default carries over. A task's own setting is
+  unchanged: it is saved on the task when created or edited, and the worker reads only that.
+- Tests: Django for the address shown to a plain user, each user's defaults and the starting point, the admin
+  page's permissions; the browser check of both pages as a superuser and as a plain user (writes answered by
+  the check), and of the Administration item at phone width.
+
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 2. Native Windows app
+### 3. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
@@ -655,7 +695,7 @@ while the status says the worker does not listen (the check changed the answer);
 found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
 says. Not checked: both plugins installed together.
 
-### 3. Docs and first release
+### 4. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -673,7 +713,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
