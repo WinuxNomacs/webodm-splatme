@@ -91,9 +91,14 @@ export default class TrainSplats extends React.Component {
             <div className="splatme-progress">
                 <div className="splatme-stage"><i className="fa fa-splat fa-fw"></i> {_("Training Splats")}: {stageText(status)}</div>
                 <div className="splatme-bar-row">
+                    {/* The number is beside the bar, not in it: WebODM's Dashboard asks before leaving the page
+                        while a visible .progress-bar's text is between 0 and 100 (its uploads), and leaving
+                        does not stop a training */}
                     <div className="progress">
-                        <div className="progress-bar progress-bar-success active" style={{width: percent + "%"}}>{percent}%</div>
+                        <div className="progress-bar progress-bar-success active" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                             aria-valuenow={percent} style={{width: percent + "%"}}></div>
                     </div>
+                    <span className="splatme-percent">{percent}%</span>
                     {status.can_train ?
                         <button type="button" className="btn btn-sm btn-default" disabled={this.state.canceling} onClick={this.handleCancel}>
                             <i className={this.state.canceling ? "fa fa-circle-notch fa-spin fa-fw" : "glyphicon glyphicon-remove-circle"}></i> {_("Cancel")}
