@@ -1,0 +1,173 @@
+{% comment %}
+The options SplatMe's panel starts with for a new task, as a form (api.py: automation): the user's own, or with
+shared (the admin page) the administrators', for users who saved none, which only superusers change.
+{% endcomment %}
+<div id="splatme-auto-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading</div>
+
+<form id="splatme-auto-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-quality">Quality</label>
+        <div class="col-sm-9">
+            <select class="form-control" id="splatme-auto-quality">
+                <option value="2000">Draft (2,000 steps)</option>
+                <option value="7000">Standard (7,000 steps)</option>
+                <option value="30000">High (30,000 steps)</option>
+                <option value="custom">Custom</option>
+            </select>
+            <span class="help-block" id="splatme-auto-hint"></span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-steps">Steps</label>
+        <div class="col-sm-9">
+            <input type="number" min="1" class="form-control" id="splatme-auto-steps">
+            <span class="help-block">How long the trainer works on the model.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-size">Image Size</label>
+        <div class="col-sm-9">
+            <input type="number" min="0" class="form-control" id="splatme-auto-size">
+            <span class="help-block">The photos' longer side in pixels as the trainer sees them. 0 keeps the photos as
+                they are, which needs more GPU memory.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-gaussians">Max Gaussians</label>
+        <div class="col-sm-9">
+            <input type="number" min="1" class="form-control" id="splatme-auto-gaussians" placeholder="The trainer's own limit">
+            <span class="help-block">The most points the model may grow to. Lower it when the GPU runs out of memory.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
+            <div class="checkbox"><label><input type="checkbox" id="splatme-auto-crop"> Crop To Boundary</label></div>
+            <span class="help-block">For a task processed with a boundary (a GeoJSON file): the splats outside it are left out, as they are of the point cloud and the mesh.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
+            <div class="checkbox"><label><input type="checkbox" id="splatme-auto-sky"> Ignore Sky</label></div>
+            <span class="help-block">For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
+            <button type="submit" class="btn btn-primary" id="splatme-auto-save"><i class="fa fa-save fa-fw"></i> Save</button>
+            <button type="button" class="btn btn-default" id="splatme-auto-reset" style="display: none;"><i class="fa fa-undo fa-fw"></i> Use The Administrators' Defaults</button>
+            <span id="splatme-auto-saved" class="text-success" style="display: none; margin-left: 8px;">Saved.</span>
+            <span id="splatme-auto-error" class="text-danger" style="margin-left: 8px;"></span>
+        </div>
+    </div>
+</form>
+
+<script>
+// The options a task created with New Task With Splats starts with
+(function(){
+    var SHARED = {% if shared %}true{% else %}false{% endif %};
+    var API = "/api/plugins/splatme/automation" + (SHARED ? "/shared" : "");
+    var HINTS = {
+        "2000": "A quick look at whether the dataset trains well. Soft detail.",
+        "7000": "A good model for most datasets. The place to start.",
+        "30000": "The sharpest model. Takes several times longer than Standard.",
+        "custom": "More steps give a sharper model and take longer."
+    };
+    var state = document.getElementById("splatme-auto-state");
+    var form = document.getElementById("splatme-auto-form");
+    var quality = document.getElementById("splatme-auto-quality");
+    var steps = document.getElementById("splatme-auto-steps");
+    var size = document.getElementById("splatme-auto-size");
+    var gaussians = document.getElementById("splatme-auto-gaussians");
+    var sky = document.getElementById("splatme-auto-sky");
+    var crop = document.getElementById("splatme-auto-crop");
+    var saved = document.getElementById("splatme-auto-saved");
+    var error = document.getElementById("splatme-auto-error");
+    var reset = document.getElementById("splatme-auto-reset");
+
+    function box(kind, icon, text){
+        var div = document.createElement("div");
+        var i = document.createElement("i");
+        div.className = "alert alert-" + kind;
+        i.className = icon + " fa-fw";
+        div.appendChild(i);
+        div.appendChild(document.createTextNode(" " + text));
+        return div;
+    }
+
+    function qualityOfSteps(){
+        quality.value = HINTS[steps.value] && steps.value !== "custom" ? steps.value : "custom";
+        document.getElementById("splatme-auto-hint").textContent = HINTS[quality.value];
+    }
+
+    function show(data){
+        var options = data.options || {};
+        var name = {2000: "Draft", 7000: "Standard", 30000: "High"}[options.steps] || (options.steps + " steps");
+        state.innerHTML = "";
+        // The worker imports plugins when it starts: one installed since then hears of no completed task
+        if (data.listening === false){
+            state.appendChild(box("warning", "fa fa-exclamation-triangle",
+                "Automatic training is not active yet: WebODM has to be restarted once after SplatMe is installed or " +
+                "updated. Until then, tasks are trained only from the Train Splats button."));
+        }
+        if (SHARED){
+            state.appendChild(box("info", "fa fa-magic", "Users who have not saved their own start with: " + name + "."));
+            if (!data.admin){
+                state.appendChild(box("info", "fa fa-info-circle", "Only a superuser can change them."));
+                return;
+            }
+        }else{
+            state.appendChild(box("info", "fa fa-magic", "Your New Task With Splats starts with: " + name +
+                (data.own ? ", your own." : ", the administrators' defaults.")));
+            reset.style.display = data.own ? "" : "none";
+        }
+        form.style.display = "";
+        steps.value = options.steps == null ? "" : options.steps;
+        size.value = options.image_size == null ? "" : options.image_size;
+        gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
+        sky.checked = !!options.ignore_sky;
+        crop.checked = options.crop !== false;
+        qualityOfSteps();
+    }
+
+    function reason(xhr){
+        var data = xhr.responseJSON || {};
+        return data.error || data.detail || "The request failed (" + xhr.status + ").";
+    }
+
+    quality.addEventListener("change", function(){
+        if (quality.value !== "custom") steps.value = quality.value;
+        else steps.focus();
+        document.getElementById("splatme-auto-hint").textContent = HINTS[quality.value];
+    });
+    steps.addEventListener("input", qualityOfSteps);
+
+    function save(button, values){
+        saved.style.display = "none";
+        error.textContent = "";
+        button.disabled = true;
+        $.ajax({
+            url: API, type: "POST", contentType: "application/json",
+            headers: {"X-CSRFToken": "{{ csrf_token }}"},
+            data: JSON.stringify(values)
+        }).done(function(data){
+            show(data);
+            saved.style.display = "";
+        }).fail(function(xhr){
+            // What was saved before still stands, and stays shown above
+            error.textContent = reason(xhr);
+        }).always(function(){ button.disabled = false; });
+    }
+
+    form.addEventListener("submit", function(e){
+        e.preventDefault();
+        save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value,
+            max_gaussians: gaussians.value, ignore_sky: sky.checked, crop: crop.checked});
+    });
+    reset.addEventListener("click", function(){ save(reset, {reset: true}); });
+
+    $.getJSON(API).done(show).fail(function(xhr){
+        state.innerHTML = "";
+        state.appendChild(box("danger", "fa fa-exclamation-triangle", reason(xhr)));
+    });
+})();
+</script>

@@ -1,0 +1,131 @@
+{% comment %}
+The splat node's state and address, for everyone (api.py: node); with editable (the admin page), its address and
+token as a form for superusers. The token is never shown.
+{% endcomment %}
+<div id="splatme-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Asking the splat node</div>
+<div id="splatme-node-note" style="margin-bottom: 10px;"></div>
+{% if editable %}
+<form id="splatme-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-url">Node Address</label>
+        <div class="col-sm-9">
+            <input type="text" class="form-control" id="splatme-url" placeholder="http://splat-node:3100" autocomplete="off">
+            <span class="help-block">Where WebODM reaches the splat node, as seen from WebODM's own containers.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-token">Token</label>
+        <div class="col-sm-9">
+            <input type="password" class="form-control" id="splatme-token" autocomplete="new-password">
+            <span class="help-block" id="splatme-token-help">The node's SPLATNODE_TOKEN. It is never shown again.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-sm-9 col-sm-offset-3">
+            <button type="submit" class="btn btn-primary" id="splatme-save"><i class="fa fa-save fa-fw"></i> Save</button>
+            <button type="button" class="btn btn-default" id="splatme-test"><i class="fa fa-plug fa-fw"></i> Test Connection</button>
+            <span id="splatme-saved" class="text-success" style="display: none; margin-left: 8px;">Saved.</span>
+        </div>
+    </div>
+</form>
+{% endif %}
+
+<script>
+(function(){
+    var API = "/api/plugins/splatme/node";
+    var state = document.getElementById("splatme-state");
+    var form = document.getElementById("splatme-form");
+    var url = document.getElementById("splatme-url");
+    var token = document.getElementById("splatme-token");
+    var saved = document.getElementById("splatme-saved");
+    var note = document.getElementById("splatme-node-note");
+    var EDITABLE = {% if editable %}true{% else %}false{% endif %};
+
+    function line(icon, text){
+        var p = document.createElement("div");
+        var i = document.createElement("i");
+        i.className = icon + " fa-fw";
+        p.appendChild(i);
+        p.appendChild(document.createTextNode(" " + text));
+        return p;
+    }
+
+    // What the node answered, or what is wrong with it, and its address; tried: these are the form's values, not
+    // the saved ones
+    function show(data, tried){
+        state.innerHTML = "";
+        var box = document.createElement("div");
+        if (data.error){
+            box.className = "alert alert-danger";
+            box.appendChild(line("fa fa-exclamation-triangle", data.error));
+            if (data.url !== undefined) box.appendChild(line("fa fa-link", "Node Address: " + (data.url || "not set")));
+        }else{
+            var node = data.node, gpu = node.gpu || {};
+            box.className = "alert alert-success";
+            box.appendChild(line("fa fa-check", tried ? "The splat node answers and can train." : "The splat node is ready."));
+            box.appendChild(line("fa fa-link", "Node Address: " + data.url));
+            box.appendChild(line("fa fa-microchip", gpu.name + ", " + (gpu.memory_total / 1024).toFixed(1) + " GB (" +
+                (gpu.memory_used / 1024).toFixed(1) + " GB in use)"));
+            box.appendChild(line("fa fa-cogs", node.trainer + ", node " + node.version));
+            box.appendChild(line("fa fa-tasks", node.busy ? "Training now, " + node.queued + " waiting" : "Idle"));
+        }
+        state.appendChild(box);
+        if (tried && !data.error) state.appendChild(line("fa fa-info-circle", "Not saved yet."));
+    }
+
+    // Only superusers change the node, on the admin page; the SplatMe page tells them where
+    function fill(data){
+        note.innerHTML = "";
+        if (!EDITABLE && data.admin){
+            note.appendChild(line("fa fa-info-circle", "Change the splat node under Administration, "));
+            var link = document.createElement("a");
+            link.href = "/plugins/splatme/admin/";
+            link.textContent = "SplatMe";
+            note.firstChild.appendChild(link);
+            note.firstChild.appendChild(document.createTextNode("."));
+        }
+        if (EDITABLE && !data.admin) note.appendChild(line("fa fa-info-circle", "Only a superuser can change the splat node."));
+        if (!EDITABLE || !data.admin) return;
+        form.style.display = "";
+        url.value = data.url || "";
+        token.value = "";
+        token.placeholder = data.token_set ? "Unchanged" : "";
+    }
+
+    function failed(xhr){
+        var data = xhr.responseJSON || {};
+        show({error: data.detail || (Array.isArray(data) && data[0]) || "The request failed (" + xhr.status + ")."});
+    }
+
+    function post(save, button){
+        saved.style.display = "none";
+        button.disabled = true;
+        $.ajax({
+            url: API, type: "POST", contentType: "application/json",
+            headers: {"X-CSRFToken": "{{ csrf_token }}"},
+            data: JSON.stringify({url: url.value, token: token.value, save: save})
+        }).done(function(data){
+            show(data, !save);
+            if (save){
+                fill(data);
+                saved.style.display = "";
+            }
+        }).fail(failed).always(function(){ button.disabled = false; });
+    }
+
+    if (EDITABLE){
+        form.addEventListener("submit", function(e){
+            e.preventDefault();
+            post(true, document.getElementById("splatme-save"));
+        });
+        document.getElementById("splatme-test").addEventListener("click", function(){
+            post(false, document.getElementById("splatme-test"));
+        });
+    }
+
+    $.getJSON(API).done(function(data){
+        show(data, false);
+        fill(data);
+    }).fail(failed);
+})();
+</script>

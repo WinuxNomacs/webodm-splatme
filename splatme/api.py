@@ -6,14 +6,17 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/check     before training: why the task or the node cannot train, warnings, the options' ranges
     POST task/<id>/cancel    stops the task's job
     GET  task/<id>/log       the trainer's output from ?offset= on (the next offset is in X-Log-Offset)
-    GET  node                the splat node's state; for administrators also its address
+    GET  node                the splat node's state and its address (for administrators also whether a token is set)
     POST node                sets its address (url) and token, then answers as GET does (administrators);
                              with save false, only tries them
     GET  task/<id>/auto      whether the task is trained when it completes, and with which options
     POST task/<id>/auto      sets that for the task (enabled and the options)
-    GET  automation          the options SplatMe's panel starts with for a new task; with ?ranges=1 also the
-                             node's range of each option (the panel is filled before the task exists)
-    POST automation          sets them (administrators)
+    GET  automation          the options SplatMe's panel starts with for the user's new task: their own (own true)
+                             or the administrators'; with ?ranges=1 also the node's range of each option (the
+                             panel is filled before the task exists)
+    POST automation          saves the user's own options; with reset true, drops them
+    GET  automation/shared   the administrators' options, for users who saved none of their own
+    POST automation/shared   sets them (administrators)
     GET  find-task           ?project=<name>&task=<name>: the id of the only task so named in the only project so
                              named that the user may see (SplatMe's panel above an Edit Task panel, when the page
                              does not say which task it edits)
@@ -71,7 +74,7 @@ def describe(request, task, job):
     out["has_splats"] = "splats.rad" in task.available_assets
     out["can_train"] = can_train(request, task)
     out["task_status"] = task.status
-    out["auto"] = describe_auto(training.get_auto(task.id))
+    out["auto"] = describe_auto(training.get_auto(task.id, request.user))
     # Whether WebODM's worker tells the plugin of completed tasks, for a task set to train (None: not known)
     out["listening"] = training.listens() if out["auto"]["enabled"] else None
     return out
@@ -143,7 +146,7 @@ class Log(TaskView):
 class Auto(TaskView):
     def get(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
-        return Response(describe_auto(training.get_auto(task.id)))
+        return Response(describe_auto(training.get_auto(task.id, request.user)))
 
     def post(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
@@ -152,14 +155,15 @@ class Auto(TaskView):
             training.set_auto(task.id, request.user.username, is_true(request.data.get("enabled")), request.data)
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(describe_auto(training.get_auto(task.id)))
+        return Response(describe_auto(training.get_auto(task.id, request.user)))
 
 
 class Automation(APIView):
     permission_classes = (IsAuthenticated,)
 
     def describe(self, request):
-        out = {"options": training.new_task_options(), "admin": request.user.is_superuser}
+        own = training.own_options(request.user)
+        out = {"options": own or training.shared_options(), "own": own is not None, "admin": request.user.is_superuser}
         # Administrators, who can restart WebODM, are told what the worker says now; others what it said lately
         out["listening"] = training.listens(fresh=request.user.is_superuser)
         return out
@@ -171,10 +175,32 @@ class Automation(APIView):
         return Response(out)
 
     def post(self, request):
+        if is_true(request.data.get("reset")):
+            training.reset_own_options(request.user)
+            return Response(self.describe(request))
+        try:
+            training.set_own_options(request.user, request.data)
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.describe(request))
+
+
+class SharedAutomation(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def describe(self, request):
+        out = {"options": training.shared_options(), "admin": request.user.is_superuser}
+        out["listening"] = training.listens(fresh=request.user.is_superuser)
+        return out
+
+    def get(self, request):
+        return Response(self.describe(request))
+
+    def post(self, request):
         if not request.user.is_superuser:
             raise exceptions.PermissionDenied()
         try:
-            training.set_new_task_options(request.data)
+            training.set_shared_options(request.data)
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.describe(request))
@@ -198,13 +224,13 @@ class NodeSettings(APIView):
     permission_classes = (IsAuthenticated,)
 
     def describe(self, request, node):
-        out = {"admin": request.user.is_superuser, "node": None, "error": None}
+        out = {"admin": request.user.is_superuser, "node": None, "error": None, "url": node.url}
         try:
             out["node"] = node_state(node.check())
         except NodeError as e:
             out["error"] = str(e) if request.user.is_superuser else UNAVAILABLE
         if request.user.is_superuser:
-            out.update(url=node.url, token_set=bool(node.token))
+            out["token_set"] = bool(node.token)
         return out
 
     def get(self, request):

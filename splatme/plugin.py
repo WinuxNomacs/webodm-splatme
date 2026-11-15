@@ -1,16 +1,17 @@
 from app.plugins import Menu, MountPoint, PluginBase, signals
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Auto, Automation, Cancel, Check, FindTask, Log, NodeSettings, Status, Train
+from .api import Auto, Automation, Cancel, Check, FindTask, Log, NodeSettings, SharedAutomation, Status, Train
 
 
 class Plugin(PluginBase):
     def main_menu(self):
-        # WebODM shows a plugin's menu item to every user: the page gives administrators the node's settings and
-        # everyone else only its state
+        # WebODM shows a plugin's menu item to every user: the node's state and address, and the user's own options
+        # for a new task. Administration, which WebODM shows only to staff, has the node's settings (main.js)
         return [Menu("SplatMe", self.public_url(""), "fa fa-splat fa-fw")]
 
     def include_js_files(self):
@@ -20,11 +21,20 @@ class Plugin(PluginBase):
         return ["TrainSplats.jsx", "Dashboard.jsx"]
 
     def app_mount_points(self):
+        parts = {"node_part": self.template_path("node.html"), "options_part": self.template_path("options.html")}
+
         @login_required
         def settings_page(request):
-            return render(request, self.template_path("settings.html"), {"title": "SplatMe"})
+            return render(request, self.template_path("settings.html"), {"title": "SplatMe", **parts})
 
-        return [MountPoint("$", settings_page)]
+        # Staff accounts see Administration and so its SplatMe item; only superusers change what is on it
+        @login_required
+        def admin_page(request):
+            if not request.user.is_staff:
+                raise PermissionDenied()
+            return render(request, self.template_path("admin.html"), {"title": "SplatMe", **parts})
+
+        return [MountPoint("$", settings_page), MountPoint("admin/$", admin_page)]
 
     def api_mount_points(self):
         return [
@@ -36,6 +46,7 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/auto$", Auto.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("automation$", Automation.as_view()),
+            MountPoint("automation/shared$", SharedAutomation.as_view()),
             MountPoint("find-task$", FindTask.as_view()),
         ]
 

@@ -21,7 +21,7 @@ import uuid
 
 from app import splats
 from app.models import Plugin, PluginDatum, Task
-from app.plugins.data_store import GlobalDataStore
+from app.plugins.data_store import GlobalDataStore, UserDataStore
 from app.plugins.functions import get_plugins_persistent_path
 from app.plugins.worker import run_function_async
 from django.core.exceptions import ValidationError
@@ -116,18 +116,37 @@ def node_ranges():
     return {name: info["options"][name] for name in NODE_OPTIONS if name in info["options"]}
 
 
-def new_task_options():
-    """The options a task created with New Task With Splats starts with."""
+def shared_options():
+    """The administrators' New Task With Splats options: what a user who saved none of their own starts with."""
     return (store().get_json("auto_default", None) or {}).get("options") or dict(DEFAULTS)
 
 
-def set_new_task_options(given):
+def set_shared_options(given):
     store().set_json("auto_default", {"options": clean_options(given)})
 
 
-def get_auto(task_id):
-    """Whether the task is trained when it completes, and with what: off for a task without a setting."""
-    return store().get_json(auto_key(task_id), None) or {"enabled": False, "options": new_task_options()}
+def own_options(user):
+    """The New Task With Splats options the user saved, or None."""
+    return (UserDataStore(NAME, user).get_json("new_task", None) or {}).get("options")
+
+
+def set_own_options(user, given):
+    UserDataStore(NAME, user).set_json("new_task", {"options": clean_options(given)})
+
+
+def reset_own_options(user):
+    UserDataStore(NAME, user).del_key("new_task")
+
+
+def new_task_options(user=None):
+    """The options SplatMe's panel starts with for a new task: the user's own, else the administrators'."""
+    return (own_options(user) if user is not None else None) or shared_options()
+
+
+def get_auto(task_id, user=None):
+    """Whether the task is trained when it completes, and with what: off for a task without a setting, with the
+    options the user's panel would start with."""
+    return store().get_json(auto_key(task_id), None) or {"enabled": False, "options": new_task_options(user)}
 
 
 def set_auto(task_id, username, enabled, given):
