@@ -12,13 +12,15 @@ other software. The plugin does that step.
 1. Less fragile page parts: SplatMe says when it cannot add its parts to WebODM's pages, finds an Edit Task
    panel's task a second way, and places its button itself so DJI Thermal's shows too. See "1. Less fragile
    page parts".
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+2. Time left: the training's stage says about how long its steps have left ("Step 4,650 of 7,000, about 12 min
+   left"). See "2. Time left".
+3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-3. Native Windows app: a trainer run as a local program.
-4. Docs and first release.
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Native Windows app: a trainer run as a local program.
+5. Docs and first release.
+6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -562,14 +564,34 @@ Checked on the dev stack: the task's real model cropped into a scratch file (246
 and converted by WebODM's converter; the dialogs and the page in a headless browser. Not checked: a training
 from the browser, and the cropped model in the 3D view.
 
-### 2. Thermal tasks
+### 2. Time left
+
+The user's request (2026-11-15): the estimated time left beside the current step and the total, in the task's
+panel while a training runs ("Training Splats: Step 4,650 of 7,000, about 12 min left").
+
+Design (no decision open):
+
+- **Worked out where the training is followed**: the worker's loop that asks the node for its job every few
+  seconds (`training.py`, `follow`). It keeps the steps it saw with their times, in memory (the loop is one
+  process), and works out the rate from the last few minutes, not from the start: OpenSplat's steps slow down
+  as the model grows (it adds gaussians until well after 7,000 steps), so an average from the start would
+  promise too little time.
+- **Shown once it means something**: after half a minute of steps and some tens of steps; before that only
+  "Step N of M". Rounded: "less than a minute left", "about 12 min left", "about 1 h 20 min left" (the panel
+  already writes durations this way, `trainingView.js`'s `duration`). A continued training counts only the
+  steps of this run (the node's step starts at the model's own).
+- **The steps only**: the stages before (exporting, finding the sky, sending) and after (importing, cropping)
+  are not in it; the text says "left" of the steps, beside "Step N of M". The node's API is unchanged.
+- Tests: the estimate from a series of (time, step) samples, as a plain function (Django test), and its text.
+
+### 3. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 3. Native Windows app
+### 4. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
@@ -602,7 +624,7 @@ Decided with the user (2026-11-15):
 - For the release phase: a committed browser check run against each new WebODM before supporting it, and the
   page parts turned off on a WebODM newer than tested.
 
-### 4. Docs and first release
+### 5. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -620,7 +642,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
