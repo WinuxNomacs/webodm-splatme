@@ -4,7 +4,7 @@ from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, Status, Train
+from .api import Auto, Automation, Cancel, Check, FindTask, Log, NodeSettings, Status, Train
 
 
 class Plugin(PluginBase):
@@ -17,7 +17,7 @@ class Plugin(PluginBase):
         return ["main.js"]
 
     def build_jsx_components(self):
-        return ["TrainSplats.jsx", "NewTaskButton.jsx", "EditTaskSplats.jsx"]
+        return ["TrainSplats.jsx", "Dashboard.jsx"]
 
     def app_mount_points(self):
         @login_required
@@ -36,6 +36,7 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/auto$", Auto.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("automation$", Automation.as_view()),
+            MountPoint("find-task$", FindTask.as_view()),
         ]
 
 

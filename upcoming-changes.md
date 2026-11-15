@@ -9,18 +9,15 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Less fragile page parts: SplatMe says when it cannot add its parts to WebODM's pages, finds an Edit Task
-   panel's task a second way, and places its button itself so DJI Thermal's shows too. See "1. Less fragile
-   page parts".
-2. Time left: the training's stage says about how long its steps have left ("Step 4,650 of 7,000, about 12 min
-   left"). See "2. Time left".
-3. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+1. Time left: the training's stage says about how long its steps have left ("Step 4,650 of 7,000, about 12 min
+   left"). See "1. Time left".
+2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
 
 **Later**
 
-4. Native Windows app: a trainer run as a local program.
-5. Docs and first release.
-6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Native Windows app: a trainer run as a local program.
+4. Docs and first release.
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -32,6 +29,15 @@ other software. The plugin does that step.
   by hand once after installing or updating, as the README says.
 
 **Done**
+
+- Less fragile page parts (2026-11-15): SplatMe says where it cannot add its parts to WebODM's pages (notices,
+  the Edit Task panel's "cannot tell which task"), warns while WebODM's worker does not hear of completed tasks,
+  finds an Edit Task panel's task by its name when React's props are not there, places its button itself so
+  other plugins' buttons beside Import show too, and has Change back in the task's panel.
+  `splatme/public/Dashboard.jsx`, `NewTaskButton.jsx`, `EditTaskSplats.jsx`, `AutoDialog.jsx`,
+  `TrainSplats.jsx`, `panelSettings.js`, `notice.js`, `restartText.js`, `main.js`; `training.py` (`listens`),
+  `api.py` (`find-task`, `listening` in the status and for everyone in `automation`). Tests: 2 new in
+  `test_splatme.py` (59), 4 new in Jest (40). See "Less fragile page parts (built)".
 
 - SplatMe's panel (2026-11-15): above WebODM's New Task panel opened with New Task With Splats, and above every
   Edit Task panel, as DJI Thermal Analyzer's is above its task panel: Train Splats When Completed and the
@@ -564,7 +570,7 @@ Checked on the dev stack: the task's real model cropped into a scratch file (246
 and converted by WebODM's converter; the dialogs and the page in a headless browser. Not checked: a training
 from the browser, and the cropped model in the 3D view.
 
-### 2. Time left
+### 1. Time left
 
 The user's request (2026-11-15): the estimated time left beside the current step and the total, in the task's
 panel while a training runs ("Training Splats: Step 4,650 of 7,000, about 12 min left").
@@ -584,25 +590,25 @@ Design (no decision open):
   are not in it; the text says "left" of the steps, beside "Step N of M". The node's API is unchanged.
 - Tests: the estimate from a series of (time, step) samples, as a plain function (Django test), and its text.
 
-### 3. Thermal tasks
+### 2. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
 task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
 that the export can be given the converted images (it reads `task.get_image_path`).
 
-### 4. Native Windows app
+### 3. Native Windows app
 
 The same backend interface with a second implementation: the trainer as a local program the worker runs.
 
-### 1. Less fragile page parts
+### Less fragile page parts (built)
 
 The release is experimental, so some fragility is accepted; this lessens it without a pull request to WebODM
 (the user's request, 2026-11-15). What is fragile: the Edit Task panel's task is read from React 16's
 internals; the panels and the button are placed by WebODM's page markup; the choice is saved on hearing
 WebODM's own requests; New Task With Splats presses Select Images and GCP.
 
-Decided with the user (2026-11-15):
+Decided with the user (2026-11-15), and built so:
 
 - **Never fail silently**: New Task With Splats that opens no New Task panel says so in the project; an Edit
   Task panel whose task is not found says the training cannot be set there; a setting that could not be saved
@@ -624,7 +630,24 @@ Decided with the user (2026-11-15):
 - For the release phase: a committed browser check run against each new WebODM before supporting it, and the
   page parts turned off on a WebODM newer than tested.
 
-### 5. Docs and first release
+Built notes:
+
+- `listening` comes from asking the worker (`run_function_async`, up to 5 s), remembered in the data store:
+  10 minutes when it listens, 1 minute when it does not (`training.listens`); the SplatMe page asks afresh for
+  administrators. The task's panel asks only for a task set to train.
+- A save that was not heard: the panel's save button pressed last (Review, Start Processing, Save; Cancel
+  clears it) and the panel closed with no request of WebODM's heard: a notice that the setting was not saved.
+- `find-task` restricts to projects the user has their own permission on (`accept_global_perms=False`, as
+  WebODM's project list): every user has the global view permission.
+
+Checked in a headless browser on the dev stack (writes answered by the check): one button, in the project's
+group; the panel, ticked, and the setting sent on Start Processing; a refused setting shown as a notice (phone
+width); the task's line with Change and its dialog, and the warning in it and in the Edit Task panel's panel
+while the status says the worker does not listen (the check changed the answer); the Edit Task panel's task
+found by names with React's props removed, its setting sent after Save; "cannot tell which task" when neither
+says. Not checked: both plugins installed together.
+
+### 4. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -642,7 +665,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import TrainDialog from './TrainDialog';
 import LogDialog from './LogDialog';
+import AutoDialog from './AutoDialog';
+import { NOT_LISTENING } from './restartText';
 import { request } from './api';
 import { overallProgress, stageText, panelMode, resultText, autoText } from './trainingView';
 import './TrainSplats.scss';
@@ -12,7 +14,7 @@ const SLOW = 15000; // while the task itself is still processing
 
 // SplatMe's part of a task's expanded panel on the Dashboard (main.js): the Train Splats button, while a
 // training runs its stage, a progress bar, Cancel and Show Log, and whether the task is trained when it completes
-// (chosen in SplatMe's panel above the Edit Task panel). WebODM asks a plugin for this once, when the panel opens, so the component follows the task by itself: it asks the plugin for the task's status (api.py), which
+// (with Change, as in SplatMe's panel above the Edit Task panel). WebODM asks a plugin for this once, when the panel opens, so the component follows the task by itself: it asks the plugin for the task's status (api.py), which
 // is the same for everyone looking at the task and survives a reload of the page.
 export default class TrainSplats extends React.Component {
     static propTypes = {
@@ -22,7 +24,7 @@ export default class TrainSplats extends React.Component {
 
     constructor(props){
         super(props);
-        this.state = {status: null, dialog: false, log: false, canceling: false, error: null};
+        this.state = {status: null, dialog: false, log: false, auto: false, canceling: false, error: null};
     }
 
     componentDidMount(){
@@ -68,12 +70,22 @@ export default class TrainSplats extends React.Component {
         });
     };
 
-    // That the task is trained when it completes (changed in the Edit Task panel); nothing when it is not
+    handleAutoSaved = () => {
+        this.setState({auto: false});
+        this.refresh();  // the status says again whether the worker listens, now that it may matter
+    };
+
+    // Whether the task is trained when it completes, with Change for those who may train it: WebODM's own hook,
+    // so it works whether SplatMe's panel above the Edit Task panel can be shown or not
     renderAuto(status){
-        if (!status.auto || !status.auto.enabled) return "";
+        if (!status.auto) return "";
         return (
             <div className="splatme-auto">
                 <i className="fa fa-magic fa-fw"></i> {_("Train Splats When Completed")}: <b>{_(autoText(status.auto))}</b>
+                {status.can_train ?
+                    <a href="javascript:void(0)" className="splatme-auto-change" onClick={() => this.setState({auto: true})}>{_("Change")}</a> : ""}
+                {status.auto.enabled && status.listening === false ?
+                    <div className="text-warning splatme-auto-warning"><i className="fa fa-exclamation-triangle fa-fw"></i> {_(NOT_LISTENING)}</div> : ""}
             </div>
         );
     }
@@ -126,7 +138,7 @@ export default class TrainSplats extends React.Component {
     }
 
     render(){
-        const { status, dialog, log, error } = this.state;
+        const { status, dialog, log, auto, error } = this.state;
         const mode = panelMode(status);
         if (mode === "hidden") return null;
         return (
@@ -135,6 +147,7 @@ export default class TrainSplats extends React.Component {
                 {this.renderAuto(status)}
                 {error ? <div className="text-danger">{error}</div> : ""}
                 {dialog ? <TrainDialog taskId={this.props.taskId} onStarted={this.handleStarted} onClose={() => this.setState({dialog: false})} /> : ""}
+                {auto ? <AutoDialog taskId={this.props.taskId} auto={status.auto} onSaved={this.handleAutoSaved} onClose={() => this.setState({auto: false})} /> : ""}
                 {log ? <LogDialog taskId={this.props.taskId} active={!!status.active} onClose={() => this.setState({log: false})} /> : ""}
             </div>
         );

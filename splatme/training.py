@@ -153,6 +153,22 @@ def worker_listens():
         return None
 
 
+# A worker that listens keeps listening until it restarts, and then listens again: that is remembered longer
+LISTENS_TRUSTED = 600
+LISTENS_RECHECK = 60
+
+
+def listens(fresh=False):
+    """worker_listens(), remembered for a while: the task's panel asks for it every few seconds."""
+    now = time.time()
+    known = store().get_json("listens", None)
+    if not fresh and known and now - known["at"] < (LISTENS_TRUSTED if known["value"] else LISTENS_RECHECK):
+        return known["value"]
+    value = worker_listens()
+    store().set_json("listens", {"value": value, "at": now})
+    return value
+
+
 # The job's record
 
 

@@ -80,16 +80,19 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    Task With Splats** while a New Task panel opened another way is open adds SplatMe's panel to it). The panel
    starts with the options administrators choose on the **SplatMe** page (**New Task With Splats**; Standard
    until they change them). A task's **Edit** panel has SplatMe's panel too: the training is switched on or
-   off, and its options changed, with the Edit panel's **Save**. A task set to train says so in its panel
-   (**Train Splats When Completed**). A training that could not start shows on the task as a failed training,
-   with the reason.
+   off, and its options changed, with the Edit panel's **Save**. Every task's panel also shows **Train Splats
+   When Completed** with **Change**, which does the same at once. A training that could not start shows on
+   the task as a failed training, with the reason.
 
-   With another plugin that adds a button beside Select Images and GCP, WebODM 4.0.0 shows only one of the
-   two buttons.
+   WebODM has no plugin hooks for the button and the two SplatMe panels, so SplatMe puts them in the page as
+   WebODM 4.0.0 draws it (the button beside other plugins' buttons, such as DJI Thermal Analyzer's). If a
+   WebODM version draws its page differently, SplatMe says so where it cannot add them, and **Change** in the
+   task's panel, which goes through WebODM's own hook, still sets the training.
 
    **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`): WebODM's worker
    loads plugins only when it starts, and it is the worker that tells SplatMe a task has completed. Until
-   then the SplatMe page says that automatic training is not active yet; the button works without a restart.
+   then the SplatMe page, SplatMe's panel and a task set to train say that tasks are not trained by
+   themselves yet; **Train Splats** works without a restart.
 
 Training needs the right to change the task's project. The task must have completed with a point cloud and
 still have its photos (JPEG). The trained model replaces the task's splat model only when training succeeds,
@@ -111,13 +114,14 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
 | `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one) and `trained_steps`: the steps of the model a training can continue from |
 | `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out), `crop` (false keeps the splats outside the task's boundary). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
-| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), whether the task has a splat model and whether the user may train it |
+| `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
 | `GET task/<id>/auto` | Whether the task is trained when it completes, with which options |
 | `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train` |
-| `GET automation` | The options SplatMe's panel starts with for a new task; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
+| `GET automation` | The options SplatMe's panel starts with for a new task, and `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1` also the node's range of each option |
 | `POST automation` (options) | Administrators: sets those options |
+| `GET find-task?project=<name>&task=<name>` | The `id` of the only task of that name in the only project of that name the user may see (SplatMe's panel above an Edit Task panel, when the page does not say which task it edits); 404 when there is not exactly one |
 
 ## Development
 

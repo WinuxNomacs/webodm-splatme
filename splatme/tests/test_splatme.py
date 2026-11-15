@@ -143,7 +143,7 @@ class TestSplatMe(BootTestCase):
             {
                 "state": None, "active": False, "has_splats": False, "can_train": True,
                 "task_status": status_codes.COMPLETED,
-                "auto": {"enabled": False, "options": training.DEFAULTS},
+                "auto": {"enabled": False, "options": training.DEFAULTS}, "listening": None,
             },
         )  # fmt: skip
 
@@ -733,10 +733,10 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(res.data["listening"])
         self.assertEqual(res.data["options"], {"steps": 30, "image_size": 1600, "ignore_sky": True})
 
-        # Everyone reads the options; only administrators are told whether the worker listens
+        # Everyone reads the options, and whether the worker listens: SplatMe's panel warns when it does not
         res = self.client.get(f"{API}/automation")
         self.assertEqual(res.data["options"]["steps"], 30)
-        self.assertIsNone(res.data["listening"])
+        self.assertTrue(res.data["listening"])
 
         # The options alone train nothing: only a task given the setting is trained
         other = make_task(self.user)
@@ -827,6 +827,39 @@ class TestSplatMe(BootTestCase):
         training.set_node("http://127.0.0.1:9")
         self.assertEqual(self.auto(task, enabled=True, steps=50).status_code, 200)
         self.assertEqual(training.get_auto(task.id)["options"]["steps"], 50)
+
+    def test_a_task_set_to_train_says_whether_the_worker_hears_of_completed_tasks(self):
+        task = make_task(self.user)
+        self.auto(task, enabled=True)
+        self.assertTrue(self.status(task)["listening"])
+
+        # What the worker said is remembered: a worker that did not listen is asked again a minute later
+        training.store().set_json("listens", {"value": False, "at": time.time()})
+        self.assertFalse(self.status(task)["listening"])
+        training.store().set_json("listens", {"value": False, "at": time.time() - training.LISTENS_RECHECK - 1})
+        self.assertTrue(self.status(task)["listening"])
+
+    def test_a_task_is_found_by_its_name_and_its_projects_only_when_one_task_has_them(self):
+        task = make_task(self.user)
+        task.name = "Survey"
+        task.save()
+        find = lambda client, **query: client.get(f"{API}/find-task", query)
+        res = find(self.client, project="splatme test project", task="Survey")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data, {"id": str(task.id)})
+        self.assertEqual(find(self.client, project="splatme test project", task="Other").status_code, 404)
+        self.assertEqual(find(self.client, project="", task="Survey").status_code, 404)
+
+        # Not a task of a project the user may not see
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        self.assertEqual(find(other, project="splatme test project", task="Survey").status_code, 404)
+
+        # Two tasks of that name: neither is the one
+        second = make_task(self.user)
+        second.name = "Survey"
+        second.save()
+        self.assertEqual(find(self.client, project="splatme test project", task="Survey").status_code, 404)
 
     def test_deleting_a_task_removes_its_setting(self):
         task = make_task(self.user)

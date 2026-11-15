@@ -143,3 +143,61 @@ describe("an Edit Task panel's choice", () => {
         expect(applied).toEqual([]);
     });
 });
+
+describe("a panel saved in a way SplatMe does not hear", () => {
+    let $, applied, missed, settings;
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        $ = fakeJQuery();
+        applied = [];
+        missed = [];
+        settings = createPanelSettings($, isCreation, (taskId, setting) => applied.push([taskId, setting]), 1000, setting => missed.push(setting));
+    });
+
+    afterEach(() => jest.useRealTimers());
+
+    test("is said when the panel closes after its save button and no request comes", () => {
+        const panel = {isConnected: true};
+        settings.set(panel, SETTING);
+        settings.pressed(panel, true);
+        panel.isConnected = false;
+        jest.advanceTimersByTime(1000);
+        expect(missed).toEqual([SETTING]);
+        expect(applied).toEqual([]);
+    });
+
+    test("is not said for a panel canceled after its save button", () => {
+        const panel = {isConnected: true};
+        settings.set(panel, SETTING);
+        settings.pressed(panel, true);   // Review
+        settings.pressed(panel, false);  // then Cancel
+        panel.isConnected = false;
+        jest.advanceTimersByTime(1000);
+        expect(missed).toEqual([]);
+    });
+
+    test("is not said when the request is heard", () => {
+        const panel = {isConnected: true};
+        settings.set(panel, SETTING);
+        settings.pressed(panel, true);
+        $.send(CREATE);
+        panel.isConnected = false;
+        jest.advanceTimersByTime(3000);
+        $.complete(CREATE, 201, {id: "abc"});
+        jest.advanceTimersByTime(1000);
+        expect(missed).toEqual([]);
+        expect(applied).toEqual([["abc", SETTING]]);
+    });
+
+    test("keeps the press when the choice changes after it", () => {
+        const panel = {isConnected: true};
+        settings.set(panel, SETTING);
+        settings.pressed(panel, true);
+        const changed = {enabled: true, options: {steps: 2000}};
+        settings.set(panel, changed);
+        panel.isConnected = false;
+        jest.advanceTimersByTime(1000);
+        expect(missed).toEqual([changed]);
+    });
+});
