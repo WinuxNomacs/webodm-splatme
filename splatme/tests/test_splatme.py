@@ -2,30 +2,35 @@
 Tests of the SplatMe plugin: it registers, and it trains a task's splats through a splat node (a stand-in
 here, tests/fake_node.py; WebODM's tests run a worker's job inside the request that starts it).
 """
+import io
 import json
+import math
 import os
 import shutil
 import subprocess
 import tempfile
 import time
+import urllib.error
 from unittest import mock
 
+import numpy as np
 from app.models import Plugin, Project, Task
 from app.plugins import get_plugin_by_name, signals
 from app.tests.classes import BootTestCase
 from django.contrib.auth.models import User
 from guardian.shortcuts import assign_perm
 from nodeodm import status_codes
+from PIL import Image
 from rest_framework.test import APIClient
 
-from .. import training
+from .. import sky, training
 from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
 
 
-def make_task(user, images=IMAGES, status=status_codes.COMPLETED):
+def make_task(user, images=IMAGES, status=status_codes.COMPLETED, rotation=(0.1, 0.2, 0.3)):
     """A completed task with what a training needs, as WebODM's own splats test makes one."""
     project = Project.objects.create(owner=user, name="splatme test project")
     task = Task.objects.create(project=project, status=status)
@@ -42,7 +47,7 @@ def make_task(user, images=IMAGES, status=status_codes.COMPLETED):
                 "geometry": {"type": "Point", "coordinates": [0, 0, 0]},
                 "properties": {
                     "filename": image, "camera": "v2 " + camera_id,
-                    "translation": [10.5, 20.5, 30.0], "rotation": [0.1, 0.2, 0.3],
+                    "translation": [10.5, 20.5, 30.0], "rotation": list(rotation),
                 },
             }
             for image in images
@@ -258,6 +263,109 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.converted, [trained(10), trained(40)])
         self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"], 40)
         self.assertIsNone(self.node.jobs["job1"]["resume"])
+
+    def find_sky(self, sky_rows):
+        """Stands in for the sky model: the top rows of every photo are sky."""
+        found = np.zeros((sky.MODEL_INPUT, sky.MODEL_INPUT), dtype=np.float32)
+        found[:sky_rows] = 1.0
+        patcher = mock.patch.object(sky, "load", return_value=lambda pixels: found)
+        self.addCleanup(patcher.stop)
+        return patcher.start()
+
+    def test_ignore_sky_sends_a_mask_of_each_photo_that_shows_sky(self):
+        task = make_task(self.user)
+        self.find_sky(sky.MODEL_INPUT // 2)
+        res = self.train(task, steps=10, image_size=16, ignore_sky="true")
+        self.assertEqual(res.status_code, 200, res.data)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed", status)
+        self.assertEqual(status["options"], {"steps": 10, "image_size": 16, "ignore_sky": True})
+        self.assertEqual(status["sky_masks"], 2)
+
+        job = self.node.jobs["job1"]
+        self.assertEqual(job["options"], {"steps": 10})  # the node is not told: the masks are in the zip
+        self.assertEqual(sorted(job["masks"]), sorted(f"masks/{image}.png" for image in IMAGES))
+        mask = np.asarray(Image.open(io.BytesIO(job["masks"][f"masks/{IMAGES[0]}.png"])))
+        self.assertEqual(mask.shape, (12, 16))  # the exported photo's size
+        self.assertTrue((mask[0] == 0).all())  # the sky is black: ignored
+        self.assertTrue((mask[-1] == 255).all())
+
+        # Continuing keeps the option, as it does the others
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        self.assertEqual(len(self.node.jobs["job2"]["masks"]), 2)
+        self.assertEqual(self.status(task)["options"], {"steps": 15, "image_size": 16, "ignore_sky": True})
+
+    def test_training_without_ignore_sky_sends_no_masks(self):
+        task = make_task(self.user)
+        load = self.find_sky(sky.MODEL_INPUT // 2)
+        self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="false").status_code, 200)
+        load.assert_not_called()
+        self.assertEqual(self.node.jobs["job1"]["masks"], {})
+        self.assertIsNone(self.status(task)["sky_masks"])
+
+    def test_photos_that_look_down_are_not_searched_for_sky(self):
+        task = make_task(self.user, rotation=(math.pi, 0, 0))
+        load = self.find_sky(sky.MODEL_INPUT // 2)
+        self.assertEqual(sky.may_show_sky(task), set())
+        self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="true").status_code, 200)
+        load.assert_not_called()
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertEqual(status["sky_masks"], 0)
+        self.assertEqual(self.node.jobs["job1"]["masks"], {})
+
+    def test_a_photo_looking_just_below_the_horizon_is_searched_for_sky(self):
+        # The test camera sees 36 degrees from the middle of the picture to its corner
+        down = lambda degrees: (math.radians(90 + degrees), 0, 0)
+        self.assertEqual(sky.may_show_sky(make_task(self.user, rotation=down(30))), set(IMAGES))
+        self.assertEqual(sky.may_show_sky(make_task(self.user, rotation=down(45))), set())
+
+    def test_a_photo_without_sky_gets_no_mask(self):
+        task = make_task(self.user)
+        self.find_sky(0)
+        self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="true").status_code, 200)
+        self.assertEqual(self.status(task)["sky_masks"], 0)
+        self.assertEqual(self.node.jobs["job1"]["masks"], {})
+
+    def test_a_sky_model_that_cannot_be_downloaded_fails_the_training_with_the_reason(self):
+        task = make_task(self.user)
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        with (
+            mock.patch.object(sky, "model_path", return_value=os.path.join(folder, "models", "model.onnx")),
+            mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("no route")) as urlopen,
+        ):
+            self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="true").status_code, 200)
+            self.assertEqual(urlopen.call_args.args[0], sky.MODEL_URL)
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("The sky model could not be downloaded", status["error"])
+        self.assertIn("train without Ignore Sky", status["error"])
+        self.assertEqual(self.node.jobs, {})
+        self.assertEqual(os.listdir(os.path.join(folder, "models")), [])
+
+    def test_a_downloaded_sky_model_that_is_not_the_expected_file_is_not_used(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.headers = {"Content-Length": "5"}
+        response.read.side_effect = [b"other", b""]
+        with (
+            mock.patch.object(sky, "model_path", return_value=os.path.join(folder, "model.onnx")),
+            mock.patch("urllib.request.urlopen", return_value=response),
+            self.assertRaisesRegex(sky.SkyError, "not the expected file"),
+        ):
+            sky.download_model()
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_a_tasks_setting_keeps_ignore_sky(self):
+        task = make_task(self.user)
+        res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": True, "steps": 10, "ignore_sky": True}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["options"], {"steps": 10, "image_size": 1600, "ignore_sky": True})
+        res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": True, "steps": 10, "ignore_sky": False}, format="json")
+        self.assertEqual(res.data["options"], {"steps": 10, "image_size": 1600})
 
     def test_continuing_is_refused_without_a_trained_model_or_more_steps(self):
         task = make_task(self.user)

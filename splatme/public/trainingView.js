@@ -12,7 +12,8 @@ export const PRESETS = [
 // training take nearly all of the time)
 const STAGES = [
     {state: "starting", label: "Starting", share: 0},
-    {state: "exporting", label: "Exporting the photos", share: 30},
+    {state: "exporting", label: "Exporting the photos", share: 25},
+    {state: "masking", label: "Finding the sky", share: 5},
     {state: "uploading", label: "Sending to the splat node", share: 5},
     {state: "queued", label: "Waiting in the splat node's queue", share: 0},
     {state: "training", label: "Training", share: 60},
@@ -81,6 +82,7 @@ export function optionsFromForm(form, ranges){
         }
         options[field.name] = value;
     }
+    if (form.ignore_sky) options.ignore_sky = true;
     return {options};
 }
 
@@ -108,7 +110,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, "")};
+    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off", and whether that is the default
@@ -138,7 +140,11 @@ export function resultText(job){
     if (job.state === "completed"){
         const took = job.started && job.finished ? " in " + duration(job.finished - job.started) : "";
         const steps = (job.options || {}).steps;
-        return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + ".";
+        // sky_masks: in how many photos Ignore Sky found sky; not there when it was off
+        const sky = job.sky_masks == null ? "" : job.sky_masks > 0 ?
+            " Sky ignored in " + Number(job.sky_masks).toLocaleString("en-US") + (job.sky_masks === 1 ? " photo." : " photos.") :
+            " No photo shows the sky.";
+        return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + "." + sky;
     }
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
     if (job.state === "canceled") return "Training canceled.";
