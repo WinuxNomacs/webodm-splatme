@@ -55,8 +55,11 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    listed when its photos are JPEG and, once completed, it has what a training needs (a point cloud, its photos),
    or when it already has splats; a project with no such task is not listed. **New Task With Splats** above the
    list creates a task in any project the user may change, listed or not. Choose a **Quality**: Draft
-   (2,000 steps), Standard (7,000) or High (30,000); **Advanced** has the steps, the image size and the most
-   gaussians as numbers. The dialog says first if the task cannot be trained, and warns when nearly all photos
+   (3,000 steps), Standard (7,000), Fine (15,000) or High (30,000). On an 8 GB laptop GPU at the default image
+   size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU memory, whatever the
+   number of photos. **Advanced** has the steps, the image size and the most gaussians as numbers. The image
+   size is what to lower when the GPU runs out of memory. A number of steps the trainer handles badly gets a
+   note: up to 2,000 steps grows no new gaussians, and 3,001 to 5,999 trains worse than 3,000. The dialog says first if the task cannot be trained, and warns when nearly all photos
    point straight down.
 
    **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the

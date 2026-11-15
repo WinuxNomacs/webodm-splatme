@@ -16,8 +16,8 @@ RUN sum="$(sha256sum libtorch.zip | cut -d' ' -f1)" \
     && if [ "$sum" != "$LIBTORCH_SHA256" ]; then echo "libtorch.zip: sha256 $sum, expected $LIBTORCH_SHA256"; exit 1; fi \
     && unzip -q libtorch.zip && rm libtorch.zip
 
-# OpenSplat v1.2.2
-ARG OPENSPLAT_COMMIT=62fd86fe3b62644b65890557ad9bf397abdc7cfb
+# OpenSplat v1.2.2, two commits on: a photo that cannot be decoded fails the training instead of stalling it
+ARG OPENSPLAT_COMMIT=e33f9dde8ef9c9d59852ffe4d12e0adddcf1fc1b
 RUN git init -q src && cd src \
     && git fetch -q --depth 1 https://github.com/WebODM/OpenSplat "$OPENSPLAT_COMMIT" \
     && git checkout -q FETCH_HEAD

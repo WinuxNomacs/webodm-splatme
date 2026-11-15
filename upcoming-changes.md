@@ -9,14 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. OpenSplat presets: the Quality choices and Advanced options SplatMe offers, chosen from a study of
-   OpenSplat's code and measured trainings, so a user is guided to a good result for their task and GPU.
+1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
+   After the phases before it, so thermal tasks get what they built, and released with the next
+   webodm-dji-thermal.
+
 **Later**
 
-2. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-   After the phases above, so thermal tasks get what they build, and released with the next webodm-dji-thermal.
-3. Docs and first release.
-4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Docs and first release.
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -33,6 +33,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- OpenSplat presets (2026-11-15): a study of OpenSplat's code and 25 measured trainings, then Draft 3,000 steps
+  (2,000 grew nothing), Standard 7,000, a new Fine 15,000 and High 30,000, each hint with its time and GPU
+  memory; a note for step counts the trainer handles badly (`trainingView.js` `stepsNote`, also in
+  `templates/options.html`); the Image Size and Max Gaussians hints say which to lower when the GPU runs out of
+  memory; the node built from OpenSplat e33f9dd. Tests: `trainingView.test.js`. See "OpenSplat presets (built)".
 - Only compatible tasks on SplatMe → Tasks (2026-11-15, from `new.md`): `training.compatible` (JPEG photos,
   and once completed what a training needs; or splats already), used by api.py's `tasks`, which leaves out
   projects with no such task and adds `addable`; New Task With Splats above the list (`Tasks.jsx`). Test:
@@ -258,7 +263,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 3.
+  workflow, to decide in phase 2.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -299,7 +304,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 2 (Thermal tasks).
+  starting. Converting them is phase 1 (Thermal tasks).
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -416,13 +421,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 4).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 3).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 3).
 
 ### SplatMe's panel (built)
 
@@ -470,7 +475,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 4. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 3. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -914,7 +919,7 @@ Proposed:
   link when the name is not one project's). The Dashboard's button keeps opening the box for its project, listed
   or not.
 - When nothing is listed: a sentence saying no task can be trained yet, with New Task With Splats.
-- Thermal tasks (phase 2) become compatible when that phase converts them.
+- Thermal tasks (phase 1) become compatible when that phase converts them.
 
 Decided with the user (2026-11-15):
 
@@ -932,7 +937,7 @@ stay. A project asked for in the address that is not listed shows them all. Chec
 as admin, the empty First Project not listed and in the box's choice; as testuser, the sentence for nothing to
 list and the picker at once; 390 px. The dev stack has no thermal task (the Django test covers them).
 
-### 1. OpenSplat presets
+### OpenSplat presets (built)
 
 Requested 2026-11-15 (`new.md`): become an expert in OpenSplat, to choose the best presets SplatMe should offer
 to guide users. Part of the plugin's refinement, before the first release.
@@ -957,7 +962,125 @@ Open decisions (with the user, after the study): the presets themselves; new opt
 node's `NODE_OPTIONS`); whether presets depend on the task (photo count, oblique or nadir) or the node's GPU;
 moving the node to OpenSplat's newer commit.
 
-### 2. Thermal tasks
+**Study of OpenSplat's code (2026-11-15, at e33f9dd).** The trainer is FastGS-style (multi-view scored
+densification and pruning), not the original 3DGS schedule.
+
+- **The two commits after the node's pin** (688944f, e33f9dd): a CI change, and a fix to the image decoder. A
+  decode failure was printed and its slot dropped, which could leave training waiting for that frame forever; it
+  now fails the training with "Image decode failed". The staging buffers move from each slot to each decoder
+  thread. No change to training or options: a reason to move the node to e33f9dd, nothing else.
+- **The schedule follows the steps** (`-n`, default 30,000):
+  - Densification (clone and split, from a score over 10 random training photos) every `--refine-every` (500)
+    steps, after `--densify-from` (500) and while below `--densify-until` (-1: half the steps, at most 15,000).
+    The opacity is reset every 3,000 steps while densifying.
+  - After densification, a final prune every 3,000 steps (faint gaussians and the worst scored).
+  - The optimiser steps every step while densifying, then accumulates gradients and steps every 32 steps, and
+    every 64 after two thirds of the steps (at most 20,000): the late steps are cheaper.
+  - The position learning rate decays over the steps; SH degree grows by one every `--sh-degree-interval`
+    (1,000) steps up to `--sh-degree` (3).
+- **Draft (2,000 steps) never densifies**: densification runs only at a step above 500, below 1,000 and a
+  multiple of 500, and none is. Its model is the starting point cloud, optimised and never grown. 3,000 steps
+  densifies at 1,000 only; 4,000 at 1,000 and 1,500.
+- **Max Gaussians is a soft cap**: a densification stops growing only once the count is already at the cap, so
+  one refine can go past it (the extra clones it allows are those that would be cloned anyway).
+- **GPU memory** follows the gaussians (each carries 59 floats at SH degree 3, plus Adam's two moments and the
+  gradients) and the image size (the rasteriser's tiles and per-pixel buffers). Images are decoded on demand from
+  a compressed cache in RAM (90% of it), so the photo count costs RAM and preparation time, not GPU memory.
+- **Other options**: `--downscale-factor` (the node's `downscale`, which SplatMe does not use: its Image Size
+  resizes in WebODM's export instead), `--num-downscales` and `--resolution-schedule` (train at lower
+  resolution first), `--ssim-weight` (0.2), `--loss-thresh` (0.1), `--no-edge-guidance`, `--no-masks`, `--val`
+  (holds one photo out and prints its PSNR at the end).
+- **A resumed training** (`--resume`, SplatMe's Continue Training) loads the gaussians and the step count from
+  the `.ply` header; the optimiser's state starts over, and the schedule continues from that step against the new
+  `-n`.
+
+**Measured (2026-11-15).** OpenSplat 62fd86f (the node's pin) run by hand in `sm-splat-node` on WebODM's own
+export (`prepare_export`, 1,600 px unless said), RTX 5060 Laptop GPU (8 GB, about 1.2 GB used by the desktop
+before a run; the memory below is the peak above that), one photo held out (`--val`). The time includes the
+trainer's preparation of the photos. HomerunObliqueII9: 217 oblique photos. Photo A is `…_0133_V.JPG`, photo B
+`…_0071_V.JPG`; PSNR compares only within a photo.
+
+| Steps | Time | GPU memory | Gaussians at the end | PSNR, photo A | PSNR, photo B |
+|---|---|---|---|---|---|
+| 2,000 | 82 s | 2.2 GB | 405,004 (none grown) | 16.77 | 17.69 |
+| 2,000, refining every 250 from 250 | 87 s | 2.5 GB | 408,347 | 17.69 | |
+| 3,000 | 119 s | 2.3 GB | 406,657 | 17.68 | 19.21 |
+| 4,000 | 139 s | 2.6 GB | 208,192 | 15.58 | |
+| 6,000 | 200 s | 2.7 GB | 415,057 | 19.61 | 21.49 |
+| 7,000 | 270 s | 3.5 GB | 224,455 | 20.63 | 21.76 |
+| 9,000 | 304 s | 3.8 GB | 206,569 | 20.95 | |
+| 10,000 | 339 s | 3.8 GB | 206,308 | 21.10 | 23.32 |
+| 12,000 | 500 s | 4.3 GB | 240,854 | 22.06 | |
+| 15,000 | 603 s | 4.7 GB | 236,416 | 22.44 | |
+| 20,000 | 1,003 s | 5.6 GB | 265,498 | 23.06 | |
+| 30,000 | 1,558 s | 6.5 GB | 326,504 | 23.77 | 27.57 |
+| 30,000, Max Gaussians 1 million | 1,597 s | 6.2 GB | 330,888 | 23.81 | |
+| 7,000, 1,000 px | 170 s | 1.8 GB | 207,567 | 20.51 (at 1,000 px) | |
+| 7,000, 2,400 px | 564 s | 6.8 GB | 233,306 | 20.23 (at 2,400 px) | |
+| 7,000, SH degree 1 | 264 s | 3.3 GB | 216,526 | 19.89 | |
+| 7,000, SH degree 2 | 269 s | 3.4 GB | 226,430 | 20.26 | |
+
+HomerunObliqueRGB, 1,005 photos (the trainer's own pick of a held-out photo, `…151152_0038_V.JPG`):
+
+| Steps | Time | GPU memory | Gaussians at the end | PSNR |
+|---|---|---|---|---|
+| 7,000 | 275 s | 4.9 GB | 262,024 | 19.66 |
+| 30,000 | 1,252 s | 6.6 GB | 543,634 (858,204 at its peak, step 14,500) | 21.56 |
+
+- **More steps keep paying up to 30,000**: from 7,000, each doubling of the time gave about 1 dB on photo A;
+  photo B gained 5.8 dB from 7,000 to 30,000. No plateau was reached.
+- **The step count interacts with the schedule.** 2,000 steps grows nothing (see the study); 4,000 steps is
+  worse than 3,000, because its final prune at 3,000 halves a weak model and the optimiser then steps only
+  every 32 steps. 6,000 has no final prune, 7,000 one at 6,000, and 7,000 is still better: a prune late in a
+  longer training does no harm.
+- **Time and memory follow the steps and the image size, hardly the photo count**: 1,005 photos at 30,000
+  steps took less time than 217 (21 against 26 minutes) and 0.1 GB more memory. The photos are decoded on
+  demand from RAM.
+- **Max Gaussians did not matter on these tasks**: no training came near 5 million (the trainer's default) or
+  1 million. Memory is driven by the image size (2,400 px: 6.8 GB at 7,000 steps) and the steps.
+- **Image Size**: 2,400 px gave nothing at 7,000 steps for twice the time and nearly all of the GPU; 1,000 px
+  saved half the memory and a third of the time.
+- **SH degree** below 3 lost 0.4 to 0.7 dB and saved almost nothing.
+- **30,000 steps on 8 GB** peaked at 6.6 GB above the desktop's 1.2 GB: it fits, with about 0.3 GB to spare.
+- Earlier runs on HomerunObliqueRGB ("Denser starting cloud") measured 6.5 GB at 7,000 steps where this one
+  measured 4.9 GB; not looked into (a different export, 959 photos then, and a different way of sampling).
+- Not measured: a nadir-only task (the dev stack has none; the one from the spike is on the user's own WebODM),
+  a small task (under 100 photos), a GPU other than the 8 GB one, OpenSplat at e33f9dd (it changes no training
+  code).
+
+**Decided with the user (2026-11-15).**
+
+- Quality: Draft 3,000 steps (was 2,000, which grows nothing), Standard 7,000 (the default), a new Fine 15,000,
+  High 30,000. No node change.
+- Advanced: the hints change (Image Size is what to lower when the GPU runs out of memory; Max Gaussians is a
+  limit for very large scenes), and a custom step count the trainer handles badly gets a note. Max Gaussians
+  stays.
+- No GPU warning for now: each preset's hint gives the measured time and GPU memory instead. (Found while
+  building: the node's `GET /info` already reports its GPU's name and memory, so a warning later needs no node
+  change.)
+- The node moves to OpenSplat e33f9dd (it holds all of 62fd86f, plus the decoder's fix).
+
+**As built and checked.**
+
+- `public/trainingView.js`: `PRESETS` (four, each hint with its time and GPU memory on a laptop GPU at Image
+  Size 1,600) and `stepsNote(steps)`: up to 2,000 steps grows nothing; 3,001 to 5,999 trains worse than 3,000
+  (the final prune at 3,000 with too few steps left). `OptionsFields.jsx` shows the note under Quality when it
+  is Custom, and the new Image Size and Max Gaussians hints. `templates/options.html` (SplatMe → Settings and
+  its Administration page) has the same presets, note and hints in plain script. A setting saved at 2,000 steps
+  now shows as Custom, with the note.
+- `node/Dockerfile`: OpenSplat at e33f9dd (still v1.2.2).
+- Tests: `trainingView.test.js` (the presets, no preset has a note, both notes' bounds, values that are not
+  steps): Jest 52, ESLint, Ruff, the node's tests and the 70 Django tests pass.
+- Browser (headless, admin, every request but a GET blocked): New Task With Splats on SplatMe → Tasks (two
+  scratch photos picked, nothing uploaded) and SplatMe → Settings show the four presets with their hints, the
+  notes at 4,000, 2,000 and 1,500 steps and none at 12,000, 3,000 back to Draft, the new hints, no page error,
+  no horizontal scroll at 390 px.
+- The dev node rebuilt from e33f9dd (`dev/webodm.sh up --build splat-node`): `GET /info` names it, and a
+  3,000-step job sent to its API with HomerunObliqueII9's export trained in 103 s, densified at step 1,000 and
+  returned a 406,628-gaussian model; the job was deleted. Not trained through SplatMe, which would have
+  replaced a dev task's splats: the pin changes only the node.
+
+### 1. Thermal tasks
 
 WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
 plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
@@ -968,7 +1091,7 @@ Moved later (2026-11-15, the user's decision): it is released at the same time a
 whose release the user makes, and thermal tasks are to benefit from the work before it (new tasks in SplatMe,
 the presets). webodm-dji-thermal itself is still not touched from here.
 
-### 3. Docs and first release
+### 2. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -986,7 +1109,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
