@@ -25,6 +25,14 @@ other software. The plugin does that step.
 
 **Done**
 
+- New Task With Splats (2026-11-15): a button beside "Select Images and GCP" in a project on the Dashboard;
+  only a task created with it is trained by itself. It replaces the control in the Edit Task Options dialog
+  and the administrators' default for every task. `splatme/public/NewTaskButton.jsx`, `main.js` (the
+  `addNewTaskButton` hook), `newTaskSettings.js`, `AutoDialog.jsx`, `training.py` (`new_task_options`,
+  `get_auto`), `api.py` (`task/<id>/auto` with `new_task`, `automation`), `templates/settings.html` ("New Task
+  With Splats"). Tests: 1 new in `test_splatme.py` (57 in all), Jest unchanged in number (32). See "New Task
+  With Splats (built)".
+
 - Crop To Boundary (2026-11-14): a task processed with a boundary GeoJSON shows only the splats inside it.
   `splatme/crop.py`, `training.py` (`import_model`, the `crop` option, `cropped`), `api.py` (`check`'s
   `boundary`), `public/OptionsFields.jsx`, `public/trainingView.js`, `templates/settings.html`. Tests: 4 in
@@ -324,7 +332,7 @@ exists, while it processes too. A task without a setting of its own follows the 
 completes. A training that cannot start (the node does not answer, a wrong option) is left on the task as a
 failed training; under the default, a task that cannot be trained at all is passed over without a word.
 
-### Task Options (built)
+### Task Options (built, then replaced by New Task With Splats)
 
 The user's intent: SplatMe's settings are part of a task's options, chosen where a task is created and edited,
 and used when the task is started or restarted and completes. Training only the splats of a completed task
@@ -357,6 +365,42 @@ Built, as decided:
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
   never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 4).
+
+### New Task With Splats (built)
+
+The user's request (2026-11-15): instead of the control in the Edit Task Options dialog, a "New Task w/Splat"
+button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-dji-thermal. Decided:
+
+- **It replaces** the Edit Task Options control ("Task Options (built)" above describes what is gone:
+  `OptionsButton.jsx` and the `presetDialogOptionsReady` hook).
+- **Only tasks created with the button are trained by themselves.** The administrators' default that trained
+  every new task is gone; this replaces the 2026-11-14 decisions "every task that can train is trained" and
+  "administrators set the default every new task starts from".
+- **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
+  `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
+  so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
+  is in phase 4.
+
+Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
+
+- **The button** ("New Task With Splats", Dashboard, a project's row of buttons): the task is WebODM's own.
+  The button presses WebODM's "Select Images and GCP" (the hook gives a plugin only the project), so the
+  picker, the New Task panel, resizing and presets are WebODM's. The New Task panel that opens from that press
+  is marked; a press of WebODM's own button or files dropped on the project cancel the mark. While the
+  project's New Task panel is open the button shows the mark (pressed, with a tick) and switches it, so a task
+  started from dropped files can have it too. The page gives the created task its setting as before
+  (`newTaskSettings.js`, hearing WebODM's request that creates the task).
+- **The options such a task starts with** are the administrators', on the SplatMe page's "New Task With
+  Splats" section (what was the default's options, without the on/off). They are copied to the task when it is
+  created; changing them later is for later tasks.
+- **A task's panel keeps "Train Splats When Completed" with Change**, on every task: where the options of a
+  button's task are changed and the training switched off, and where any existing task can be switched on.
+
+Checked in a headless browser on the dev stack at desktop and phone width, with the creation, the setting and
+the uploads answered by the check (nothing created): a panel from WebODM's button is not marked, nor after
+SplatMe's picker was canceled; the button switches an open panel; a panel from the button is marked and
+Start Processing sends the task's setting (`enabled`, `new_task`); the SplatMe page and the task's dialog.
+Not checked: a real task created with the button and trained when it completes; both plugins installed.
 
 ### Denser starting cloud (dropped)
 

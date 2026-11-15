@@ -40,7 +40,7 @@ it short; edit in place.
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
   `get_persistent_path()` included.
 - **The plugin's pages**: `public/main.js` (ES5, on every page: adds SplatMe's part to a task's panel on the
-  Dashboard and to the Edit Task Options dialog), `public/OptionsButton.jsx` (that dialog's part, with
+  Dashboard and the New Task With Splats button to a project), `public/NewTaskButton.jsx` (that button, with
   `newTaskSettings.js`: a new task's setting, held on the page until WebODM creates the task),
   `public/TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`, `OptionsFields.jsx`,
   `LogDialog.jsx`, `Dialog.jsx` and `api.js` (built by WebODM's webpack into `public/build`, which git ignores, as it does the generated `webpack.config.js`),

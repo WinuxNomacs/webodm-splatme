@@ -114,7 +114,7 @@ export function formFromOptions(options){
     return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false};
 }
 
-// A task's automatic training in a few words: "On: Standard" or "Off", and whether that is the default
+// A task's automatic training in a few words: "On: Standard" or "Off"
 export function autoText(auto){
     if (!auto) return "";
     let text = "Off";
@@ -123,7 +123,7 @@ export function autoText(auto){
         const preset = PRESETS.find(p => p.steps === Number(steps));
         text = "On: " + (preset ? preset.label : Number(steps).toLocaleString("en-US") + " steps");
     }
-    return text + (auto.own ? "" : " (the default)");
+    return text;
 }
 
 // "3 min 5 s" for a number of seconds

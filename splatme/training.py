@@ -84,7 +84,8 @@ def set_node(url, token=None):
         store().set_string("node_token", token)
 
 
-# Training automatically: a task's own setting, or the administrators' default for every task without one
+# Training automatically: a task's own setting. A task created with New Task With Splats (NewTaskButton.jsx)
+# is given one, on, with the options the administrators chose for such tasks; any other task has none.
 
 
 def auto_key(task_id):
@@ -100,27 +101,18 @@ def clean_options(given):
     return parse_options(given, info)
 
 
-def node_ranges():
-    """The node's range of each option, or None when the node does not answer."""
-    try:
-        info = get_node().check()
-    except NodeError:
-        return None
-    return {name: info["options"][name] for name in NODE_OPTIONS if name in info["options"]}
+def new_task_options():
+    """The options a task created with New Task With Splats starts with."""
+    return (store().get_json("auto_default", None) or {}).get("options") or dict(DEFAULTS)
 
 
-def get_default():
-    return store().get_json("auto_default", None) or {"enabled": False, "options": dict(DEFAULTS)}
-
-
-def set_default(enabled, given):
-    store().set_json("auto_default", {"enabled": bool(enabled), "options": clean_options(given)})
+def set_new_task_options(given):
+    store().set_json("auto_default", {"options": clean_options(given)})
 
 
 def get_auto(task_id):
-    """Whether the task is trained when it completes, and with what: "own" says the setting is the task's."""
-    own = store().get_json(auto_key(task_id), None)
-    return dict(own or get_default(), own=own is not None)
+    """Whether the task is trained when it completes, and with what: off for a task without a setting."""
+    return store().get_json(auto_key(task_id), None) or {"enabled": False, "options": new_task_options()}
 
 
 def set_auto(task_id, username, enabled, given):
@@ -361,8 +353,7 @@ def start(task, username, given, auto=False):
 def completed(task_id):
     """
     A task completed processing (WebODM's task_completed signal, in the worker): trains it when its setting says
-    so. A training that cannot start is left in the task's record, where the task's panel shows it; a task that
-    cannot be trained at all is passed over, unless the setting is the task's own.
+    so. A training that cannot start is left in the task's record, where the task's panel shows it.
     """
     if not Plugin.objects.filter(name=NAME, enabled=True).exists():
         return  # WebODM imports a disabled plugin's module too
@@ -373,8 +364,6 @@ def completed(task_id):
     if not auto["enabled"]:
         return
     reason = problem(task)
-    if reason and not auto["own"]:
-        return
     try:
         if reason:
             raise TrainingError(reason)

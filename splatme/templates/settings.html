@@ -2,12 +2,13 @@
 
 {% block content %}
 {% comment %}
-SplatMe's page: the splat node's state and the default of automatic training for everyone, and for administrators
-the node's address and token and that default as a form (api.py: node, automation).
+SplatMe's page: the splat node's state and the options a New Task With Splats task starts with for everyone, and
+for administrators the node's address and token and those options as a form (api.py: node, automation).
 {% endcomment %}
 <h3><i class="fa fa-splat fa-fw"></i> SplatMe</h3>
 <p>Trains a task's Gaussian splats on a splat node: a container with a GPU that runs beside WebODM. Training starts
-    from <b>Train Splats</b> in a completed task's panel on the Dashboard, or by itself when a task completes.</p>
+    from <b>Train Splats</b> in a completed task's panel on the Dashboard, or by itself when a task created with
+    <b>New Task With Splats</b> completes.</p>
 
 <h4>Splat Node</h4>
 <div id="splatme-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Asking the splat node</div>
@@ -36,22 +37,14 @@ the node's address and token and that default as a form (api.py: node, automatio
     </div>
 </form>
 
-<h4>Automatic Training</h4>
-<p>A task can be trained by itself when it completes processing, and again each time it is processed again. Each
-    task has this setting in its panel on the Dashboard (<b>Train Splats When Completed</b>); a task without a
-    setting of its own follows the default here.</p>
+<h4>New Task With Splats</h4>
+<p>A task created with <b>New Task With Splats</b>, beside Select Images and GCP in a project on the Dashboard, is
+    trained by itself when it completes processing, and again each time it is processed again. It starts with the
+    options here; its panel on the Dashboard has the setting (<b>Train Splats When Completed</b>), where they are
+    changed and where any task is switched on or off.</p>
 <div id="splatme-auto-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading</div>
 
 <form id="splatme-auto-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
-    <div class="form-group">
-        <div class="col-sm-9 col-sm-offset-3">
-            <div class="checkbox">
-                <label><input type="checkbox" id="splatme-auto-enabled"> Train Splats When a Task Completes</label>
-            </div>
-            <span class="help-block">The default for every task without a setting of its own. Tasks that cannot be
-                trained (no point cloud, photos that are not JPEG) are passed over.</span>
-        </div>
-    </div>
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-auto-quality">Quality</label>
         <div class="col-sm-9">
@@ -188,7 +181,7 @@ the node's address and token and that default as a form (api.py: node, automatio
     }).fail(failed);
 })();
 
-// Automatic training: the default for tasks without a setting of their own
+// The options a task created with New Task With Splats starts with
 (function(){
     var API = "/api/plugins/splatme/automation";
     var HINTS = {
@@ -199,7 +192,6 @@ the node's address and token and that default as a form (api.py: node, automatio
     };
     var state = document.getElementById("splatme-auto-state");
     var form = document.getElementById("splatme-auto-form");
-    var enabled = document.getElementById("splatme-auto-enabled");
     var quality = document.getElementById("splatme-auto-quality");
     var steps = document.getElementById("splatme-auto-steps");
     var size = document.getElementById("splatme-auto-size");
@@ -234,12 +226,9 @@ the node's address and token and that default as a form (api.py: node, automatio
                 "Automatic training is not active yet: WebODM has to be restarted once after SplatMe is installed or " +
                 "updated. Until then, tasks are trained only from the Train Splats button."));
         }
-        state.appendChild(box("info", "fa fa-magic", data.enabled ?
-            "Tasks are trained when they complete (" + name + "), unless a task's own setting says otherwise." :
-            "Tasks are not trained by themselves, unless a task's own setting says so."));
+        state.appendChild(box("info", "fa fa-magic", "A task created with New Task With Splats starts with: " + name + "."));
         if (!data.admin) return;
         form.style.display = "";
-        enabled.checked = !!data.enabled;
         steps.value = options.steps == null ? "" : options.steps;
         size.value = options.image_size == null ? "" : options.image_size;
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
@@ -269,7 +258,7 @@ the node's address and token and that default as a form (api.py: node, automatio
         $.ajax({
             url: API, type: "POST", contentType: "application/json",
             headers: {"X-CSRFToken": "{{ csrf_token }}"},
-            data: JSON.stringify({enabled: enabled.checked, steps: steps.value, image_size: size.value,
+            data: JSON.stringify({steps: steps.value, image_size: size.value,
                 max_gaussians: gaussians.value, ignore_sky: sky.checked, crop: crop.checked})
         }).done(function(data){
             show(data);

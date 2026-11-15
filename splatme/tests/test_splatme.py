@@ -24,7 +24,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from .. import crop, sky, training
-from .fake_node import MODEL, OPTIONS, FakeNode, trained
+from .fake_node import MODEL, FakeNode, trained
 
 API = "/api/plugins/splatme"
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
@@ -143,7 +143,7 @@ class TestSplatMe(BootTestCase):
             {
                 "state": None, "active": False, "has_splats": False, "can_train": True,
                 "task_status": status_codes.COMPLETED,
-                "auto": {"enabled": False, "options": training.DEFAULTS, "own": False},
+                "auto": {"enabled": False, "options": training.DEFAULTS},
             },
         )  # fmt: skip
 
@@ -711,7 +711,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         res = self.auto(task, enabled=True, steps=20, image_size=16)
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}, "own": True})
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}})
         self.assertEqual(self.node.jobs, {})
 
         self.complete(task)
@@ -724,47 +724,39 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(job["auto"])
         self.assertEqual(job["user"], "testuser")
 
-    def test_the_administrators_default_trains_every_task_without_a_setting_of_its_own(self):
+    def test_a_task_created_with_the_button_starts_with_the_options_the_administrators_chose(self):
         admin = APIClient()
         admin.login(username="testsuperuser", password="test1234")
-        self.assertEqual(self.client.post(f"{API}/automation", {"enabled": True}, format="json").status_code, 403)
-        res = admin.post(f"{API}/automation", {"enabled": True, "steps": 30}, format="json")
+        self.assertEqual(self.client.post(f"{API}/automation", {"steps": 30}, format="json").status_code, 403)
+        res = admin.post(f"{API}/automation", {"steps": 30, "ignore_sky": True}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertTrue(res.data["enabled"])
         self.assertTrue(res.data["listening"])
-        self.assertEqual(res.data["options"]["steps"], 30)
+        self.assertEqual(res.data["options"], {"steps": 30, "image_size": 1600, "ignore_sky": True})
 
-        # Everyone reads the default; only administrators are told whether the worker listens
+        # Everyone reads the options; only administrators are told whether the worker listens
         res = self.client.get(f"{API}/automation")
-        self.assertTrue(res.data["enabled"])
+        self.assertEqual(res.data["options"]["steps"], 30)
         self.assertIsNone(res.data["listening"])
 
-        follows = make_task(self.user)
-        opted_out = make_task(self.user)
-        self.assertEqual(self.auto(opted_out, enabled=False).data["own"], True)
-        self.complete(follows)
-        self.complete(opted_out)
-        self.assertEqual(training.get_job(follows.id)["options"]["steps"], 30)
-        self.assertIsNone(training.get_job(opted_out.id))
+        # The options alone train nothing: only a task given the setting is trained
+        other = make_task(self.user)
+        self.complete(other)
+        self.assertIsNone(training.get_job(other.id))
 
-        # Back to the default
-        self.assertEqual(self.auto(opted_out, reset=True).data, dict(training.get_default(), own=False))
-
-    def test_a_new_task_is_given_its_setting_before_it_is_processed(self):
-        # The Edit Task Options dialog of a new task: the ranges come without a task, and the setting is saved
-        # on the task as soon as WebODM has created it
-        res = self.client.get(f"{API}/automation?ranges=1")
-        self.assertEqual(res.status_code, 200, res.data)
-        self.assertFalse(res.data["enabled"])
-        self.assertEqual(res.data["ranges"]["steps"], OPTIONS["steps"])
-
+        # New Task With Splats gives its task the setting as soon as WebODM has created it, before it is processed
         task = make_task(self.user, status=None)
-        res = self.auto(task, enabled=True, steps=20)
+        res = self.auto(task, enabled=True, new_task=True)
         self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}})
+
+        # Options chosen later are for the tasks created later
+        admin.post(f"{API}/automation", {"steps": 40}, format="json")
+        self.assertEqual(training.get_auto(task.id)["options"]["steps"], 30)
+        self.assertEqual(self.auto(task, enabled=False, steps=30).data["enabled"], False)
         task.status = status_codes.COMPLETED
         task.save()
         self.complete(task)
-        self.assertEqual(training.get_job(task.id)["options"]["steps"], 20)
+        self.assertIsNone(training.get_job(task.id))
 
     def test_a_task_processed_again_is_trained_again(self):
         task = make_task(self.user)
@@ -788,12 +780,8 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.node.jobs, {})
         self.assertEqual(self.model(task), b"imported")
 
-    def test_the_default_passes_over_a_task_that_cannot_be_trained_and_a_tasks_own_setting_says_why(self):
-        training.set_default(True, {})
+    def test_a_task_set_to_train_that_cannot_be_trained_says_why(self):
         task = make_task(self.user, images=["a.tif"])
-        self.complete(task)
-        self.assertIsNone(training.get_job(task.id))
-
         self.auto(task, enabled=True)
         self.complete(task)
         status = self.status(task)
@@ -802,8 +790,8 @@ class TestSplatMe(BootTestCase):
         self.assertIn("The training did not start. Only JPEG images", status["error"])
 
     def test_a_node_that_does_not_answer_when_a_task_completes_is_reported_on_the_task(self):
-        training.set_default(True, {})
         task = make_task(self.user)
+        self.auto(task, enabled=True)
         training.set_node("http://127.0.0.1:9")
         self.complete(task)
         status = self.status(task)
@@ -811,8 +799,8 @@ class TestSplatMe(BootTestCase):
         self.assertIn("does not answer", status["error"])
 
     def test_a_disabled_plugin_trains_nothing(self):
-        training.set_default(True, {})
         task = make_task(self.user)
+        self.auto(task, enabled=True)
         Plugin.objects.filter(name="splatme").update(enabled=False)
         self.addCleanup(lambda: Plugin.objects.filter(name="splatme").update(enabled=True))
         training.completed(task.id)
@@ -825,7 +813,7 @@ class TestSplatMe(BootTestCase):
         assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
         self.assertEqual(other.get(f"{API}/task/{task.id}/auto").status_code, 200)
         self.assertEqual(other.post(f"{API}/task/{task.id}/auto", {"enabled": True}, format="json").status_code, 404)
-        self.assertFalse(training.get_auto(task.id)["own"])
+        self.assertFalse(training.get_auto(task.id)["enabled"])
 
         res = self.auto(task, enabled=True, steps=10**8)
         self.assertEqual(res.status_code, 400)
@@ -841,4 +829,4 @@ class TestSplatMe(BootTestCase):
         self.auto(task, enabled=True)
         task_id = task.id
         task.delete()
-        self.assertFalse(training.get_auto(task_id)["own"])
+        self.assertFalse(training.get_auto(task_id)["enabled"])

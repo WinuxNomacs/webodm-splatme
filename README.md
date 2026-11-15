@@ -72,15 +72,19 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 3. **Follow it**: the task's panel shows the stage, a progress bar, **Cancel** and **Show Log** (the trainer's
    output), to everyone who can see the task and after a reload. When it is done, **View in 3D** opens the model.
 
-4. **Train automatically**: a task's panel has **Train Splats When Completed** with **Change**: turned on, the
-   task is trained when it completes processing, and again each time it is processed again, with the Quality
-   chosen there. It can be set while the task is still processing. The same setting is in WebODM's **Edit
-   Task Options** dialog (the **Edit** button of the Options row, when creating a task and when editing one):
-   open **Point Cloud** and press **Train Splats When Completed** under SplatMe. It is saved when chosen
-   there, whatever is then done with the dialog's other options; a new task gets it when it is created.
-   Administrators set the default for every
-   task without a setting of its own on the **SplatMe** page (**Automatic Training**); it is off until they
-   turn it on. A training that could not start shows on the task as a failed training, with the reason.
+4. **Train automatically**: in a project on the Dashboard, press **New Task With Splats**, beside **Select
+   Images and GCP**, and create the task as any other: its splats are trained when it completes processing,
+   and again each time it is processed again. While the New Task panel is open the button stays pressed;
+   pressing it again makes the task an ordinary one, and pressing it on a panel opened with Select Images and
+   GCP or by dropped files gives that task the training. Only tasks created this way are trained by
+   themselves. The task starts with the options administrators choose on the **SplatMe** page (**New Task
+   With Splats**; Standard until they change them). Its panel has **Train Splats When Completed** with
+   **Change**, where the options are changed and the training is switched off, or on for any other task,
+   also while the task is still processing. A training that could not start shows on the task as a failed
+   training, with the reason.
+
+   With another plugin that adds a button beside Select Images and GCP, WebODM 4.0.0 shows only one of the
+   two buttons.
 
    **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`): WebODM's worker
    loads plugins only when it starts, and it is the worker that tells SplatMe a task has completed. Until
@@ -109,10 +113,10 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), whether the task has a splat model and whether the user may train it |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |
-| `GET task/<id>/auto` | Whether the task is trained when it completes, with which options, and whether that is the task's `own` setting or the default |
-| `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train`; `reset` true follows the default again |
-| `GET automation` | The default for tasks without a setting of their own; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks. With `?ranges=1`: the default and the node's range of each option |
-| `POST automation` (`enabled`, options) | Administrators: sets the default |
+| `GET task/<id>/auto` | Whether the task is trained when it completes, with which options |
+| `POST task/<id>/auto` | Sets that for the task: `enabled` and the options of `train`, or with `new_task` true the options a New Task With Splats task starts with |
+| `GET automation` | The options a task created with New Task With Splats starts with; for administrators also `listening`, whether WebODM's worker tells the plugin of completed tasks |
+| `POST automation` (options) | Administrators: sets those options |
 
 ## Development
 
