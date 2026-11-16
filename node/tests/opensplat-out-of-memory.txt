@@ -1,0 +1,2 @@
+terminate called after throwing an instance of 'c10::OutOfMemoryError'
+  what():  CUDA out of memory. Tried to allocate 2.00 GiB. GPU 0 has a total capacity of 7.96 GiB of which 1.10 GiB is free.

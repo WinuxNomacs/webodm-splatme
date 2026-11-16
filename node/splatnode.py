@@ -3,6 +3,7 @@
 
 Python's standard library only. One job trains at a time (one GPU); the others wait in a queue.
 
+    GET    /health                whether the node works (no token): 503 when its worker has stopped
     GET    /info                  the node, its trainer, its GPU and its queue
     POST   /jobs?steps=7000       the training zip as the body; answers the new job. A zip that also holds
                                   resume.ply (an earlier job's result) continues that model: steps is then
@@ -14,12 +15,27 @@ Python's standard library only. One job trains at a time (one GPU); the others w
     POST   /jobs/<id>/cancel      stop a queued or running job
     DELETE /jobs/<id>             cancel it and delete its files
 
-Every request but GET /health carries "Authorization: Bearer <token>" when SPLATNODE_TOKEN is set.
+Every request but GET /health carries "Authorization: Bearer <token>" when SPLATNODE_TOKEN is set. HEAD
+answers wherever GET does.
 
 Settings (environment): SPLATNODE_PORT (3100), SPLATNODE_TOKEN, SPLATNODE_DATA (/var/splatnode),
-SPLATNODE_TRAINER (/opt/opensplat/opensplat), SPLATNODE_KEEP_HOURS (48: a finished job is deleted after that).
+SPLATNODE_TRAINER (/opt/opensplat/opensplat), SPLATNODE_KEEP_HOURS (48: a finished job is deleted after that),
+SPLATNODE_STALL_MINUTES (STALL_MINUTES: a trainer that prints nothing for that long is stopped).
+
+How it stays up (each has a test in tests/test_splatnode.py that makes the failure happen):
+
+- One worker thread trains the jobs. An error while it handles a job fails that job and the worker goes on. If the
+  thread ends anyway, /health answers 503 and the process exits, so Docker starts it again (restart:
+  unless-stopped); a start fails the job that was running.
+- Every wait has a deadline: a trainer is stopped with SIGTERM, then SIGKILL after GRACE_SECONDS; a trainer that
+  goes silent is stopped; a client's socket times out after SOCKET_TIMEOUT.
+- A job's state is changed only by Node.transition, under the lock, which refuses a change that is not allowed.
+  Files are never deleted under the lock: they are moved to trash/ (a rename) and deleted by the worker.
+- A job's saved file that doesn't read is moved to broken/ at start; the node starts all the same.
+- Every request is answered, an unexpected error included (500, or 507 for a full disk).
 """
 
+import errno
 import hmac
 import json
 import os
@@ -30,15 +46,18 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELED = "queued", "running", "completed", "failed", "canceled"
 FINISHED = (COMPLETED, FAILED, CANCELED)
+# The only changes of state there are
+TRANSITIONS = {QUEUED: (RUNNING, CANCELED), RUNNING: FINISHED}
 
 # The options a job accepts: name -> (the trainer's flag, type, minimum, maximum, default)
 OPTIONS = {
@@ -54,9 +73,19 @@ MODEL = "model.ply"
 # An earlier model in the training zip, to continue from
 RESUME = "resume.ply"
 KEPT_FILES = ("job.json", "log.txt", MODEL)
-STEP_LINE = re.compile(rb"^Step (\d+): \S+ \[(\d+)%\]")
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 CHUNK = 1 << 20
+# The trainer extracts the zip beside it: an upload needs this many times its size free
+DISK_FACTOR = 2.5
+
+# OpenSplat's output, as tests/opensplat-output.txt holds it from a real run of the pinned commit
+STEP_LINE = re.compile(rb"^Step (\d+): \S+ \[(\d+)%\]")
+OUT_OF_MEMORY = re.compile(r"out of memory", re.IGNORECASE)
+
+# Deadlines
+GRACE_SECONDS = 20  # SIGTERM to SIGKILL; inside compose's stop_grace_period (30 s)
+STALL_MINUTES = 30  # the trainer's longest silence measured, with a margin (see upcoming-changes.md)
+SOCKET_TIMEOUT = 120  # one read or write on a client's connection
 
 
 class Refused(Exception):
@@ -64,6 +93,19 @@ class Refused(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class IllegalTransition(Exception):
+    pass
+
+
+class BadJobFile(Exception):
+    pass
+
+
+def log(message):
+    sys.stderr.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+    sys.stderr.flush()
 
 
 def parse_options(params):
@@ -112,6 +154,21 @@ def extract_resume(dataset, dest):
             raise Refused(400, "The model to continue from is not a .ply file")
 
 
+def step_of(line):
+    """(step, percent) from a line of the trainer's output, or None."""
+    match = STEP_LINE.match(line)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def explain(code, tail):
+    """Why the trainer failed, from its exit code and the end of its output."""
+    if OUT_OF_MEMORY.search(tail):
+        return "The GPU ran out of memory. Try a smaller image size or fewer gaussians."
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    how = "was killed by signal %s" % -code if code < 0 else f"ended with code {code}"
+    return "The trainer {}{}".format(how, ": " + lines[-1][:500] if lines else "")
+
+
 def gpu_info():
     """The first GPU's name and memory in MiB, or None without nvidia-smi or a GPU."""
     try:
@@ -125,20 +182,53 @@ def gpu_info():
         return None
 
 
+def read_job(path, job_id):
+    """A job's saved record, checked; BadJobFile (or OSError, ValueError) when it can't be used."""
+    with open(path) as f:
+        job = json.load(f)
+    if not isinstance(job, dict) or job.get("id") != job_id or job.get("state") not in TRANSITIONS.keys() | set(
+        FINISHED
+    ):
+        raise BadJobFile("not a job record")
+    if not isinstance(job.get("options"), dict) or set(job["options"]) - OPTIONS.keys():
+        raise BadJobFile("its options are not ones the node knows")
+    if not isinstance(job.get("created"), (int, float)):
+        raise BadJobFile("it has no creation time")
+    job.pop("canceling", None)  # an internal flag that 0.2.1 and earlier saved
+    for name, default in (("progress", 0), ("step", 0), ("started", None), ("finished", None), ("error", None),
+                          ("size", None), ("resume", False)):
+        job.setdefault(name, default)
+    return job
+
+
 class Node:
-    def __init__(self, data_dir, trainer, keep_hours=48):
+    HEARTBEAT_LIMIT = 300  # seconds without a beat from the worker before /health says it is stuck
+
+    def __init__(self, data_dir, trainer, keep_hours=48, stall_minutes=STALL_MINUTES):
         self.jobs_dir = os.path.join(data_dir, "jobs")
+        self.trash_dir = os.path.join(data_dir, "trash")
+        self.broken_dir = os.path.join(data_dir, "broken")
         self.trainer = trainer
         self.keep_seconds = keep_hours * 3600
+        self.stall_seconds = stall_minutes * 60
+        self.grace = GRACE_SECONDS
+        self.on_worker_death = None
         self.lock = threading.Condition()
         self.trainer_said = None
+        # The jobs' state, changed only under the lock
         self.jobs = {}
         self.queue = []
+        self.cancel_requested = set()
+        self.delete_requested = set()
+        self.reserved = 0  # bytes of free space that uploads in progress count on
         self.process = None
         self.stopping = False
-        os.makedirs(self.jobs_dir, exist_ok=True)
+        self.worker_died = False
+        self.heartbeat = time.monotonic()
+        for folder in (self.jobs_dir, self.trash_dir, self.broken_dir):
+            os.makedirs(folder, exist_ok=True)
         self.load()
-        self.worker = threading.Thread(target=self.work, daemon=True)
+        self.worker = threading.Thread(target=self.run_worker, daemon=True)
         self.worker.start()
 
     # Jobs on disk
@@ -152,47 +242,104 @@ class Node:
             json.dump(job, f)
         os.replace(tmp, self.path(job["id"], "job.json"))
 
+    def discard(self, path):
+        """Move a file or folder into trash/, deleted later by the worker outside the lock (a rename is instant)."""
+        try:
+            os.replace(path, os.path.join(self.trash_dir, uuid.uuid4().hex))
+        except FileNotFoundError:
+            pass
+
+    def empty_trash(self):
+        for name in os.listdir(self.trash_dir):
+            target = os.path.join(self.trash_dir, name)
+            if os.path.isdir(target) and not os.path.islink(target):
+                shutil.rmtree(target, ignore_errors=True)
+            else:
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
+
     def load(self):
         """The jobs a previous run left: the queued ones wait again, the one that was running has failed."""
+        with self.lock:
+            self.load_jobs()
+
+    def load_jobs(self):
         for job_id in sorted(os.listdir(self.jobs_dir)):
-            try:
-                with open(self.path(job_id, "job.json")) as f:
-                    job = json.load(f)
-            except (OSError, ValueError):
-                # An upload that never finished
-                shutil.rmtree(self.path(job_id), ignore_errors=True)
+            folder = self.path(job_id)
+            if not os.path.exists(os.path.join(folder, "job.json")):
+                self.discard(folder)  # an upload that never finished
                 continue
+            try:
+                job = read_job(os.path.join(folder, "job.json"), job_id)
+            except (OSError, ValueError, BadJobFile) as e:
+                log(f"Job {job_id}: its job.json can't be used ({e}); moved to broken/")
+                try:
+                    os.replace(folder, os.path.join(self.broken_dir, job_id))
+                except OSError as e:
+                    log(f"Job {job_id}: could not be moved to broken/ either ({e})")
+                continue
+            self.jobs[job_id] = job
             if job["state"] == RUNNING:
-                self.finish(job, FAILED, "The splat node restarted while this job was training")
-            self.jobs[job["id"]] = job
+                try:
+                    self.transition(job_id, FAILED, error="The splat node restarted while this job was training")
+                except OSError as e:
+                    log(f"Job {job_id}: its failure could not be saved ({e})")
         self.queue = [j["id"] for j in sorted(self.jobs.values(), key=lambda j: j["created"]) if j["state"] == QUEUED]
 
-    def finish(self, job, state, error=None):
-        job.update(state=state, error=error, finished=time.time())
-        # Only the result and the log are kept: not the dataset, nor the folder the trainer extracted it to
-        folder = self.path(job["id"])
-        for name in os.listdir(folder):
-            if name not in KEPT_FILES or (name == MODEL and state != COMPLETED):
-                target = os.path.join(folder, name)
-                if os.path.isdir(target):
-                    shutil.rmtree(target, ignore_errors=True)
-                else:
-                    os.remove(target)
-        if state == COMPLETED:
-            job["size"] = os.path.getsize(self.path(job["id"], MODEL))
+    # The only place a job's state changes
+
+    def transition(self, job_id, state, **fields):
+        """Move a job to a new state (called with the lock held), save it and wake whoever waits.
+
+        The new state is in memory before it is saved: a save that fails (a full disk) raises, but the job has
+        still moved on, so nothing stays "running" for it; its file then says so until the next start.
+        """
+        job = self.jobs[job_id]
+        if state not in TRANSITIONS.get(job["state"], ()):
+            raise IllegalTransition(f"Job {job_id} can't go from {job['state']} to {state}")
+        job.update(fields, state=state)
+        if job_id in self.queue:
+            self.queue.remove(job_id)
+        if state == RUNNING:
+            job["started"] = time.time()
+        if state in FINISHED:
+            job["finished"] = time.time()
+            self.cancel_requested.discard(job_id)
+            # Only the result and the log are kept: not the dataset, nor the folder the trainer extracted it to
+            folder = self.path(job_id)
+            for name in os.listdir(folder):
+                if name not in KEPT_FILES or (name == MODEL and state != COMPLETED):
+                    self.discard(os.path.join(folder, name))
+            if state == COMPLETED:
+                job.update(progress=100, size=os.path.getsize(self.path(job_id, MODEL)))
+        self.lock.notify_all()
         self.save(job)
+
+    def public(self, job):
+        out = dict(job, options=dict(job["options"]))
+        out["position"] = self.queue.index(job["id"]) + 1 if job["id"] in self.queue else None
+        return out
+
+    def get(self, job_id):
+        job = self.jobs.get(job_id) if JOB_ID.match(job_id) else None
+        if job is None:
+            raise Refused(404, "No such job")
+        return job
 
     # The API's actions
 
     def create(self, options, stream, length):
-        free = shutil.disk_usage(self.jobs_dir).free
-        # The trainer extracts the zip beside it
-        if length * 2.5 > free:
-            raise Refused(507, "Not enough disk space on the splat node")
+        need = int(length * DISK_FACTOR)
+        with self.lock:
+            if need > shutil.disk_usage(self.jobs_dir).free - self.reserved:
+                raise Refused(507, "Not enough disk space on the splat node")
+            self.reserved += need
         job_id = uuid.uuid4().hex
-        os.makedirs(self.path(job_id))
-        dataset = self.path(job_id, "dataset.zip")
         try:
+            os.makedirs(self.path(job_id))
+            dataset = self.path(job_id, "dataset.zip")
             with open(dataset, "wb") as f:
                 left = length
                 while left > 0:
@@ -204,51 +351,49 @@ class Node:
             resume = check_dataset(dataset)
             if resume:
                 extract_resume(dataset, self.path(job_id, RESUME))
-        except BaseException:
-            shutil.rmtree(self.path(job_id), ignore_errors=True)
-            raise
-        job = {
-            "id": job_id, "state": QUEUED, "options": options, "progress": 0, "step": 0, "created": time.time(),
-            "started": None, "finished": None, "error": None, "size": None, "resume": resume,
-        }
-        with self.lock:
+            job = {
+                "id": job_id, "state": QUEUED, "options": options, "progress": 0, "step": 0,
+                "created": time.time(), "started": None, "finished": None, "error": None, "size": None,
+                "resume": resume,
+            }
             self.save(job)
+        except BaseException:
+            with self.lock:
+                self.discard(self.path(job_id))
+            raise
+        finally:
+            with self.lock:
+                self.reserved -= need
+        with self.lock:
             self.jobs[job_id] = job
             self.queue.append(job_id)
             self.lock.notify_all()
             return self.public(job)
 
-    def public(self, job):
-        out = dict(job)
-        out["position"] = self.queue.index(job["id"]) + 1 if job["id"] in self.queue else None
-        return out
-
-    def get(self, job_id):
-        job = self.jobs.get(job_id) if JOB_ID.match(job_id) else None
-        if job is None:
-            raise Refused(404, "No such job")
-        return job
-
     def cancel(self, job_id):
         with self.lock:
             job = self.get(job_id)
             if job["state"] == QUEUED:
-                self.queue.remove(job_id)
-                self.finish(job, CANCELED)
+                self.transition(job_id, CANCELED)
             elif job["state"] == RUNNING:
-                job["canceling"] = True
-                if self.process is not None:
-                    self.process.terminate()
+                # The worker stops the trainer, then finishes the job
+                self.cancel_requested.add(job_id)
+                self.lock.notify_all()
             return self.public(job)
 
     def delete(self, job_id):
-        self.cancel(job_id)
+        """Cancel the job and delete its files; a running job's files go once its trainer has stopped."""
         with self.lock:
-            # A running job's files go once its trainer has stopped
-            while self.get(job_id)["state"] == RUNNING:
-                self.lock.wait(1)
+            job = self.get(job_id)
+            if job["state"] == QUEUED:
+                self.transition(job_id, CANCELED)
             del self.jobs[job_id]
-        shutil.rmtree(self.path(job_id), ignore_errors=True)
+            if job["state"] == RUNNING:
+                self.cancel_requested.add(job_id)
+                self.delete_requested.add(job_id)
+                self.lock.notify_all()
+            else:
+                self.discard(self.path(job_id))
 
     def info(self):
         # The trainer and the GPU are asked outside the lock: a slow nvidia-smi must not hold up the jobs
@@ -260,6 +405,11 @@ class Node:
             "gpu": gpu_info(), "running": running[0] if running else None, "queued": queued,
             "options": {n: {"min": s[2], "max": s[3], "default": s[4]} for n, s in OPTIONS.items()},
         }
+
+    def health(self):
+        silent = time.monotonic() - self.heartbeat
+        ok = self.worker.is_alive() and not self.worker_died and silent < self.HEARTBEAT_LIMIT
+        return {"ok": ok, "worker_silent_seconds": round(silent)}
 
     def trainer_version(self):
         """The trainer's version, asked once (it loads libtorch, which takes seconds); a failure is asked again."""
@@ -274,26 +424,68 @@ class Node:
                 pass
         return self.trainer_said
 
+    def stop(self):
+        with self.lock:
+            self.stopping = True
+            self.lock.notify_all()
+
     # The worker: one job at a time
 
+    def beat(self):
+        self.heartbeat = time.monotonic()
+
+    def run_worker(self):
+        """The worker, supervised: if its loop ends other than by stop(), the node is told (main() exits)."""
+        try:
+            self.work()
+        except BaseException:  # noqa: BLE001 (whatever ended the worker is logged before the node is told)
+            log("The worker stopped:\n" + traceback.format_exc())
+        if not self.stopping:
+            self.worker_died = True
+            if self.on_worker_death:
+                self.on_worker_death()
+
     def work(self):
-        while True:
-            with self.lock:
-                while not self.queue and not self.stopping:
-                    self.lock.wait(60)
-                    self.expire()
-                if self.stopping:
-                    return
-                self.expire()  # also while jobs keep coming, not only when the queue is empty
-                job = self.jobs[self.queue.pop(0)]
-                job.update(state=RUNNING, started=time.time())
-                self.save(job)
+        self.empty_trash()  # what a previous run left
+        while not self.stopping:
+            self.beat()
+            job_id = None
             try:
-                self.train(job)
+                job_id = self.next_job()
+                if job_id is not None:
+                    self.run_job(job_id)
+                self.empty_trash()
             except Exception as e:  # noqa: BLE001 (a job's failure must not end the worker)
-                with self.lock:
-                    self.finish(job, FAILED, f"The splat node failed: {e}")
-                    self.lock.notify_all()
+                log(f"The worker's pass failed (job {job_id}):\n" + traceback.format_exc())
+                if job_id is not None:
+                    self.fail_quietly(job_id, f"The splat node failed: {e}")
+                time.sleep(1)  # an error that repeats does not spin
+
+    def next_job(self):
+        """The next job to train, moved to running; None when there is none yet (after a short wait)."""
+        with self.lock:
+            self.expire()
+            if not self.queue:
+                self.lock.wait(5)
+                return None
+            job_id = self.queue[0]
+            try:
+                self.transition(job_id, RUNNING)  # takes it off the queue
+            except Exception as e:  # noqa: BLE001 (saving it failed: the job fails, the worker goes on)
+                log(f"Job {job_id} could not start:\n" + traceback.format_exc())
+                self.fail_quietly(job_id, f"The splat node failed: {e}")
+                return None
+            return job_id
+
+    def fail_quietly(self, job_id, error):
+        """Fail a job that is still running after an error; never raises (it runs where errors are handled)."""
+        try:
+            with self.lock:
+                job = self.jobs.get(job_id)
+                if job is not None and job["state"] == RUNNING:
+                    self.transition(job_id, FAILED, error=error)
+        except Exception:  # noqa: BLE001
+            log(f"Job {job_id} could not be marked failed:\n" + traceback.format_exc())
 
     def command(self, job):
         cmd = [self.trainer, self.path(job["id"], "dataset.zip"), "-o", self.path(job["id"], MODEL)]
@@ -303,129 +495,219 @@ class Node:
             cmd += [OPTIONS[name][0], str(value)]
         return cmd
 
-    def train(self, job):
-        folder = self.path(job["id"])
-        tail = b""
-        with open(os.path.join(folder, "log.txt"), "wb") as log:
+    def run_job(self, job_id):
+        with self.lock:
+            # Canceled or deleted between being picked and starting
+            if job_id in self.cancel_requested:
+                self.finish_job(job_id, CANCELED)
+                return
+            job = self.jobs[job_id]
+        folder = self.path(job_id)
+        output = {"tail": b"", "last": time.monotonic()}
+        with open(os.path.join(folder, "log.txt"), "wb") as log_file:
+            # Its own process group: a stop reaches whatever the trainer started
+            process = subprocess.Popen(
+                self.command(job), cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
             with self.lock:
-                if job.get("canceling"):
-                    self.finish(job, CANCELED)
-                    self.lock.notify_all()
-                    return
-                self.process = process = subprocess.Popen(
-                    self.command(job), cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-                )
-            last_saved = 0
-            for line in process.stdout:
-                log.write(line)
-                log.flush()
-                tail = (tail + line)[-4096:]
-                step = STEP_LINE.match(line)
-                if step:
-                    job["step"], job["progress"] = int(step.group(1)), int(step.group(2))
-                    if time.time() - last_saved > 5:
-                        last_saved = time.time()
-                        with self.lock:
-                            self.save(job)
-            process.stdout.close()
-            code = process.wait()
+                self.process = process
+            reader = threading.Thread(target=self.read_output, args=(job_id, process, log_file, output), daemon=True)
+            reader.start()
+            why = self.supervise(job_id, process, output)
+            reader.join(10)
         with self.lock:
             self.process = None
-            if job.pop("canceling", False):
-                self.finish(job, CANCELED)
-            elif self.stopping:
-                self.finish(job, FAILED, "The splat node was stopped while this job was training")
+            code = process.returncode
+            if why == CANCELED:
+                self.finish_job(job_id, CANCELED)
+            elif why is not None:
+                self.finish_job(job_id, FAILED, why)
             elif code == 0 and os.path.isfile(os.path.join(folder, MODEL)):
-                job["progress"] = 100
-                self.finish(job, COMPLETED)
+                self.finish_job(job_id, COMPLETED)
             else:
-                self.finish(job, FAILED, self.explain(code, tail.decode("utf-8", "replace")))
-            self.lock.notify_all()
+                self.finish_job(job_id, FAILED, explain(code, output["tail"].decode("utf-8", "replace")))
+
+    def finish_job(self, job_id, state, error=None):
+        """The end of a job the worker ran (lock held): a deleted job's folder goes, the others are finished."""
+        if job_id in self.delete_requested:
+            self.delete_requested.discard(job_id)
+            self.cancel_requested.discard(job_id)
+            self.discard(self.path(job_id))
+        else:
+            self.transition(job_id, state, error=error)
+
+    def supervise(self, job_id, process, output):
+        """Wait for the trainer, stopping it when asked or when it goes silent. Answers why it was stopped."""
+        why, term_sent = None, None
+        while True:
+            try:
+                process.wait(timeout=0.2)
+                return why
+            except subprocess.TimeoutExpired:
+                pass
+            self.beat()
+            now = time.monotonic()
+            if why is None:
+                with self.lock:
+                    if job_id in self.cancel_requested:
+                        why = CANCELED
+                    elif self.stopping:
+                        why = "The splat node was stopped while this job was training"
+                if why is None and now - output["last"] > self.stall_seconds:
+                    minutes = max(1, round(self.stall_seconds / 60))
+                    why = f"The trainer printed nothing for {minutes} minutes and was stopped"
+            if why is not None and term_sent is None:
+                self.signal(process, signal.SIGTERM)
+                term_sent = now
+            elif term_sent is not None and now - term_sent > self.grace:
+                self.signal(process, signal.SIGKILL)
 
     @staticmethod
-    def explain(code, tail):
-        if "out of memory" in tail.lower():
-            return "The GPU ran out of memory. Try a smaller image size or fewer gaussians."
-        lines = [line.strip() for line in tail.splitlines() if line.strip()]
-        how = "was killed by signal %s" % -code if code < 0 else f"ended with code {code}"
-        return "The trainer {}{}".format(how, ": " + lines[-1][:500] if lines else "")
+    def signal(process, sig):
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def read_output(self, job_id, process, log_file, output):
+        """The trainer's output into its log, its progress into the job; never raises (a full disk included)."""
+        last_saved, understood, warned = 0, False, False
+        try:
+            for line in process.stdout:
+                output["last"] = time.monotonic()
+                output["tail"] = (output["tail"] + line)[-4096:]
+                try:
+                    log_file.write(line)
+                    log_file.flush()
+                except OSError:
+                    pass
+                step = step_of(line)
+                if step is None:
+                    if line.startswith(b"Step ") and not warned:
+                        # The trainer's wording changed (tests/opensplat-output.txt is from the pinned commit)
+                        log(f"Job {job_id}: a step line the node does not understand: {line[:200]!r}")
+                        warned = True
+                    continue
+                understood = True
+                with self.lock:
+                    job = self.jobs.get(job_id)
+                    if job is None or job["state"] != RUNNING:
+                        continue
+                    job["step"], job["progress"] = step
+                    if time.monotonic() - last_saved > 5:
+                        last_saved = time.monotonic()
+                        try:
+                            self.save(job)
+                        except OSError as e:
+                            log(f"Job {job_id}: its progress could not be saved ({e})")
+        except Exception:  # noqa: BLE001
+            log(f"Job {job_id}: its output could not be read:\n" + traceback.format_exc())
+        finally:
+            process.stdout.close()
+        if not understood:
+            log(f"Job {job_id}: the trainer printed no step the node understands (no progress was shown)")
 
     def expire(self):
-        """Delete the jobs that finished long ago (called with the lock held)."""
+        """Forget the jobs that finished long ago (called with the lock held); their folders go to the trash."""
         now = time.time()
         for job in list(self.jobs.values()):
             if job["state"] in FINISHED and now - (job["finished"] or now) > self.keep_seconds:
                 del self.jobs[job["id"]]
-                shutil.rmtree(self.path(job["id"]), ignore_errors=True)
-
-    def stop(self):
-        with self.lock:
-            self.stopping = True
-            if self.process is not None:
-                self.process.terminate()
-            self.lock.notify_all()
+                self.discard(self.path(job["id"]))
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "SplatNode/" + VERSION
     protocol_version = "HTTP/1.1"
+    timeout = SOCKET_TIMEOUT
+
+    # (method, path, the method that answers it, whether it needs the token)
+    ROUTES = (
+        ("GET", r"/health", "health", False),
+        ("GET", r"/info", "info", True),
+        ("GET", r"/jobs", "list_jobs", True),
+        ("POST", r"/jobs", "create_job", True),
+        ("GET", r"/jobs/(?P<job_id>[^/]+)", "get_job", True),
+        ("DELETE", r"/jobs/(?P<job_id>[^/]+)", "delete_job", True),
+        ("POST", r"/jobs/(?P<job_id>[^/]+)/cancel", "cancel_job", True),
+        ("GET", r"/jobs/(?P<job_id>[^/]+)/log", "send_log", True),
+        ("GET", r"/jobs/(?P<job_id>[^/]+)/result", "send_result", True),
+    )
+    ROUTES = tuple((method, re.compile(path + r"/?\Z"), name, auth) for method, path, name, auth in ROUTES)
 
     def log_message(self, fmt, *args):
-        sys.stderr.write(f"{self.log_date_time_string()} {fmt % args}\n")
+        log(fmt % args)
 
-    def send_json(self, status, body):
-        data = json.dumps(body).encode()
+    def start_response(self, status, headers):
+        self.started = True
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
+        for name, value in headers.items():
+            self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(data)
+
+    def send_body(self, data):
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
+    def send_json(self, status, body, headers=()):
+        data = json.dumps(body).encode()
+        self.start_response(status, {"Content-Type": "application/json", "Content-Length": str(len(data)), **dict(headers)})
+        self.send_body(data)
 
     def handle_request(self):
-        node, token = self.server.node, self.server.token
+        self.started = False
         url = urlsplit(self.path)
-        parts = [p for p in url.path.split("/") if p]
         params = dict(parse_qsl(url.query))
-        method = self.command
+        method = "GET" if self.command == "HEAD" else self.command
         try:
-            if method == "GET" and parts == ["health"]:
-                return self.send_json(200, {"ok": True})
-            if token:
+            matches = [(m, r.match(url.path), name, auth) for m, r, name, auth in self.ROUTES if r.match(url.path)]
+            if not matches:
+                raise Refused(404, "Not found")
+            route = next(((match, name, auth) for m, match, name, auth in matches if m == method), None)
+            if route is None:
+                allowed = sorted({m for m, *_ in matches} | ({"HEAD"} if any(m == "GET" for m, *_ in matches) else set()))
+                return self.send_json(405, {"error": "Method not allowed"}, {"Allow": ", ".join(allowed)})
+            match, name, auth = route
+            token = self.server.token
+            if auth and token:
                 given = self.headers.get("Authorization", "")
                 if not hmac.compare_digest(given.encode(), ("Bearer " + token).encode()):
                     raise Refused(401, "Wrong or missing token")
-            if method == "GET" and parts == ["info"]:
-                return self.send_json(200, node.info())
-            if parts[:1] != ["jobs"] or len(parts) > 3:
-                raise Refused(404, "Not found")
-            if len(parts) == 1:
-                if method == "GET":
-                    with node.lock:
-                        jobs = sorted(node.jobs.values(), key=lambda j: j["created"])
-                        return self.send_json(200, [node.public(j) for j in jobs])
-                if method == "POST":
-                    return self.create_job(params)
-                raise Refused(405, "Method not allowed")
-            job_id, action = parts[1], parts[2] if len(parts) == 3 else None
-            if action is None and method == "GET":
-                with node.lock:
-                    return self.send_json(200, node.public(node.get(job_id)))
-            if action is None and method == "DELETE":
-                node.delete(job_id)
-                return self.send_json(200, {"deleted": True})
-            if action == "cancel" and method == "POST":
-                return self.send_json(200, node.cancel(job_id))
-            if action == "log" and method == "GET":
-                return self.send_log(job_id, params)
-            if action == "result" and method == "GET":
-                return self.send_result(job_id)
-            raise Refused(404 if action not in (None, "cancel", "log", "result") else 405, "Not found")
+            return getattr(self, name)(params, **match.groupdict())
         except Refused as e:
-            # A refused upload's body has not been read: the connection can't be reused
-            self.close_connection = True
-            self.send_json(e.status, {"error": e.message})
+            self.answer_error(e.status, e.message)
+        except Exception as e:  # noqa: BLE001 (every request is answered)
+            log(f"{self.command} {url.path} failed:\n" + traceback.format_exc())
+            full = isinstance(e, OSError) and e.errno == errno.ENOSPC
+            self.answer_error(507 if full else 500, f"The splat node failed: {e}")
 
-    do_GET = do_POST = do_DELETE = handle_request
+    def answer_error(self, status, message):
+        # A refused upload's body has not been read: the connection can't be reused
+        self.close_connection = True
+        if self.started:
+            return  # the answer had begun: the closed connection tells the client
+        try:
+            self.send_json(status, {"error": message})
+        except OSError:
+            pass  # the client is gone
+
+    do_GET = do_HEAD = do_POST = do_PUT = do_PATCH = do_DELETE = handle_request
+
+    # The answers
+
+    def health(self, params):
+        status = self.server.node.health()
+        self.send_json(200 if status["ok"] else 503, status)
+
+    def info(self, params):
+        self.send_json(200, self.server.node.info())
+
+    def list_jobs(self, params):
+        node = self.server.node
+        with node.lock:
+            jobs = [node.public(j) for j in sorted(node.jobs.values(), key=lambda j: j["created"])]
+        self.send_json(200, jobs)
 
     def create_job(self, params):
         try:
@@ -437,7 +719,20 @@ class Handler(BaseHTTPRequestHandler):
         options = parse_options(params)
         self.send_json(201, self.server.node.create(options, self.rfile, length))
 
-    def send_log(self, job_id, params):
+    def get_job(self, params, job_id):
+        node = self.server.node
+        with node.lock:
+            job = node.public(node.get(job_id))
+        self.send_json(200, job)
+
+    def delete_job(self, params, job_id):
+        self.server.node.delete(job_id)
+        self.send_json(200, {"deleted": True})
+
+    def cancel_job(self, params, job_id):
+        self.send_json(200, self.server.node.cancel(job_id))
+
+    def send_log(self, params, job_id):
         node = self.server.node
         with node.lock:
             node.get(job_id)
@@ -451,35 +746,35 @@ class Handler(BaseHTTPRequestHandler):
                 data = f.read(4 * CHUNK)
         except OSError:
             data = b""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("X-Log-Offset", str(offset + len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        self.start_response(200, {
+            "Content-Type": "text/plain; charset=utf-8", "Content-Length": str(len(data)),
+            "X-Log-Offset": str(offset + len(data)),
+        })
+        self.send_body(data)
 
-    def send_result(self, job_id):
+    def send_result(self, params, job_id):
         node = self.server.node
         with node.lock:
-            if node.get(job_id)["state"] != COMPLETED:
-                raise Refused(409, "The job has no result: it is {}".format(node.get(job_id)["state"]))
+            state = node.get(job_id)["state"]
+        if state != COMPLETED:
+            raise Refused(409, f"The job has no result: it is {state}")
         try:
             f = open(node.path(job_id, MODEL), "rb")  # noqa: SIM115 (closed below, once sent)
         except OSError:
             raise Refused(404, "The result was deleted") from None
         with f:
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
-            self.send_header("Content-Disposition", 'attachment; filename="model.ply"')
-            self.end_headers()
-            shutil.copyfileobj(f, self.wfile, CHUNK)
+            self.start_response(200, {
+                "Content-Type": "application/octet-stream", "Content-Length": str(os.fstat(f.fileno()).st_size),
+                "Content-Disposition": 'attachment; filename="model.ply"',
+            })
+            if self.command != "HEAD":
+                shutil.copyfileobj(f, self.wfile, CHUNK)
 
 
-def make_server(host, port, data_dir, trainer, token="", keep_hours=48):
+def make_server(host, port, data_dir, trainer, token="", keep_hours=48, stall_minutes=STALL_MINUTES):
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
-    server.node = Node(data_dir, trainer, keep_hours)
+    server.node = Node(data_dir, trainer, keep_hours, stall_minutes)
     server.token = token
     return server
 
@@ -490,9 +785,17 @@ def main():
     server = make_server(
         "0.0.0.0", int(env.get("SPLATNODE_PORT", "3100")), env.get("SPLATNODE_DATA", "/var/splatnode"),
         env.get("SPLATNODE_TRAINER", "/opt/opensplat/opensplat"), token, float(env.get("SPLATNODE_KEEP_HOURS", "48")),
+        float(env.get("SPLATNODE_STALL_MINUTES") or STALL_MINUTES),
     )
     if not token:
-        print("SPLATNODE_TOKEN is not set: anyone who can reach this port can use the GPU", file=sys.stderr)
+        log("SPLATNODE_TOKEN is not set: anyone who can reach this port can use the GPU")
+
+    def worker_died():
+        # Crash-only: Docker starts the node again, and the start fails the job that was running
+        log("The worker has stopped: exiting so the node is started again")
+        os._exit(70)
+
+    server.node.on_worker_death = worker_died
 
     def stop(*_):
         server.node.stop()
@@ -500,8 +803,10 @@ def main():
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    print(f"Splat node {VERSION} on port {server.server_address[1]}", file=sys.stderr, flush=True)
+    log(f"Splat node {VERSION} on port {server.server_address[1]}")
     server.serve_forever()
+    # The worker stops the trainer (SIGTERM, then SIGKILL) and finishes its job before the process ends
+    server.node.worker.join(GRACE_SECONDS + 5)
 
 
 if __name__ == "__main__":

@@ -41,7 +41,16 @@ checked again in the code before they are reported.
   vetting rule of the user's CLAUDE.md: latest release, advisories, maintenance. Dated evidence goes in the review's
   record.
 
-## 3. What to look for in the documentation
+## 3. Make the failures happen
+
+Reading finds less than running. For each part that runs unattended (the splat node, the plugin's worker jobs
+and their heartbeat, `splatnode.sh`), run its failures against the real code, in a scratch folder or a throwaway
+instance: a full disk (a write made to fail), a damaged saved file, a dependency that hangs, goes silent or ignores
+a stop, a client that stalls, a restart in the middle of a job. Each failure must end in a clear message and a state
+that recovers. A failure that leaves something stuck or silent is a finding, reported as "checked", and gets a test
+that makes it happen.
+
+## 4. What to look for in the documentation
 
 - **Accuracy**: every statement checked against the code, or against a run when it describes output, a number or
   a timing. A statement nobody can check is rewritten so it can be, or removed.
@@ -50,13 +59,13 @@ checked again in the code before they are reported.
 - The README introduces SplatMe and links to Getting Started and the docs, no more.
 - Links and anchors resolve (`.venv/bin/zensical build` is strict), screenshots show the current pages.
 
-## 4. A live sweep
+## 5. A live sweep
 
 The plugin's pages on the dev stack, headless, reading only (GET and HEAD): the Dashboard's Splats line,
 SplatMe → Tasks, SplatMe → Settings, Administration → SplatMe; 320 and 1,280 px wide; as an administrator and
 as a plain user; console errors read (the dev stack's livereload one is expected).
 
-## 5. The record and what follows
+## 6. The record and what follows
 
 - Each finding: a letter, the part, what fails and how (a concrete case), its weight, and "checked" when it was
   confirmed again in the code or a run. The documentation's findings list each removal and correction.

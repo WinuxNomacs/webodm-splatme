@@ -5,7 +5,7 @@ where a release needs a newer one.
 
 ## 0.2.0 (2026-11-16)
 
-Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.1 comes with it.
+Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 comes with it.
 
 - **Trainings waiting on the node** no longer take one of WebODM's worker places each: a training's own worker
   job ends once the node has its photos, and one job follows all the node's trainings. Many trainings at once no
@@ -32,8 +32,12 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.1 c
   WebODM's worker uses (behind a reverse proxy it joined the proxy's); connect moves the node to a reinstalled
   WebODM's network; upgrade rewrites the compose file and deletes the previous image (6.6 GB each); a failed
   install is undone; a port in use is refused first; uninstall clears the token too.
-- **Splat node 0.2.1**: `/info` no longer holds up the jobs while it asks the GPU; finished jobs expire while the
-  queue is busy too.
+- **Splat node 0.2.2**: a failure inside the node no longer leaves it stuck or silent. A full disk fails the job it
+  hit and the next one trains; a trainer that won't stop is killed, and one that prints nothing for a long time is
+  stopped (`SPLATNODE_STALL_MINUTES`); a damaged job file is set aside instead of keeping the node from starting;
+  every error is answered with its message; deleting a job answers at once. If its worker stops anyway, the node
+  exits and Docker starts it again. `/info` no longer holds up the jobs while it asks the GPU; finished jobs expire
+  while the queue is busy too.
 - **The documentation moved to its own site**, https://winuxnomacs.github.io/webodm-splatme/, published with each
   release, with a new **Getting Started**: a fresh install from start to a first trained model, and an upgrade,
   each step with what to expect. The README introduces SplatMe and links to it.

@@ -52,7 +52,7 @@ yes_to() {
 # Compose reads the node's settings from .env only: the same names exported in the shell would win over it
 compose() {
     env -u SPLATNODE_IMAGE -u SPLATNODE_CONTAINER -u SPLATNODE_TOKEN -u SPLATNODE_PORT -u SPLATNODE_BIND \
-        -u SPLATNODE_KEEP_HOURS -u SPLATNODE_WEBODM_NETWORK \
+        -u SPLATNODE_KEEP_HOURS -u SPLATNODE_STALL_MINUTES -u SPLATNODE_WEBODM_NETWORK \
         docker compose -p "$PROJECT" --project-directory "$DIR" -f "$DIR/compose.yml" "$@"
 }
 env_value() { sed -n "s/^$1=//p" "$DIR/.env" 2>/dev/null | head -n 1 || true; }  # nothing when there is no .env
@@ -160,8 +160,9 @@ undo_install() {
 }
 
 write_files() {
-    local network="$1" port="$2" token="$3" bind keep
+    local network="$1" port="$2" token="$3" bind keep stall
     keep="$(env_value SPLATNODE_KEEP_HOURS)"
+    stall="$(env_value SPLATNODE_STALL_MINUTES)"
     mkdir -p "$DIR"
     # On WebODM's network: this machine only. Otherwise every address, or what .env says (127.0.0.1: behind a proxy)
     if [ -n "$network" ]; then bind="127.0.0.1:"; else bind="$(env_value SPLATNODE_BIND)"; fi
@@ -174,6 +175,8 @@ SPLATNODE_TOKEN=$token
 SPLATNODE_PORT=$port
 SPLATNODE_BIND=$bind
 SPLATNODE_KEEP_HOURS=${keep:-48}
+# Minutes the trainer may print nothing before its job is stopped (empty: the node's default)
+SPLATNODE_STALL_MINUTES=$stall
 SPLATNODE_WEBODM_NETWORK=$network
 EOF
     umask 022
@@ -189,6 +192,7 @@ services:
     environment:
       SPLATNODE_TOKEN: ${SPLATNODE_TOKEN:?}
       SPLATNODE_KEEP_HOURS: ${SPLATNODE_KEEP_HOURS:-48}
+      SPLATNODE_STALL_MINUTES: ${SPLATNODE_STALL_MINUTES:-}
     volumes:
       - jobs:/var/splatnode
     restart: unless-stopped
