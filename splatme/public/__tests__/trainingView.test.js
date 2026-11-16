@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, trainedSize, imageSizeRows } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -334,5 +334,30 @@ describe("the trainer's stages under Steps", () => {
             expect(stagesCells(value).map(c => [c.value, c.rounds])).toEqual([["–", null], ["–", "–"], ["–", null], ["–", null]]);
         }
         expect(trainingStages(7000, 7000)).toBeNull();
+    });
+});
+
+describe("the photos' size under Image Size", () => {
+    test("the longer side is brought down to the Image Size and the other in proportion, as WebODM's export does", () => {
+        expect(imageSizeRows([[5280, 3956]], "1600")).toEqual([{source: "5,280 × 3,956", trained: "1,600 × 1,199", side: "−70%", pixels: "−91%"}]);
+        expect(trainedSize(3956, 5280, 1600)).toEqual([1199, 1600]);  // portrait
+    });
+
+    test("0, or an Image Size above the photos', keeps them as they are", () => {
+        expect(imageSizeRows([[640, 512]], "0")).toEqual([{source: "640 × 512", trained: "640 × 512", side: "0%", pixels: "0%"}]);
+        expect(imageSizeRows([[640, 512]], "1600")[0].trained).toBe("640 × 512");
+    });
+
+    test("a half pixel is rounded as Python rounds it, to the even neighbour", () => {
+        expect(trainedSize(1000, 5, 100)).toEqual([100, 0 + 1]);   // 0.5 → 0, then at least 1
+        expect(trainedSize(1000, 25, 100)).toEqual([100, 2]);      // 2.5 → 2
+        expect(trainedSize(1000, 35, 100)).toEqual([100, 4]);      // 3.5 → 4
+    });
+
+    test("each camera's photos have a row, and a number the training does not take shows dashes", () => {
+        const rows = imageSizeRows([[5280, 3956], [640, 512]], "8");
+        expect(rows.map(r => [r.source, r.trained, r.side, r.pixels])).toEqual([["5,280 × 3,956", "–", "–", "–"], ["640 × 512", "–", "–", "–"]]);
+        expect(imageSizeRows([[640, 512]], "")[0].trained).toBe("–");
+        expect(imageSizeRows([], "1600")).toEqual([]);
     });
 });

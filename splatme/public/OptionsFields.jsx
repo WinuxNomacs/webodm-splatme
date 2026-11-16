@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, THERMAL_PALETTES } from './trainingView';
 import StagesTable from './StagesTable';
+import ImageSizeTable from './ImageSizeTable';
 
 // A training's options as form rows: the Quality choice, and under Advanced the numbers. Used by the Train Splats
 // and Change dialogs and by SplatMe's panel above WebODM's New Task panel; the form's values are the parent's.
@@ -13,7 +14,8 @@ export default class OptionsFields extends React.Component {
         onChange: PropTypes.func.isRequired,   // (name, value)
         onAdvanced: PropTypes.func.isRequired, // (open)
         showCrop: PropTypes.bool,              // false for a task known to have no boundary
-        thermal: PropTypes.bool                // a thermal task: Thermal Colours, and no Ignore Sky
+        thermal: PropTypes.bool,               // a thermal task: Thermal Colours, and no Ignore Sky
+        photoSizes: PropTypes.array            // the task's photo sizes, [[width, height]], when known: the Image Size table
     };
 
     handlePreset = e => {
@@ -91,7 +93,7 @@ export default class OptionsFields extends React.Component {
                 {advanced ?
                     <React.Fragment>
                         {this.numberField("steps", _("Steps"), _(STEPS_HINT), "", <StagesTable total={form.steps} />)}
-                        {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. GPU memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are."))}
+                        {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. GPU memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are."), "", <ImageSizeTable photoSizes={this.props.photoSizes} imageSize={form.image_size} />)}
                         {this.numberField("max_gaussians", _("Max Gaussians"), _("The most points the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit"))}
                     </React.Fragment> : ""}
             </React.Fragment>

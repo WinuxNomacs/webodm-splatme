@@ -83,6 +83,43 @@ export function stagesCells(total, from){
         rounds: s.key === "growing" ? result.rounds + (result.rounds === 1 ? " round" : " rounds") : null}));
 }
 
+// Python's round(): a half to the even neighbour
+function roundHalfEven(x){
+    const r = Math.round(x);
+    return Math.abs(x % 1) === 0.5 ? 2 * Math.round(x / 2) : r;
+}
+
+// A photo's size as the trainer sees it at an Image Size, as WebODM's export makes it (app/splats.py's
+// compute_target_size): the longer side brought down to the Image Size, the other in proportion; never enlarged;
+// 0 keeps it as it is
+export function trainedSize(width, height, imageSize){
+    if (imageSize <= 0 || Math.max(width, height) <= imageSize) return [width, height];
+    if (width >= height) return [imageSize, Math.max(1, roundHalfEven(height * imageSize / width))];
+    return [Math.max(1, roundHalfEven(width * imageSize / height)), imageSize];
+}
+
+// A change as a whole percentage with its sign: "−70%", "0%", "+5%"
+function change(ratio){
+    const percent = Math.round((ratio - 1) * 100);
+    return percent < 0 ? "\u2212" + (-percent) + "%" : percent > 0 ? "+" + percent + "%" : "0%";
+}
+
+// The Image Size table's rows, one per size of the task's photos ([[width, height]]): {source, trained, side,
+// pixels} as text, the changes those of the longer side and of the pixels; a dash for each but the source when
+// the Image Size is not a number the training takes
+export function imageSizeRows(photoSizes, imageSize){
+    const text = String(imageSize == null ? "" : imageSize).trim();
+    const value = /^\d+$/.test(text) ? parseInt(text, 10) : NaN;
+    const valid = value === 0 || value >= 16;
+    return (photoSizes || []).map(([width, height]) => {
+        const source = width.toLocaleString("en-US") + " \u00d7 " + height.toLocaleString("en-US");
+        if (!valid) return {source, trained: "–", side: "–", pixels: "–"};
+        const [w, h] = trainedSize(width, height, value);
+        return {source, trained: w.toLocaleString("en-US") + " \u00d7 " + h.toLocaleString("en-US"),
+            side: change(Math.max(w, h) / Math.max(width, height)), pixels: change(w * h / (width * height))};
+    });
+}
+
 // A job's states in order, with the share of the whole bar each takes (measured on 220 photos: the export and the
 // training take nearly all of the time)
 const STAGES = [

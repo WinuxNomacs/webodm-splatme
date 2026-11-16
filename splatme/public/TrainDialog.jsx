@@ -107,7 +107,7 @@ export default class TrainDialog extends React.Component {
                                 <StagesTable total={total} from={trained} />
                             </div>
                         </div> :
-                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
+                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} photoSizes={(check || {}).photo_sizes} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>
         );

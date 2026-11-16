@@ -316,6 +316,18 @@ def trained_steps(task):
     return int(found.group(1)) if found else None
 
 
+def photo_sizes(task):
+    """The sizes of the task's photos as processed, [[width, height]], one per camera (cameras.json, as WebODM's
+    export reads it), largest first; [] before the task has them."""
+    try:
+        with open(task.get_asset_file_or_stream("cameras.json")) as f:
+            cameras = json.load(f)
+        sizes = {(int(c["width"]), int(c["height"])) for c in cameras.values()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+    return [list(size) for size in sorted(sizes, key=lambda s: (-s[0] * s[1], s))]
+
+
 def mostly_nadir(task):
     """Whether nearly all the photos point straight down, judged as WebODM's own Splats dialog does."""
     try:
