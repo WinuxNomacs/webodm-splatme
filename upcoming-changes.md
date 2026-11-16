@@ -403,13 +403,24 @@ a security hole; the tokens, permissions, CSRF and file handling were found soun
   refresh can overwrite an action's answer; the dialogs do not hold the keyboard's focus; the progress row is too
   wide below 340 px; another plugin's button can land after SplatMe's in the project's button group.
 
-**Proposed for 0.2.0:** A–I, K–Q and the lower items that are a line or two each (the heartbeat, Cancel during
-the import, the anonymous status, the upload's timeout, the click guard, Enter, the progress row's width, the
-registry check). Then a release, checked on a throwaway WebODM as 0.1.0 was, and the directory entry with
-0.2.0. Left for later unless the user wants them now: J (a design change: waiting in the node's queue would move
-out of WebODM's worker), R, focus in the dialogs, and the rest.
+**Decided (2026-11-16, the user):**
 
-Open decisions: see the phase list (asked 2026-11-16).
+- **Everything found goes into 0.2.0**, the lower items and J included (proposed was all but J, R, the dialogs'
+  focus and the rest of the lower items). Then a release, checked on a throwaway WebODM as 0.1.0 was, and the
+  directory entry with 0.2.0.
+- **A task processed again while its splats train** (I): the training is cancelled when the new processing
+  completes, and a task set to Train Splats When Completed is then trained again on the new results; otherwise its
+  row says the training was cancelled because the task was processed again.
+
+**Design of J** (WebODM runs a plugin's work only through `run_function_async`, and its beat schedule has no room
+for a plugin): a training's own job ends once its photos are on the node. One follower job follows every training
+the node has queued or running, and imports each as it finishes. It is started, when no live heartbeat in the data
+store says it runs, by a training's upload and by the status requests; it ends when no training is left on the node.
+That makes one worker slot for all the trainings waiting on the node, rather than one each. The export and the
+import still take a slot while they run.
+
+**Build order:** install and upgrade (A–H and their lower items), then the trainings (I, K–M, J, the lower
+items), then the pages (N–R, the lower items), each on its own branch with its tests; then the release branch.
 
 ### The splat node's API (built)
 
