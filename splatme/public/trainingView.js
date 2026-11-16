@@ -29,6 +29,56 @@ export function stepsNote(steps){
     return "";
 }
 
+// What the trainer does in each of its steps, from OpenSplat's schedule (opensplat.cpp's defaults, model.cpp's
+// optimizerStepCadence and afterTrain, at the node's pinned commit): it grows the model every 500 steps after step
+// 500 and before half the steps (at most 15,000); it then refines it, updating it once every 32 photos, until two
+// thirds of the steps (at most 20,000), and polishes it, once every 64 photos, to the end
+export const STEPS_HINT = "How long the trainer works on the model. It grows the model in the first half of the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.";
+const GROW_FROM = 500, GROW_EVERY = 500, GROW_UNTIL = 15000, POLISH_FROM = 20000;
+
+// The steps from+1 to total in the trainer's stages: [{key, label, steps}] (only those with steps) and how many
+// times it grows the model in them. from: the steps a continued model already has. Steps before the growing ends
+// in which it grows the model no more are a warm-up.
+export function trainingStages(total, from){
+    total = Number(total);
+    from = Math.max(0, Number(from) || 0);
+    if (!Number.isInteger(total) || total <= from) return null;
+    const grownUntil = Math.min(GROW_UNTIL, Math.floor(total / 2));
+    const polishFrom = Math.min(POLISH_FROM, Math.floor(total * 2 / 3));
+    let rounds = 0;
+    for (let step = GROW_EVERY * (Math.floor(Math.max(from, GROW_FROM) / GROW_EVERY) + 1); step < grownUntil; step += GROW_EVERY) rounds++;
+    const span = (a, b) => Math.max(0, Math.min(b, total) - Math.max(a, from));  // the steps a+1 to b of this training
+    const growing = rounds ? span(GROW_FROM, grownUntil) : 0;
+    const stages = [
+        {key: "warmup", label: "Warm-up", steps: span(0, grownUntil) - growing},
+        {key: "growing", label: "Growing", steps: growing},
+        {key: "refining", label: "Refining", steps: span(grownUntil, polishFrom)},
+        {key: "polishing", label: "Polishing", steps: span(polishFrom, total)}
+    ];
+    return {stages: stages.filter(s => s.steps > 0), rounds};
+}
+
+// Whole percentages that add up to 100 (the largest remainders rounded up)
+function percentages(counts){
+    const sum = counts.reduce((a, b) => a + b, 0);
+    const exact = counts.map(c => c * 100 / sum);
+    const result = exact.map(Math.floor);
+    const order = exact.map((e, i) => [e - result[i], i]).sort((a, b) => b[0] - a[0]);
+    const missing = 100 - result.reduce((a, b) => a + b, 0);
+    for (let k = 0; k < missing; k++) result[order[k][1]]++;
+    return result;
+}
+
+// "Of these steps: Warm-up 2% · Growing 48% (28 rounds) · Refining 17% · Polishing 33%", or "" for a number that
+// is not a training's
+export function stagesText(total, from){
+    const result = trainingStages(total, from);
+    if (!result) return "";
+    const shares = percentages(result.stages.map(s => s.steps));
+    return "Of these steps: " + result.stages.map((s, i) => s.label + " " + shares[i] + "%" +
+        (s.key === "growing" ? " (" + result.rounds + (result.rounds === 1 ? " round)" : " rounds)") : "")).join(" · ");
+}
+
 // A job's states in order, with the share of the whole bar each takes (measured on 220 photos: the export and the
 // training take nearly all of the time)
 const STAGES = [
@@ -138,7 +188,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 0), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"

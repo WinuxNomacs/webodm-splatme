@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesText } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -161,7 +161,7 @@ describe("a task's automatic training", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
         expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "0", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
     });
 
     test("Crop To Boundary is on unless it is unticked", () => {
@@ -285,5 +285,45 @@ describe("a task's processing in its row", () => {
         expect(runningPercent({status: 10, running_progress: 0})).toBeNull();
         expect(runningPercent({status: 40, running_progress: 1})).toBeNull();
         expect(runningPercent({status: 20})).toBeNull();
+    });
+});
+
+describe("the trainer's stages under Steps", () => {
+    test("up to 30,000 steps about half grow the model, a sixth refine it and a third polish it", () => {
+        expect(stagesText(30000)).toBe("Of these steps: Warm-up 2% · Growing 48% (28 rounds) · Refining 17% · Polishing 33%");
+        expect(stagesText(7000)).toBe("Of these steps: Warm-up 7% · Growing 43% (5 rounds) · Refining 17% · Polishing 33%");
+        expect(stagesText(3000)).toBe("Of these steps: Warm-up 17% · Growing 33% (1 round) · Refining 17% · Polishing 33%");
+    });
+
+    test("beyond 30,000 steps the extra steps only polish the model", () => {
+        expect(trainingStages(60000)).toEqual({rounds: 28, stages: [
+            {key: "warmup", label: "Warm-up", steps: 500}, {key: "growing", label: "Growing", steps: 14500},
+            {key: "refining", label: "Refining", steps: 5000}, {key: "polishing", label: "Polishing", steps: 40000}]});
+        expect(stagesText(60000)).toBe("Of these steps: Warm-up 1% · Growing 24% (28 rounds) · Refining 8% · Polishing 67%");
+    });
+
+    test("up to 2,000 steps the model is never grown, so there is no growing", () => {
+        expect(stagesText(2000)).toBe("Of these steps: Warm-up 50% · Refining 17% · Polishing 33%");
+        expect(trainingStages(2000).rounds).toBe(0);
+    });
+
+    test("the percentages always add up to 100", () => {
+        for (let n = 1; n <= 70000; n += 37){
+            const text = stagesText(n);
+            const sum = [...text.matchAll(/ (\d+)%/g)].reduce((a, m) => a + Number(m[1]), 0);
+            expect([n, sum]).toEqual([n, 100]);
+        }
+    });
+
+    test("continuing a model counts only the more steps, against the new total", () => {
+        // 7,000 more on a 7,000-step model: the growing ends at 7,000, so nothing is grown
+        expect(stagesText(14000, 7000)).toBe("Of these steps: Refining 33% · Polishing 67%");
+        expect(stagesText(30000, 3000)).toBe("Of these steps: Growing 44% (23 rounds) · Refining 19% · Polishing 37%");
+    });
+
+    test("a number that is not a training's has no stages", () => {
+        expect(stagesText("")).toBe("");
+        expect(stagesText("1.5")).toBe("");
+        expect(stagesText(7000, 7000)).toBe("");
     });
 });

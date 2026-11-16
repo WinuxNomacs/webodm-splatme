@@ -22,7 +22,9 @@ shared (the admin page) the administrators', for users who saved none, which onl
         <label class="col-sm-3 control-label" for="splatme-auto-steps">Steps</label>
         <div class="col-sm-9">
             <input type="number" min="1" class="form-control" id="splatme-auto-steps">
-            <span class="help-block">How long the trainer works on the model.</span>
+            <span class="help-block">How long the trainer works on the model. It grows the model in the first half of
+                the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.</span>
+            <span class="help-block" id="splatme-auto-stages"></span>
         </div>
     </div>
     <div class="form-group">
@@ -104,9 +106,29 @@ shared (the admin page) the administrators', for users who saved none, which onl
         return "";
     }
 
+    // As public/trainingView.js's trainingStages and stagesText, for a new training
+    function stagesText(value){
+        var total = Number(value);
+        if (!(total >= 1) || Math.floor(total) !== total) return "";
+        var grownUntil = Math.min(15000, Math.floor(total / 2)), polishFrom = Math.min(20000, Math.floor(total * 2 / 3));
+        var rounds = 0;
+        for (var step = 1000; step < grownUntil; step += 500) rounds++;
+        var growing = rounds ? grownUntil - 500 : 0;
+        var stages = [["Warm-up", grownUntil - growing], ["Growing", growing], ["Refining", polishFrom - grownUntil],
+                      ["Polishing", total - polishFrom]].filter(function(s){ return s[1] > 0; });
+        var shares = stages.map(function(s){ return Math.floor(s[1] * 100 / total); });
+        var order = stages.map(function(s, i){ return [s[1] * 100 / total - shares[i], i]; }).sort(function(a, b){ return b[0] - a[0]; });
+        var missing = 100 - shares.reduce(function(a, b){ return a + b; }, 0);
+        for (var k = 0; k < missing; k++) shares[order[k][1]]++;
+        return "Of these steps: " + stages.map(function(s, i){
+            return s[0] + " " + shares[i] + "%" + (s[0] === "Growing" ? " (" + rounds + (rounds === 1 ? " round)" : " rounds)") : "");
+        }).join(" \u00b7 ");
+    }
+
     function showHint(){
         document.getElementById("splatme-auto-hint").textContent =
             quality.value === "custom" ? (stepsNote(steps.value) || HINTS.custom) : HINTS[quality.value];
+        document.getElementById("splatme-auto-stages").textContent = stagesText(steps.value);
     }
     var state = document.getElementById("splatme-auto-state");
     var form = document.getElementById("splatme-auto-form");
