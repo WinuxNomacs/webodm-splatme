@@ -6,6 +6,8 @@ WebODM can export a task's training data and display a trained splat model, but 
 hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
 puts the model in the task's 3D view.
 
+![A thermal task's trained splats in WebODM's 3D view](screenshots/model.png)
+
 **Status: 0.1.0, the first release, marked experimental.** It has been used on WebODM 4.0.0 in Docker with an
 8 GB NVIDIA GPU. Problems and ideas go in the repository's
 [issues](https://github.com/WinuxNomacs/webodm-splatme/issues); what is planned is in
@@ -48,6 +50,8 @@ By a WebODM administrator, in this order:
    Every request to the node needs its token, but the connection is plain HTTP: let only WebODM's machine reach
    that port.
 
+   ![Administration → SplatMe, connected to the splat node](screenshots/admin.png)
+
 Then train a task on **SplatMe → Tasks** (below).
 
 ## Upgrade
@@ -81,6 +85,8 @@ Between trainings: a training running during an upgrade picks up again or fails 
 
 ## Using it
 
+![SplatMe → Tasks with a trained thermal task](screenshots/tasks.png)
+
 Every user sees on **SplatMe → Settings** in the side menu whether the node is ready, its address, its GPU and
 its queue (never the token, and what is wrong with the node only as "ask an administrator"). The node's address
 and token are on **Administration → SplatMe** (superusers): WebODM has no plugin hook for Administration, so
@@ -96,6 +102,8 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    at the default image size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU
    memory, whatever the number of photos. The dialog says first if the task cannot be trained, and warns when
    nearly all photos point straight down.
+
+   <img src="screenshots/train.png" alt="The Train Splats dialog with Advanced open" width="400" align="right">
 
    **Advanced** has the steps, the image size and the most gaussians as numbers:
    - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
