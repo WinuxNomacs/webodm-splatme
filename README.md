@@ -18,16 +18,31 @@ plan is in [upcoming-changes.md](upcoming-changes.md).
 
 ## The splat node
 
-Training runs in its own container, on a machine with an NVIDIA GPU and Docker's NVIDIA runtime. It does not
-have to be WebODM's machine: WebODM sends it a task's training data over HTTP and fetches the trained model.
+Training runs in its own container, on a machine with an NVIDIA GPU, Docker, Docker Compose and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+It does not have to be WebODM's machine: WebODM sends it a task's training data over HTTP and fetches the trained
+model. [node/splatnode.sh](node/splatnode.sh) installs, upgrades and uninstalls it:
 
 ```
-SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d --build
+curl -fsSL https://raw.githubusercontent.com/WinuxNomacs/webodm-splatme/main/node/splatnode.sh | bash -s install
 ```
 
-The first build downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat) (v1.2.2, for
-CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series), which takes a while. The node then listens on port 3100
-(`SPLATNODE_PORT`), trains one job at a time and queues the others, and deletes a finished job after 48 hours
+`install` checks that a container can use the GPU, writes a compose file and a generated token to `~/splatnode`
+(`SPLATNODE_DIR`), downloads the node's image (`ghcr.io/winuxnomacs/splatme-node`, published with each release;
+until the first one, build it with `docker build -t splatme-node node` and set `SPLATNODE_IMAGE=splatme-node`)
+and starts it. When WebODM runs on the same machine, the node joins WebODM's Docker network, listens on that
+machine only, and SplatMe's settings get its address and token, so nothing needs entering (with several WebODMs
+on the machine, name one: `--webodm <its webapp container>`). Otherwise, or with `--standalone`, it listens on
+port 3100 (`--port`) and prints the address and token to enter in SplatMe's settings. `upgrade` downloads the
+newest image and restarts the node, keeping its jobs and token; `status` says whether it answers; `connect` gives
+SplatMe the address and token again (after installing SplatMe); `uninstall` removes it, and asks before deleting
+its jobs and its image and before removing it from SplatMe's settings.
+
+Without the script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d` (add `--build` to
+compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
+v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series, and takes a while).
+
+The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
 (`SPLATNODE_KEEP_HOURS`). Every request needs the token.
 
 Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <token>`:
