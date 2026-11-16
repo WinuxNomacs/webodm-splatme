@@ -65,7 +65,9 @@ it short; edit in place.
   the plugin's zip.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
-  `node/splatnode.sh` (which the README fetches from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`). Never add a
+  `node/splatnode.sh` (which the README fetches from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
+  is created. A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there (the release fails
+  otherwise: a version's image is built once). Never add a
   push or pull-request trigger.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
   descriptions and messages are sentences.

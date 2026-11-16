@@ -194,6 +194,21 @@ class TestSplatNode(NodeTestCase):
         self.assertEqual(self.request("GET", "/jobs/" + job["id"])[0].status, 404)
         self.assertFalse(os.path.exists(os.path.join(self.data, "jobs", job["id"])))
 
+    def test_finished_jobs_are_also_deleted_while_jobs_keep_coming(self):
+        old = self.wait(self.create()["id"])
+        node = self.server.node
+        os.environ["FAKE_TRAINER"] = "slow"
+        busy = self.create()
+        self.wait(busy["id"], ("running",))
+        with node.lock:
+            node.jobs[old["id"]]["finished"] -= node.keep_seconds + 1
+        # The worker goes from one job to the next without waiting for an empty queue
+        following = self.create()
+        os.environ.pop("FAKE_TRAINER")
+        self.request("POST", "/jobs/{}/cancel".format(busy["id"]))
+        self.wait(following["id"])
+        self.assertEqual(self.request("GET", "/jobs/" + old["id"])[0].status, 404)
+
     def test_a_request_without_the_token_is_refused(self):
         for token in ("", "wrong"):
             self.assertEqual(self.request("GET", "/info", token=token)[0].status, 401)
@@ -205,6 +220,15 @@ class TestSplatNode(NodeTestCase):
         info = self.request("GET", "/info")[1]
         self.assertEqual(info["trainer"], "OpenSplat 9.9.9")
         self.assertEqual(info["options"]["steps"], {"min": 1, "max": 200000, "default": 7000})
+
+    def test_info_asks_the_trainer_its_version_once_and_answers_while_the_jobs_are_locked(self):
+        node = self.server.node
+        self.request("GET", "/info")
+        node.trainer = "/nonexistent"  # asked again, it would now say nothing
+        with node.lock:
+            # A job's lock held elsewhere (saving a job, a poll) does not keep the GPU's and trainer's part waiting
+            self.assertEqual(node.trainer_version(), "OpenSplat 9.9.9")
+        self.assertEqual(self.request("GET", "/info")[1]["trainer"], "OpenSplat 9.9.9")
 
     def test_a_dataset_that_is_not_a_training_zip_is_refused_and_leaves_nothing(self):
         for body, message in (

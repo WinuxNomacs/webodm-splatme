@@ -35,7 +35,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELED = "queued", "running", "completed", "failed", "canceled"
 FINISHED = (COMPLETED, FAILED, CANCELED)
@@ -131,6 +131,7 @@ class Node:
         self.trainer = trainer
         self.keep_seconds = keep_hours * 3600
         self.lock = threading.Condition()
+        self.trainer_said = None
         self.jobs = {}
         self.queue = []
         self.process = None
@@ -250,22 +251,28 @@ class Node:
         shutil.rmtree(self.path(job_id), ignore_errors=True)
 
     def info(self):
+        # The trainer and the GPU are asked outside the lock: a slow nvidia-smi must not hold up the jobs
         with self.lock:
             running = [j["id"] for j in self.jobs.values() if j["state"] == RUNNING]
-            return {
-                "name": "SplatMe splat node", "version": VERSION, "trainer": self.trainer_version(),
-                "gpu": gpu_info(), "running": running[0] if running else None, "queued": len(self.queue),
-                "options": {n: {"min": s[2], "max": s[3], "default": s[4]} for n, s in OPTIONS.items()},
-            }
+            queued = len(self.queue)
+        return {
+            "name": "SplatMe splat node", "version": VERSION, "trainer": self.trainer_version(),
+            "gpu": gpu_info(), "running": running[0] if running else None, "queued": queued,
+            "options": {n: {"min": s[2], "max": s[3], "default": s[4]} for n, s in OPTIONS.items()},
+        }
 
     def trainer_version(self):
-        try:
-            out = subprocess.run(
-                [self.trainer, "--version"], capture_output=True, text=True, timeout=30, check=False
-            )
-            return ("OpenSplat " + out.stdout.strip()) if out.returncode == 0 and out.stdout.strip() else None
-        except (OSError, subprocess.SubprocessError):
-            return None
+        """The trainer's version, asked once (it loads libtorch, which takes seconds); a failure is asked again."""
+        if self.trainer_said is None:
+            try:
+                out = subprocess.run(
+                    [self.trainer, "--version"], capture_output=True, text=True, timeout=30, check=False
+                )
+                if out.returncode == 0 and out.stdout.strip():
+                    self.trainer_said = "OpenSplat " + out.stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return self.trainer_said
 
     # The worker: one job at a time
 
@@ -277,6 +284,7 @@ class Node:
                     self.expire()
                 if self.stopping:
                     return
+                self.expire()  # also while jobs keep coming, not only when the queue is empty
                 job = self.jobs[self.queue.pop(0)]
                 job.update(state=RUNNING, started=time.time())
                 self.save(job)
