@@ -572,7 +572,7 @@ class Node:
 
     def read_output(self, job_id, process, log_file, output):
         """The trainer's output into its log, its progress into the job; never raises (a full disk included)."""
-        last_saved = 0
+        last_saved, understood, warned = 0, False, False
         try:
             for line in process.stdout:
                 output["last"] = time.monotonic()
@@ -584,7 +584,12 @@ class Node:
                     pass
                 step = step_of(line)
                 if step is None:
+                    if line.startswith(b"Step ") and not warned:
+                        # The trainer's wording changed (tests/opensplat-output.txt is from the pinned commit)
+                        log(f"Job {job_id}: a step line the node does not understand: {line[:200]!r}")
+                        warned = True
                     continue
+                understood = True
                 with self.lock:
                     job = self.jobs.get(job_id)
                     if job is None or job["state"] != RUNNING:
@@ -600,6 +605,8 @@ class Node:
             log(f"Job {job_id}: its output could not be read:\n" + traceback.format_exc())
         finally:
             process.stdout.close()
+        if not understood:
+            log(f"Job {job_id}: the trainer printed no step the node understands (no progress was shown)")
 
     def expire(self):
         """Forget the jobs that finished long ago (called with the lock held); their folders go to the trash."""
@@ -778,7 +785,7 @@ def main():
     server = make_server(
         "0.0.0.0", int(env.get("SPLATNODE_PORT", "3100")), env.get("SPLATNODE_DATA", "/var/splatnode"),
         env.get("SPLATNODE_TRAINER", "/opt/opensplat/opensplat"), token, float(env.get("SPLATNODE_KEEP_HOURS", "48")),
-        float(env.get("SPLATNODE_STALL_MINUTES", str(STALL_MINUTES))),
+        float(env.get("SPLATNODE_STALL_MINUTES") or STALL_MINUTES),
     )
     if not token:
         log("SPLATNODE_TOKEN is not set: anyone who can reach this port can use the GPU")

@@ -451,5 +451,33 @@ class TestFailures(NodeTestCase):
         self.assertEqual((response.status, data), (200, b""))
 
 
+class TestTrainerOutput(unittest.TestCase):
+    """OpenSplat's own words. opensplat-output.txt is a real run at the node's pinned commit (HomerunObliqueRGB, 959
+    photos at 1,600 px, 3,000 steps, 2026-11-16), as it printed it. opensplat-out-of-memory.txt is what an uncaught
+    allocation failure prints, its message taken from the pinned libtorch (libc10_cuda.so): this GPU, under WSL,
+    spills into the computer's memory instead of running out. Capture both again when the pin changes."""
+
+    def lines(self, name):
+        with open(os.path.join(os.path.dirname(__file__), name), "rb") as f:
+            return f.read().splitlines(keepends=True)
+
+    def test_every_step_line_of_a_real_run_gives_its_step_and_progress(self):
+        lines = self.lines("opensplat-output.txt")
+        steps = [splatnode.step_of(line) for line in lines]
+        found = [s for s in steps if s is not None]
+        self.assertEqual(len(found), sum(1 for line in lines if line.startswith(b"Step ")))
+        self.assertEqual(found[0], (10, 0))
+        self.assertEqual(found[-1], (3000, 100))
+        self.assertEqual(found, sorted(found))
+
+    def test_a_real_run_that_ended_badly_is_not_called_out_of_memory(self):
+        tail = b"".join(self.lines("opensplat-output.txt")[-5:]).decode()
+        self.assertEqual(splatnode.explain(1, tail), "The trainer ended with code 1: Wrote model.ply")
+
+    def test_running_out_of_gpu_memory_is_named(self):
+        tail = b"".join(self.lines("opensplat-out-of-memory.txt")).decode()
+        self.assertIn("ran out of memory", splatnode.explain(-6, tail))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -68,7 +68,7 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
 
     ```
     WebODM found: webapp (network webodm_default)
-    The splat node 0.2.1 runs (folder /home/you/splatnode).
+    The splat node 0.2.2 runs (folder /home/you/splatnode).
     SplatMe in WebODM (webapp) now trains on this node: http://splat-node:3100
     ```
 
@@ -144,11 +144,11 @@ tasks, not in the plugin's folder.
     image. It ends with:
 
     ```
-    The splat node runs version 0.2.1 (it was 0.2.0). Its jobs and token are kept.
+    The splat node runs version 0.2.2 (it was 0.2.0). Its jobs and token are kept.
     The previous image was deleted.
     ```
 
-**You should see**, on **Administration → SplatMe**, "The splat node is ready." with node 0.2.1, and your tasks
+**You should see**, on **Administration → SplatMe**, "The splat node is ready." with node 0.2.2, and your tasks
 on **SplatMe → Tasks** as they were. The sky model used by Ignore Sky is downloaded again by its next training,
 as an update replaces the plugin's folder.
 

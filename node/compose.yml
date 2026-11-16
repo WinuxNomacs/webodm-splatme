@@ -13,6 +13,7 @@ services:
     environment:
       SPLATNODE_TOKEN: "${SPLATNODE_TOKEN:?Set SPLATNODE_TOKEN to a secret: anyone who can reach the port can use the GPU}"
       SPLATNODE_KEEP_HOURS: "${SPLATNODE_KEEP_HOURS:-48}"
+      SPLATNODE_STALL_MINUTES: "${SPLATNODE_STALL_MINUTES:-}"
     volumes:
       - splatnode:/var/splatnode
     restart: unless-stopped
