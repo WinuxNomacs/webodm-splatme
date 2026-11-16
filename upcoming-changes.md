@@ -9,20 +9,28 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
-   0.1.1 are released; 0.2.0 is merged and waits for its tag; before the tag, Pages is switched on with the
-   user's confirmation; the entry waits for the user's approval).
+1. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
+   documentation for accuracy and for saying only what helps. Reading only; the findings go to the user. See
+   "1. Release review of 0.2.0 (planned)".
+
+**Then**
+
+2. Fixes from the review of 0.2.0: the findings the user chooses, on branches with tests, then the release check
+   on a throwaway WebODM (0.1.1 upgraded to 0.2.0).
+3. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+   0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
+   confirmation; the entry waits for the user's approval).
 
 **Later**
 
-2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
-   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "2. HTTPS to the splat node
+4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "4. Steps for an Image Size (proposed)".
+   "6. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -349,6 +357,38 @@ Found on the way:
   timeout (800x520, four minutes).
 
 ## Phase details
+
+### 1. Release review of 0.2.0 (planned)
+
+Asked 2026-11-16, before 0.2.0's tag: a review for bugs and weak areas to harden before SplatMe is published in
+WebODM's plugin directory, and of the documentation for accuracy and for saying only as much as it should (a
+statement that does not help its reader is removed). The user made it a rule for every release unless they say
+otherwise (`CLAUDE.md`; the procedure is the `release-review` skill).
+
+**Builds on** the review of 0.1.1 ("Fixes from the release review (built)"), whose findings were all fixed in
+0.2.0. This one reads what changed since `v0.1.1` (37 commits, 44 files) in full, including those fixes (the
+follower job of J, the install script's rework), the guided setup and the docs site; then the whole product again
+for weak areas, as that review did not look at hardening (limits, timeouts, resource use) or the dependencies'
+state.
+
+**The parts, read in parallel** (one subagent each, briefed with its files and the skill's lenses; each finding
+checked again in the code before it is reported):
+
+- The plugin's Python: `training.py`, `api.py`, `node.py`, `sky.py`, `crop.py`, `thermal.py`, `plugin.py`,
+  against WebODM 4.0.0.
+- The pages: `splatme/public`, `splatme/templates`.
+- The splat node and the release: `node/` (service, Dockerfile, script, compose), `release.yml`,
+  `dev/build-zip.sh`, the zip's contents; every pin checked again under the vetting rule.
+- The documentation: `docs/`, `README.md`, `CHANGELOG.md`, the pages' own text. Each statement checked against the
+  code or a run; each removal and correction listed.
+
+Then a live sweep of the pages on the dev stack (reading only, 320 and 1,280 px, administrator and plain user).
+
+**What comes out:** the findings here, lettered, each with a concrete failure, its weight and whether it was
+checked; what was found sound. No change is made during the review.
+
+**Open decisions (after the findings):** which go into 0.2.0 and which wait; for the documentation, the list of
+removals and corrections is shown before it is applied.
 
 ### Fixes from the release review (built)
 
@@ -1657,7 +1697,7 @@ for all three. Bootstrap's `nav-tabs` look with the page's own switching (`showT
 Checked headless: the default tab, a click, ArrowRight moving and wrapping with the focus, Copy in a tab
 (the Clipboard API and the fallback); at 320 px the tabs stack, no sideways scroll. Django 88.
 
-### 2. HTTPS to the splat node (proposed)
+### 4. HTTPS to the splat node (proposed)
 
 Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it
 belongs in 0.2.0.
@@ -1753,7 +1793,7 @@ Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
-### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1774,7 +1814,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 4. Steps for an Image Size (proposed)
+### 6. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
