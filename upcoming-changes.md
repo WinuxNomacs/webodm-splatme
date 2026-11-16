@@ -9,19 +9,23 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
-   0.1.1 are released; 0.2.0 is merged and waits for its tag; the entry waits for the user's approval).
+1. The documentation on GitHub Pages, with a Getting Started guide, before 0.2.0's tag (asked 2026-11-16): the
+   README's reference moves to a docs site; the README keeps the introduction and links to Getting Started
+   under its description and banner image. See "1. Documentation on GitHub Pages (planned)".
+2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+   0.1.1 are released; 0.2.0 is merged and waits for its tag, now after phase 1; the entry waits for the user's
+   approval).
 
 **Later**
 
-2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
-   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "2. HTTPS to the splat node
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "3. HTTPS to the splat node
    (proposed)".
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "4. Steps for an Image Size (proposed)".
+   "5. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -1442,6 +1446,56 @@ Build order (as planned):
    first, then with a published one (which needs a tag the user pushes).
 5. The directory entry, at the release (phase 1, Docs and first release).
 
+### 1. Documentation on GitHub Pages (planned)
+
+Asked by the user (2026-11-16), before 0.2.0's tag: the documentation moves to GitHub Pages (the repository is
+public); the README still introduces the plugin and links to the documentation. A **Getting Started** section
+walks through a fresh install and an upgrade, linked from the README directly under its first section (the
+description and the banner image).
+
+This changes an earlier decision: "The docs are the README (no `docs/` folder)" (2026-11-16, in "2. Docs and
+first release"). It is kept there as history.
+
+What there is now: the README (293 lines) holds everything: Requirements, Install, Upgrade, Uninstall, Using it,
+The splat node (and HTTPS to a node on another machine), The plugin's API, Development, Licence; four
+screenshots in `screenshots/`. Links into it: Administration → SplatMe's Set Up a Splat Node
+(`templates/node.html`: `#install`, `#https-to-a-node-on-another-machine`); the manifest's `homepage` is the
+repository.
+
+Design:
+
+- **A `docs/` folder of Markdown pages**, built into a site at `https://winuxnomacs.github.io/webodm-splatme/`:
+  - **Home**: what SplatMe does, the banner image, the requirements, where to go next.
+  - **Getting Started**: a walk-through in order, each step with what to expect and how to check it worked.
+    *Fresh install*: check the requirements (the GPU in a container: one `docker run --gpus all … nvidia-smi`),
+    the plugin (Install Plugins, or Load Plugin (.zip)), restart WebODM with its options, the splat node
+    (Administration → SplatMe's Set Up a Splat Node: the tab for WebODM's machine or another), the node shown
+    ready, a first training on SplatMe → Tasks, the model in the task's 3D view. *Upgrade*: from 0.1.x to 0.2.0
+    (delete and Load Plugin (.zip), or Update in Install Plugins; restart; `splatnode.sh upgrade`; what is kept;
+    check the node's version on Administration → SplatMe), then any later version the same way.
+  - **Install, Upgrade, Uninstall** (the reference, as the README has it now), **Using SplatMe** (the README's
+    "Using it"), **The Splat Node** (with HTTPS to a node on another machine), **The Plugin's API**,
+    **Development**, **Changelog** (from `CHANGELOG.md`).
+  - The screenshots move to `docs/`, used by the pages; Getting Started may want one new one of Set Up a Splat
+    Node (shown to the user before it is committed, as before).
+- **The README**: the title, the description, the banner image, then right under them **Getting Started** and
+  **Documentation** links, then the status line (releases, issues, the plan) and the licence. Its other
+  sections move to the docs, nothing dropped.
+- **Links**: Set Up a Splat Node's links go to the docs pages; the plugin's other pages have none. The
+  manifest's `homepage` stays the repository (the directory and WebODM's plugin list point there, and the README
+  links on to the docs).
+- **Publishing**: a workflow builds the site and deploys it with GitHub's Pages actions. Pages is turned on in
+  the repository's settings (Source: GitHub Actions) once, by the user or with their approval.
+- **0.2.0**: the docs site goes up with the 0.2.0 release; the zip is rebuilt (the admin page's links); the
+  CHANGELOG says where the docs are. Repo `CLAUDE.md`: "keep the README current" becomes the docs, and where
+  they live.
+
+Checks: the site built locally and read headless (every page, the navigation, the search if the tool has one,
+phone width, dark mode if it has one), every internal link and anchor followed, the commands in Getting Started
+compared with `splatnode.sh` and WebODM's labels, the admin page's links; after the release, the live site.
+
+Open decisions for the user: below, asked before building.
+
 ### Guided splat node setup (built)
 
 Asked by the user (2026-11-16, before 0.2.0's tag): on Administration → SplatMe, under Splat Node, concise
@@ -1506,7 +1560,7 @@ for all three. Bootstrap's `nav-tabs` look with the page's own switching (`showT
 Checked headless: the default tab, a click, ArrowRight moving and wrapping with the focus, Copy in a tab
 (the Clipboard API and the fallback); at 320 px the tabs stack, no sideways scroll. Django 88.
 
-### 2. HTTPS to the splat node (proposed)
+### 3. HTTPS to the splat node (proposed)
 
 Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it
 belongs in 0.2.0.
@@ -1535,12 +1589,12 @@ Ways to add it, smallest first:
 - **C. A Caddy sidecar in the node's compose file** (`--tls <domain>`, automatic certificates): needs a domain
   and port 80/443 reachable from the internet for the certificate; more moving parts than B.
 
-Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (phase 2), a
+Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (phase 3), a
 phase of its own after the directory entry if the user wants it. The recommendation it was decided on: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
 existing nodes: a new node release and its own testing on two machines, which would hold 0.2.0's fixes back.
 0.2.0 can carry A (docs) at no risk; B is a phase of its own after the directory entry.
 
-### 1. Docs and first release
+### 2. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`. The docs describe
 the install, upgrade and uninstall automated in "Install, upgrade and uninstall (built)", and what an uninstall leaves (the plugin's data store
@@ -1602,7 +1656,7 @@ Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
-### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1623,7 +1677,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 4. Steps for an Image Size (proposed)
+### 5. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
