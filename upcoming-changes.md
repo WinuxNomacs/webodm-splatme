@@ -9,12 +9,19 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Docs and first release.
+1. Training defaults and the form's tables (in progress, branch `defaults-full-size`): OpenSplat's own
+   defaults (30,000 steps, full-size photos), what the trainer does in its steps and what Image Size does to
+   the photos, shown under each value; the Quality hints measured again. See "1. Training defaults and the
+   form's tables".
+2. Docs and first release, with install, upgrade and uninstall automated as far as is sensible.
 
 **Later**
 
-2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+   size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
+   "4. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -206,7 +213,7 @@ other software. The plugin does that step.
   (`georeferenced_model.laz`) sampled to about 125,000 points, which the gaussians start from. No trainer run
   redoes the alignment.
 - **The service in the splat node is written in Python**, standard library only.
-- **Thermal tasks are a later phase** (2): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
+- **Thermal tasks are a later phase** (built since, differently: see "Thermal tasks (built)"): TIFFs converted to radiometric JPEGs with the DJI thermal SDK that the
   DJI Thermal Analyzer plugin has, available only when that plugin is installed too.
 - **Deployment is as simple and automated as it can be for a WebODM administrator.** Every design choice is
   weighed by how the plugin and the node are installed, updated and moved. What follows from it is under
@@ -267,7 +274,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 1.
+  workflow, to decide in phase 2.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -425,13 +432,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 2).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 3).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 2).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 3).
 
 ### SplatMe's panel (built)
 
@@ -479,7 +486,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 2. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 3. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -1178,9 +1185,37 @@ measured (the presets' times on 640 × 512 frames), and a check in the browser.
   headless Chromium, for an RGB task alike: the model was not looked at in 3D.
 - Checks: Django 77 (SplatMe's with WebODM's `test_plugins` and `test_splats`), Jest 56, ESLint, Ruff.
 
-### 1. Docs and first release
+### 1. Training defaults and the form's tables
+
+Asked by the user (2026-11-15), built on branch `defaults-full-size`:
+
+- **Defaults: 30,000 steps on the photos as they are** (Image Size 0), OpenSplat's own defaults: the trainer
+  grows the model until half the steps (at most 15,000), so 30,000 grows it for half its steps. In
+  `training.DEFAULTS`, the Train Splats dialog's starting values and `formFromOptions`. Options already saved
+  (the administrators' defaults, a user's own, a task's setting) keep their values.
+- **Steps' hint** says what the steps do: the model grows in the first half (up to step 15,000), then is
+  refined; steps beyond 30,000 only refine it.
+- **Under Steps, a table of the trainer's stages**: the share of the steps in Warm-up, Growing (with its
+  rounds), Refining and Polishing, from OpenSplat's schedule at the node's pinned commit (`trainingStages` in
+  `trainingView.js`, `StagesTable.jsx`, Settings' copy in `options.html`); each heading's hover tip says what
+  the stage does; under More Steps for the more steps of a continued model.
+- **Under Image Size, a table of the photos**: each camera's photo size, its size at the Image Size entered (as
+  WebODM's `compute_target_size` computes it), and the change of the longer side and of the pixels
+  (`imageSizeRows`, `ImageSizeTable.jsx`; `api.py`'s check gives `photo_sizes` from `cameras.json`; the New
+  Task panel reads the first JPEG's). Settings has no task, so no table.
+- Both tables are of fixed size, directly under their values.
+- From `new.md` (2026-11-15): **no "laptop GPU"** in the hints or the README, just "a GPU" (with its memory).
+- **Still to do**: the Quality hints, Settings' copy of them and the README, from a measured full-size training
+  at 30,000 steps (HomerunObliqueII9, 217 photos at 4,032 × 3,024, on the dev GPU).
+
+### 2. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
+
+From `new.md` (2026-11-15): **install, upgrade and uninstall are automated** as far as is sensible and helpful,
+for both the plugin and the splat node. To plan with the user: what each path does (an upgrade keeps the
+plugin's data store and the node's jobs; an uninstall says what it leaves, such as the trained models in tasks),
+and what can be scripted given that WebODM installs a plugin from a zip uploaded in Administration > Plugins.
 
 Decided with the user (2026-11-14):
 
@@ -1196,7 +1231,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1216,3 +1251,15 @@ The candidates so far, each small and separate:
   and the setting kept in the plugin's data store becomes the fallback for WebODM versions without the section.
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
+
+### 4. Steps for an Image Size (proposed)
+
+Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
+steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
+the numbers must be measured: a grid of Image Size (1,000, 1,600, 2,400, 3,200, full) against steps (7,000,
+15,000, 30,000) on two kinds of task, each scored on one held-out photo rendered at full resolution, with time
+and peak GPU memory (about 25 to 30 trainings, a night of the GPU). Then the node gives its GPU memory in
+`/info`, and the fields show the recommended steps, the time and memory, and warn when a choice will not fit.
+Also worth trying: a later end to the growing for large photos (`--densify-until`), as the growing stops at step
+15,000 however many steps. No percentage of quality is shown: it depends on the scene and the steps. Not yet
+decided by the user.
