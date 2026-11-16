@@ -9,32 +9,28 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Splash image and thanks, before the release (asked 2026-11-16 in `new.md`): the user's splash image checked in
-   and shown at the top of the README and the docs' Home, and a Thanks section naming the projects SplatMe is
-   built on, Piero Toffanin first. Before the review, so the review reads the new text. See "1. Splash image and
-   thanks (planned)".
-2. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
+1. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
    documentation for accuracy and for saying only what helps. Reading only; the findings go to the user. See
-   "2. Release review of 0.2.0 (planned)".
+   "1. Release review of 0.2.0 (planned)".
 
 **Then**
 
-3. Fixes from the review of 0.2.0: the findings the user chooses, on branches with tests, then the release check
+2. Fixes from the review of 0.2.0: the findings the user chooses, on branches with tests, then the release check
    on a throwaway WebODM (0.1.1 upgraded to 0.2.0).
-4. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+3. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
    0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
    confirmation; the entry waits for the user's approval).
 
 **Later**
 
-5. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
-   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "5. HTTPS to the splat node
+4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-7. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "7. Steps for an Image Size (proposed)".
+   "6. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -50,6 +46,8 @@ other software. The plugin does that step.
 
 **Done**
 
+- Splash image and thanks (2026-11-16), in 0.2.0: `docs/assets/splash/`, the top and the Thanks section of
+  `README.md` and `docs/index.md`. See "Splash image and thanks (built)".
 - The splat node made robust (2026-11-16), splat node 0.2.2 in SplatMe 0.2.0: `node/splatnode.py` (the store and
   `Node.transition`, the supervised worker, the deadlines, `trash/` and `broken/`, the routes), `TestFailures` and
   `TestTrainerOutput` in `node/tests/test_splatnode.py` with the stand-in's misbehaving modes and the captured
@@ -482,7 +480,7 @@ errors and stuck states that now end). The stall default is measured, not chosen
   a different hash refused. While running it, its `imagetools create` for `latest` was not stubbed and tried to
   push; it was refused (no registry login here) and `latest` is unchanged (0.2.0's digest).
 
-### 1. Splash image and thanks (planned)
+### Splash image and thanks (built)
 
 Asked 2026-11-16 in `new.md`, before the release:
 
@@ -526,9 +524,14 @@ and the same line in the `release-review` skill gain "with its splash image and 
 
 1. The splash is kept as it is, WebODM's logo and name included.
 2. The splash goes at the top; the 3D view screenshot moves below the first paragraph.
-3. The thanks list above: shown to the user, waiting for their answer.
+3. The thanks list above, with Piero Toffanin on WebODM's line, linked to https://piero.dev/.
 
-### 2. Release review of 0.2.0 (planned)
+**As built:** the images in `docs/assets/splash/`; the README and the docs' Home open with the medium image,
+linked to the full one; the 3D view screenshot stays below the opening paragraphs; "Thanks" ends both (before
+the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
+headless at 1,280 and 320 px: no console errors, no sideways scroll.
+
+### 1. Release review of 0.2.0 (planned)
 
 Asked 2026-11-16, before 0.2.0's tag: a review for bugs and weak areas to harden before SplatMe is published in
 WebODM's plugin directory, and of the documentation for accuracy and for saying only as much as it should (a
@@ -1869,7 +1872,7 @@ for all three. Bootstrap's `nav-tabs` look with the page's own switching (`showT
 Checked headless: the default tab, a click, ArrowRight moving and wrapping with the focus, Copy in a tab
 (the Clipboard API and the fallback); at 320 px the tabs stack, no sideways scroll. Django 88.
 
-### 5. HTTPS to the splat node (proposed)
+### 4. HTTPS to the splat node (proposed)
 
 Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it
 belongs in 0.2.0.
@@ -1965,7 +1968,7 @@ Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
-### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1986,7 +1989,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 7. Steps for an Image Size (proposed)
+### 6. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so

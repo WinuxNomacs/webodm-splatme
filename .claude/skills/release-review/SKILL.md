@@ -56,7 +56,8 @@ that makes it happen.
   a timing. A statement nobody can check is rewritten so it can be, or removed.
 - **Economy**: every sentence earns its place for the reader at that point. Remove what does not help them do or
   understand something: repetition, history, internals they don't need, hedges, reassurance.
-- The README introduces SplatMe and links to Getting Started and the docs, no more.
+- The README introduces SplatMe (its splash image and thanks included) and links to Getting Started and the
+  docs, no more.
 - Links and anchors resolve (`.venv/bin/zensical build` is strict), screenshots show the current pages.
 
 ## 5. A live sweep
