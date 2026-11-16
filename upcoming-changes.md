@@ -298,7 +298,7 @@ other software. The plugin does that step.
 
 ## Spike results (2026-11-14)
 
-Machine: RTX 5060 Laptop GPU (8 GB), Docker under WSL2. Task: "South Whitehall Drive" on the :8002 stack (220
+Machine: RTX 5060 Laptop GPU (8 GB), Docker under WSL2. Task: a residential street on the :8002 stack (220
 JPEGs of 4032x3024, exported at 1600 px, 126,513 points sampled from the dense point cloud; 209 photos straight down and 11 oblique, so the
 splat itself is poor). The other five tasks there are thermal TIFFs, which WebODM's export refuses.
 
