@@ -408,9 +408,9 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": True, "steps": 10, "ignore_sky": True}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data["options"], {"steps": 10, "image_size": 0, "ignore_sky": True})
+        self.assertEqual(res.data["options"], {"steps": 10, "image_size": 1600, "ignore_sky": True})
         res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": True, "steps": 10, "ignore_sky": False}, format="json")
-        self.assertEqual(res.data["options"], {"steps": 10, "image_size": 0})
+        self.assertEqual(res.data["options"], {"steps": 10, "image_size": 1600})
 
     def with_boundary(self, task, geojson=None):
         """The task as processed with a boundary: a 2 degree square around 0, 0 (the model's x and y are degrees)."""
@@ -799,7 +799,7 @@ class TestSplatMe(BootTestCase):
         res = admin.post(f"{API}/automation/shared", {"steps": 30, "ignore_sky": True}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
         self.assertTrue(res.data["listening"])
-        self.assertEqual(res.data["options"], {"steps": 30, "image_size": 0, "ignore_sky": True})
+        self.assertEqual(res.data["options"], {"steps": 30, "image_size": 1600, "ignore_sky": True})
 
         # A user who saved none of their own reads them, and whether the worker listens: SplatMe's panel warns
         # when it does not
@@ -821,7 +821,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user, status=None)
         res = self.auto(task, enabled=True, steps=30, ignore_sky=True)
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 0, "ignore_sky": True}})
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}})
 
         # Options chosen later are for the tasks created later; the Edit Task panel's can switch it off
         admin.post(f"{API}/automation/shared", {"steps": 40}, format="json")
@@ -840,7 +840,7 @@ class TestSplatMe(BootTestCase):
         res = self.client.post(f"{API}/automation", {"steps": 2000, "crop": False}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
         self.assertTrue(res.data["own"])
-        self.assertEqual(res.data["options"], {"steps": 2000, "image_size": 0, "crop": False})
+        self.assertEqual(res.data["options"], {"steps": 2000, "image_size": 1600, "crop": False})
         self.assertEqual(self.client.post(f"{API}/automation", {"steps": 0}, format="json").status_code, 400)
         self.assertEqual(self.client.get(f"{API}/automation?ranges=1").data["options"]["steps"], 2000)
 
@@ -1073,7 +1073,7 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(res.status_code, 200, res.data)
         status = self.status(task)
         self.assertEqual(status["state"], "completed", status)
-        self.assertEqual(status["options"], {"steps": 10, "image_size": 0, "palette": "iron"})
+        self.assertEqual(status["options"], {"steps": 10, "image_size": 1600, "palette": "iron"})
         self.assertEqual(status["thermal"]["palette"], "iron")
         # The 1st and 99th percentiles of every 4th pixel: within the photos' 10 to 30 degrees, near both ends
         self.assertTrue(10 <= status["thermal"]["low"] < 11, status["thermal"])

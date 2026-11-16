@@ -20,7 +20,7 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
-                      form: {steps: "30000", image_size: "0", max_gaussians: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
+                      form: {steps: "30000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
     }
 
     componentDidMount(){
@@ -29,7 +29,7 @@ export default class TrainDialog extends React.Component {
             if (!this._mounted) return;
             const defaults = check.defaults || {};
             const trained = check.trained_steps || 0;
-            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 0 : defaults.image_size)}});
+            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
         }).catch(e => {
             if (this._mounted) this.setState({check: {}, error: e.message});
         });

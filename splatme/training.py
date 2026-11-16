@@ -49,7 +49,7 @@ ESTIMATE_AFTER = 30
 ESTIMATE_STEPS = 20
 
 # What a job trains with when the request does not say; the node's ranges apply to all but image_size
-DEFAULTS = {"steps": 30000, "image_size": 0}
+DEFAULTS = {"steps": 30000, "image_size": 1600}
 NODE_OPTIONS = ("steps", "max_gaussians", "sh_degree")
 REQUIRED_ASSETS = ("cameras.json", "shots.geojson", "georeferenced_model.laz")
 # The model as the trainer wrote it, in the task's splats folder: what a training continues from. Processing

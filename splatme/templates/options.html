@@ -102,10 +102,10 @@ shared (the admin page) the administrators', for users who saved none, which onl
     var API = "/api/plugins/splatme/automation" + (SHARED ? "/shared" : "");
     // As public/trainingView.js's PRESETS and stepsNote
     var HINTS = {
-        "3000": "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory on a laptop GPU.",
-        "7000": "A good model for most datasets. The place to start. Training takes about 5 minutes and 5 GB of GPU memory on a laptop GPU.",
-        "15000": "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory on a laptop GPU.",
-        "30000": "The sharpest model. Training takes about 25 minutes and 7 GB of GPU memory on a laptop GPU.",
+        "3000": "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory.",
+        "7000": "A good model for most datasets, in a fifth of High's time. Training takes about 5 minutes and 5 GB of GPU memory.",
+        "15000": "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory.",
+        "30000": "The sharpest model, and the default: OpenSplat's own number of steps. Training takes about 25 minutes and 7 GB of GPU memory.",
         "custom": "More steps give a sharper model and take longer."
     };
     var NAMES = {3000: "Draft", 7000: "Standard", 15000: "Fine", 30000: "High"};

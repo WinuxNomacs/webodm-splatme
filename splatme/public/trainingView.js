@@ -2,13 +2,13 @@
 // answers (api.py): no React here, so Jest tests them as they are.
 
 // The Quality choice: the trainer's steps, and what to expect of each. The times and memory were measured on an
-// 8 GB laptop GPU at Image Size 1,600; they hardly depend on the number of photos (upcoming-changes.md, OpenSplat
+// 8 GB GPU at Image Size 1,600; they hardly depend on the number of photos (upcoming-changes.md, OpenSplat
 // presets). Draft is 3,000 steps: up to 2,000 the trainer grows nothing.
 export const PRESETS = [
-    {key: "draft", label: "Draft", steps: 3000, hint: "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory on a laptop GPU."},
-    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets. The place to start. Training takes about 5 minutes and 5 GB of GPU memory on a laptop GPU."},
-    {key: "fine", label: "Fine", steps: 15000, hint: "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory on a laptop GPU."},
-    {key: "high", label: "High", steps: 30000, hint: "The sharpest model. Training takes about 25 minutes and 7 GB of GPU memory on a laptop GPU."}
+    {key: "draft", label: "Draft", steps: 3000, hint: "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory."},
+    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets, in a fifth of High's time. Training takes about 5 minutes and 5 GB of GPU memory."},
+    {key: "fine", label: "Fine", steps: 15000, hint: "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory."},
+    {key: "high", label: "High", steps: 30000, hint: "The sharpest model, and the default: OpenSplat's own number of steps. Training takes about 25 minutes and 7 GB of GPU memory."}
 ];
 
 // Thermal Colours: the palettes a thermal task's temperatures are drawn in (thermal.py's PALETTES), coldest to hottest
@@ -229,7 +229,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 0), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"
