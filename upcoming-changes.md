@@ -9,15 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Fixes from the release review, released as 0.2.0. See "1. Fixes from the release review (proposed)".
-2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
-   0.1.1 are released; the entry waits for the user's approval).
+1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+   0.1.1 are released; 0.2.0 is merged and waits for its tag; the entry waits for the user's approval).
 
 **Later**
 
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "3. Steps for an Image Size (proposed)".
 
@@ -35,6 +34,10 @@ other software. The plugin does that step.
 
 **Done**
 
+- Fixes from the release review (2026-11-16), released as 0.2.0 with splat node 0.2.1: every finding of the
+  review of 0.1.1, in three merged branches (`install-fixes`, `training-fixes`, `page-fixes`) and
+  `release/0.2.0`; tests in `node/tests`, `splatme/tests/test_splatme.py` (88) and `splatme/public/__tests__`
+  (73). See "Fixes from the release review (built)".
 - Install, upgrade and uninstall (2026-11-16): the repository made public after a privacy check (a place name
   removed from the files; the history kept, the user's choice); `dev/build-zip.sh`; the release workflow
   (`.github/workflows/release.yml`), run by hand once: the zip in 9 s, the node's image built and pushed in 12
@@ -335,7 +338,7 @@ Found on the way:
 
 ## Phase details
 
-### 1. Fixes from the release review (proposed)
+### Fixes from the release review (built)
 
 A review of 0.1.1 before SplatMe goes into WebODM's plugin directory (2026-11-16): the plugin's Python, its pages,
 and the install and upgrade path, each read against WebODM 4.0.0's code, then a sweep of the live pages (the
@@ -421,6 +424,30 @@ import still take a slot while they run.
 
 **Build order:** install and upgrade (A–H and their lower items), then the trainings (I, K–M, J, the lower
 items), then the pages (N–R, the lower items), each on its own branch with its tests; then the release branch.
+
+**Built and checked (2026-11-16):**
+
+- Install and upgrade: `node/splatnode.sh` against a throwaway WebODM whose webapp was also on a proxy's network
+  (`aaa-proxy`): the worker's network chosen, the refusals (two WebODMs, a port in use), a failed install undone
+  (a volume it made removed, one an uninstall kept left), status and upgrade with the node stopped, the previous
+  image deleted (a `docker` stand-in moved the tag as a pull would), connect moving the node, uninstall clearing
+  the token. Not exercised: the GPU check failing after a real download. The release workflow's version check run
+  locally: it passes on this branch and fails on 0.1.1's `main` (0.2.0's image files changed after its version).
+- Trainings, with real Celery on a throwaway WebODM with a copy of ThermalTest and a throwaway node: while the node
+  trained, the worker ran one job (the follower); the export and the import each ran as their own job; Continue
+  of a 0.1 model refused without its record, then trained with the model's options; a reprocess (point cloud
+  touched, model removed, `completed()` called) canceled the training, dropped its node job and trained again;
+  a cancel while the follower held the training kept the model.
+- Pages, on the dev stack (reading only): the Tasks page's links (`?id=`) show one project with the task open, the
+  dialog keeps and gives back the focus, SplatMe's button stays last, no sideways scroll at 320 px, New Task With
+  Splats names a PNG. On the throwaway: Train Splats stays open while its start is answered, only the training's
+  row is asked for while it trains (0 lists in 20 s), the list goes on after a task completes (4 in 12 s).
+  Not exercised live: New Task With Splats' buttons during an upload (the throwaway had no processing node
+  online); covered by the code and Jest.
+- Release check: 0.1.1 installed and trained on a throwaway, then upgraded with Load Plugin (.zip) (refused over
+  it, then delete, load, restart): the task's record, setting and the node's address kept; node 0.2.0 upgraded to
+  a local build of 0.2.1. `dist/splatme-0.2.0.zip` from 7825736: sha256
+  `48885cc90306717566d883ad2ab90bcf572b3f803b2bdf4255383030c74170ac`.
 
 ### The splat node's API (built)
 
