@@ -1496,7 +1496,10 @@ compared with `splatnode.sh` and WebODM's labels, the admin page's links; after 
 
 Decided with the user (2026-11-16):
 
-- **The site is built with Zensical** (pinned exactly in `requirements-dev.txt`; its config in `docs/`'s
+- **Reopened (2026-11-16, the user): the site's tool.** Zensical was chosen on a recommendation made without
+  checking its own maintenance and maturity. Before building, each candidate (our own small generator in the
+  repo included) is assessed from current primary sources, the evidence dated here, and the user chooses again.
+  What was chosen: **the site is built with Zensical** (pinned exactly in `requirements-dev.txt`; its config in `docs/`'s
   `zensical.toml` or `mkdocs.yml`, whichever its pinned version documents). MkDocs 1.x is unmaintained and
   Material for MkDocs is in maintenance mode (9.7.0 its last feature release, fixes until 2027-05-05); Zensical
   is its team's successor, reads MkDocs' layout and Markdown, and these docs need none of the MkDocs plugins it
