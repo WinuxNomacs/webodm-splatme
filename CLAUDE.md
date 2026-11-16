@@ -64,8 +64,8 @@ it short; edit in place.
   throwaway WebODM, never the user's stacks) and `compose.yml` (running it without the script). It is not part of
   the plugin's zip.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
-  the manifest's version) or by hand: it attaches `splatme.zip` (built by `dev/build-zip.sh`) to a GitHub release
-  and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`). Never add a
+  the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
+  `node/splatnode.sh` (which the README fetches from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`). Never add a
   push or pull-request trigger.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
   descriptions and messages are sentences.

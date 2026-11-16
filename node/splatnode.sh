@@ -5,7 +5,7 @@
 #   splatnode.sh upgrade | status | connect [--webodm <container>] | uninstall [--yes]
 #
 # Or without a checkout:
-#   curl -fsSL https://raw.githubusercontent.com/WinuxNomacs/webodm-splatme/main/node/splatnode.sh | bash -s install
+#   curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
 #
 # install: checks Docker, Compose and the GPU, writes a compose file and a token to $SPLATNODE_DIR, pulls the image
 #   and starts it. When WebODM runs on this machine (its webapp container is found, or named with --webodm), the
@@ -28,7 +28,7 @@ PROJECT="${SPLATNODE_PROJECT:-splatnode}"
 ALIAS="splat-node"  # the node's name on WebODM's network
 # How to run this script again, for the messages: its path, or the curl command when it was piped to bash
 SELF="$0"
-[ -f "$SELF" ] || SELF="curl -fsSL https://raw.githubusercontent.com/WinuxNomacs/webodm-splatme/main/node/splatnode.sh | bash -s --"
+[ -f "$SELF" ] || SELF="curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s --"
 INNER_PORT=3100
 
 say() { printf '%s\n' "$*"; }
