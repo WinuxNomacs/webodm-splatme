@@ -1,10 +1,55 @@
 {% comment %}
 The splat node's state and address, for everyone (api.py: node); with editable (the admin page), its address and
-token as a form for superusers. The token is never shown.
+token as a form for superusers, and the steps to install a node: in the state's place while no node is set, else
+behind a link under it. The token is never shown.
 {% endcomment %}
 <div id="splatme-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Asking the splat node</div>
 <div id="splatme-node-note" style="margin-bottom: 10px;"></div>
 {% if editable %}
+<style>
+    #splatme-guide { max-width: 720px; }
+    #splatme-guide .splatme-command { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 10px; }
+    /* The whole command shows, wrapped: its end (install, --standalone, connect) is what differs */
+    #splatme-guide .splatme-command pre { flex: 1; min-width: 0; margin: 0; white-space: pre-wrap; word-break: break-all; }
+    #splatme-guide h5 { font-weight: bold; margin-top: 16px; }
+    #splatme-guide-toggle { padding-left: 0; }
+</style>
+<button type="button" class="btn btn-link" id="splatme-guide-toggle" style="display: none;" aria-expanded="false" aria-controls="splatme-guide">
+    <i class="fa fa-chevron-right fa-fw"></i> How to Install a Splat Node
+</button>
+<div class="panel panel-default" id="splatme-guide" style="display: none;">
+    <div class="panel-heading"><i class="fa fa-download fa-fw"></i> Set Up a Splat Node</div>
+    <div class="panel-body">
+        <p>The splat node trains the splats, in a container on a machine with an NVIDIA GPU (GTX 16 or RTX 20 to
+            RTX 50 series). That machine needs the GPU's driver, Docker with Compose v2, and the
+            <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer">NVIDIA Container Toolkit</a>.
+            The install downloads the node's image (6.6 GB), checks the GPU and starts the node; run it in a terminal
+            on that machine.</p>
+        <h5>On WebODM's Machine</h5>
+        <div class="splatme-command">
+            <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install</pre>
+            <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+        </div>
+        <p>The node joins WebODM's network and saves its address and token here: reload this page when it is done.
+            With several WebODMs on the machine it names them; add <code>--webodm &lt;its webapp container&gt;</code>.</p>
+        <h5>On Another Machine</h5>
+        <div class="splatme-command">
+            <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install --standalone</pre>
+            <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+        </div>
+        <p>It prints the node's address and token: enter them below, press Test Connection, then Save. The node
+            listens on port 3100 (<code>--port</code> for another) over plain HTTP: let only WebODM's machine reach
+            that port, or put an <a href="https://github.com/WinuxNomacs/webodm-splatme#https-to-a-node-on-another-machine" target="_blank" rel="noopener noreferrer">HTTPS proxy</a> in front of it.</p>
+        <h5>A Node Installed Before SplatMe</h5>
+        <div class="splatme-command">
+            <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s connect</pre>
+            <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+        </div>
+        <p>On WebODM's machine, after SplatMe is installed and WebODM restarted. Upgrade and uninstall are the same
+            command with <code>upgrade</code> or <code>uninstall</code>; more in
+            <a href="https://github.com/WinuxNomacs/webodm-splatme#install" target="_blank" rel="noopener noreferrer">SplatMe's README</a>.</p>
+    </div>
+</div>
 <form id="splatme-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-url">Node Address</label>
@@ -40,6 +85,8 @@ token as a form for superusers. The token is never shown.
     var saved = document.getElementById("splatme-saved");
     var note = document.getElementById("splatme-node-note");
     var EDITABLE = {% if editable %}true{% else %}false{% endif %};
+    var guide = document.getElementById("splatme-guide");
+    var toggle = document.getElementById("splatme-guide-toggle");
 
     function line(icon, text){
         var p = document.createElement("div");
@@ -50,10 +97,49 @@ token as a form for superusers. The token is never shown.
         return p;
     }
 
+    // The install steps, for superusers on the admin page: open in the state's place while no node is saved,
+    // else closed behind the link under the state
+    function setGuide(open){
+        guide.style.display = open ? "" : "none";
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        toggle.firstElementChild.className = "fa fa-chevron-" + (open ? "down" : "right") + " fa-fw";
+    }
+    function placeGuide(data){
+        if (!EDITABLE || !data.admin) return;
+        var unset = !data.url;
+        toggle.style.display = unset ? "none" : "";
+        state.style.display = unset ? "none" : "";
+        if (unset) setGuide(true);
+        else if (toggle.getAttribute("aria-expanded") !== "true") setGuide(false);
+    }
+
+    // A command into the clipboard: the Clipboard API where the page is a secure context, else a selected text area
+    // (a WebODM on plain HTTP by its address); the command stays selectable either way
+    function copy(text, button){
+        var done = function(){
+            button.lastChild.textContent = " Copied";
+            setTimeout(function(){ button.lastChild.textContent = " Copy"; }, 2000);
+        };
+        if (navigator.clipboard && window.isSecureContext){
+            navigator.clipboard.writeText(text).then(done, function(){});
+            return;
+        }
+        var area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        try { if (document.execCommand("copy")) done(); } catch (e) { /* left to select by hand */ }
+        document.body.removeChild(area);
+    }
+
     // What the node answered, or what is wrong with it, and its address; tried: these are the form's values, not
     // the saved ones
     function show(data, tried){
         state.innerHTML = "";
+        state.style.display = "";
         var box = document.createElement("div");
         if (data.error){
             box.className = "alert alert-danger";
@@ -108,12 +194,21 @@ token as a form for superusers. The token is never shown.
             show(data, !save);
             if (save){
                 fill(data);
+                placeGuide(data);
                 saved.style.display = "";
             }
         }).fail(failed).always(function(){ button.disabled = false; });
     }
 
     if (EDITABLE){
+        toggle.addEventListener("click", function(){
+            setGuide(toggle.getAttribute("aria-expanded") !== "true");
+        });
+        Array.prototype.forEach.call(guide.querySelectorAll(".splatme-copy"), function(button){
+            button.addEventListener("click", function(){
+                copy(button.previousElementSibling.textContent, button);
+            });
+        });
         form.addEventListener("submit", function(e){
             e.preventDefault();
             post(true, document.getElementById("splatme-save"));
@@ -126,6 +221,7 @@ token as a form for superusers. The token is never shown.
     $.getJSON(API).done(function(data){
         show(data, false);
         fill(data);
+        placeGuide(data);
     }).fail(failed);
 })();
 </script>

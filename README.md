@@ -54,7 +54,10 @@ By a WebODM administrator, in this order:
    prints its address and token: enter them on **Administration → SplatMe** in WebODM's side menu, where **Test
    Connection** says what is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved.
    Every request to the node needs its token, but the connection is plain HTTP: let only WebODM's machine reach
-   that port.
+   that port, or put an HTTPS proxy in front of it ([below](#https-to-a-node-on-another-machine)).
+
+   These steps, each command with a **Copy** button, are also on **Administration → SplatMe**: in place of the
+   node's state while no node is set, and behind **How to Install a Splat Node** under it once one is.
 
    ![Administration → SplatMe, connected to the splat node](screenshots/admin.png)
 
@@ -235,6 +238,30 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 | `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
 | `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
 | `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |
+
+### HTTPS to a node on another machine
+
+On WebODM's machine the node is reached on WebODM's Docker network, and nothing crosses the wire. A node on
+another machine is reached over plain HTTP: its token, the task's photos and the trained model cross the network
+in clear. To encrypt them, put a TLS proxy in front of the node, on the node's machine, with a certificate WebODM
+trusts: a public one, such as Let's Encrypt's (SplatMe checks the certificate, so a self-signed one is refused).
+With [Caddy](https://caddyserver.com/docs/install) and a domain name that points at the node's machine (ports 80
+and 443 reachable, for the certificate):
+
+1. Make the node listen on its own machine only: in `~/splatnode/.env` set `SPLATNODE_BIND=127.0.0.1:` (with
+   the colon), then run `splatnode.sh upgrade`, which restarts the node and keeps that setting.
+2. In `/etc/caddy/Caddyfile`, then `sudo systemctl reload caddy`:
+
+   ```
+   splatnode.example.com {
+       reverse_proxy 127.0.0.1:3100
+   }
+   ```
+
+3. On **Administration → SplatMe**: Node Address `https://splatnode.example.com`, **Test Connection**, **Save**.
+
+Caddy sets no limit on a request's size. Another proxy may need one lifted for the training zip, which holds the
+task's photos (nginx: `client_max_body_size 0;`).
 
 ## The plugin's API
 
