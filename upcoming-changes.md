@@ -11,7 +11,7 @@ other software. The plugin does that step.
 
 1. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
    documentation for accuracy and for saying only what helps. Reading only; the findings go to the user. See
-   "1. Release review of 0.2.0 (planned)".
+   "1. Release review of 0.2.0 (done, waiting for the user's choice)".
 
 **Then**
 
@@ -531,7 +531,7 @@ linked to the full one; the 3D view screenshot stays below the opening paragraph
 the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
 headless at 1,280 and 320 px: no console errors, no sideways scroll.
 
-### 1. Release review of 0.2.0 (planned)
+### 1. Release review of 0.2.0 (done, waiting for the user's choice)
 
 Asked 2026-11-16, before 0.2.0's tag: a review for bugs and weak areas to harden before SplatMe is published in
 WebODM's plugin directory, and of the documentation for accuracy and for saying only as much as it should (a
@@ -564,6 +564,91 @@ checked; what was found sound. No change is made during the review.
 
 **Open decisions (after the findings):** which go into 0.2.0 and which wait; for the documentation, the list of
 removals and corrections is shown before it is applied.
+
+**Found (2026-11-16).** Four parts read in parallel (the plugin's Python, its pages, the node and the release, the
+documentation), each finding then re-read in the code; the plugin's follower and the install script were also made
+to fail ("run"). No data loss, no permission, CSRF or XSS hole; the 0.1.1 fixes hold. Weights: medium unless marked.
+
+*Unattended trainings (training.py)*
+
+- A. Nothing restarts a lost follower or worker job until someone opens a SplatMe page (run: a database error ends
+  the follower; another task completing restarts nothing; a status request does). An automatic training left
+  overnight is not imported, and after the node's 48 hours its model is gone ("no longer has this job").
+- B. One HTTP error from the node fails every training it has (run: one 502 → failed, the job left training on the
+  node). A node behind the documented HTTPS proxy answers 502 while it restarts; a changed token answers 401. The
+  hour of patience applies only to a node that does not answer at all.
+- C. (low) After a lost database connection the heartbeat never reconnects (no `connection.close()` in its
+  `except`): a long silent step is taken over and started again. Plausible.
+- D. (low) A stale record replaced by Train or an automatic start leaves its node job training, unfollowed.
+- E. (low) Two first Train requests at once make two rows for one key; WebODM's data store then deletes both and
+  sets nothing (checked in `app/plugins/data_store.py`): the next start returns no state and trains nothing.
+- F. (low) The follower's time-left samples are kept per task, not per training: a task trained again while the
+  follower lives starts from the old samples.
+- G. (low) The takeover limit counts time a job waits in WebODM's worker queue; its failure while importing deletes
+  the finished model on the node. Plausible, rare.
+- H. (low) splat-tools runs with no timeout; a failure between the final file moves leaves `splats.rad` replaced but
+  the task failed; a non-JSON answer from the node (a proxy's page) shows as "Unexpected error"; an upload whose
+  answer is lost leaves the node training it unfollowed.
+- I. (low) Show Log answers a public task's anonymous viewer with the node's error text (its address), which Test
+  Connection hides from non-administrators.
+
+*The pages*
+
+- J. (low) The Tasks page never retries a failed first load (WebODM restarting when it opens: "The request failed
+  (502)." until reloaded); a list answer dropped while a row's action answers can leave a new task unshown.
+- K. (low) The Dashboard's Splats line spins forever after a 403 or 404 (an expired session), with no message.
+- L. (low) Network errors show the browser's text ("Failed to fetch").
+- M. (low) A task SplatMe does not list is told its photos are not JPEG even when the reason is another (compacted,
+  missing assets); the Tasks page's empty text leaves out thermal TIFFs.
+- N. (low) The Tasks list re-reads every task's folder every 15 s while any task processes, whatever project is
+  chosen, also in a hidden tab.
+- O. (low) Labels not tied to their fields (Steps, Image Size, Max Gaussians, Quality, Thermal Colours, More Steps);
+  a failed New Task With Splats resets the typed task name; Title Case differs for short words ("How to Install a
+  Splat Node", "Use The Administrators' Defaults").
+
+*The splat node and its script*
+
+- P. The CUDA 12.8.1 base images are 20 months old and, by NVIDIA's support policy as the reviewer read it, past
+  their end of support since 12.8.2 (2026-04-30): Docker Hub may delete them, and then no new node image builds.
+  Both tags are still there today. The fix is 12.8.2 (same libtorch), node 0.2.3, and a GPU training again.
+- Q. (low) The node's settings are not checked (run: `SPLATNODE_STALL_MINUTES=abc` → a traceback and a restart
+  loop; by the code, 0 stops every training at once and a negative keep-hours expires every result).
+- R. (low) A trainer stuck past SIGKILL (in the driver) is waited on forever with `/health` ok; a stale heartbeat
+  only makes `/health` 503, which Docker does not act on. A job deleted in the moment before its trainer starts can
+  return after a restart.
+- S. (low) `upgrade` restarts the node during a training without a warning (`/info` says whether one runs);
+  `connect --webodm` on a standalone node closes it to other machines without saying so; `status` on a stopped node
+  does not say how to start it.
+
+*The release*
+
+- T. A tag whose version is not the manifest's still pushes the node's image as `latest` (the node job runs first;
+  only the plugin job checks the version): `splatnode.sh upgrade` then installs a node no release describes.
+- U. (low) Any ghcr error reads as "not published" and the version is built again over the published one; a tag
+  on an older commit moves `latest` back; the login step puts the token in its script rather than its environment.
+
+*Dependencies (checked 2026-11-16)*: OpenSplat is its main branch's head; the actions are their latest releases,
+pinned by SHA; the docs' lock is the latest of each, no advisories. libtorch 2.7.1's advisories are in Python's
+`torch.load` and RPC, which OpenSplat does not use: kept, an upgrade planned with new output samples. Dev tools only:
+eslint 10.15.0 fixes a moderate minimatch advisory (jest's copy has no fix yet); Django 5.2.19 fixes 5 CVEs in the
+IDE pin, which mirrors WebODM 4.0.0's 5.2.18 (the runtime is WebODM's).
+
+*The documentation*: 20 corrections and 22 removals, listed for the user before they are applied. The main ones:
+the image is a 4 GB download (6.6 GB unpacked; the script's uninstall says 10 GB); the install with several WebODMs
+stops and names them, it does not ask; continuing "or beyond" does grow the model; the DJI plugin's button is DJI
+Thermal Task; a trained task's button is Train Splats Again; the admin screenshot shows node 0.2.0 and lacks How to
+Install a Splat Node; the README's Requirements and Status sections (on the docs' Home already); internals and
+history in Using SplatMe and Install.
+
+*The live sweep*: the Dashboard, SplatMe → Tasks, SplatMe → Settings and Administration → SplatMe at 320 and
+1,280 px, as an administrator and a plain user (403 on the administrators' page, WebODM's own): no console error, no
+sideways scroll.
+
+*Sound*: permissions on every view, the token never in a page or log, CSRF on every write, no unsafe HTML, inputs
+parsed against ranges and whitelists, every node request with a timeout, work folders cleaned, job state changed
+under row locks with run ids, the sky model checked by SHA-256, upgrades from 0.1.1 records; the node's design as
+built (transitions, deadlines, trash, broken/, path checks, timing-safe token); the script's quoting, its undo of a
+failed install, no sudo; the workflow's per-job permissions and SHA-pinned actions.
 
 ### Fixes from the release review (built)
 
