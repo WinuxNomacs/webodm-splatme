@@ -5,7 +5,7 @@ import exifr from 'webodm/vendor/exifr';
 import { _, interpolate } from 'webodm/classes/gettext';
 import SplatMePanel from './SplatMePanel';
 import { request, webodm } from './api';
-import { Upload } from './newTask';
+import { Upload, photoProblem } from './newTask';
 import { NOT_LISTENING } from './restartText';
 import { formFromOptions, optionsFromForm } from './trainingView';
 
@@ -21,6 +21,7 @@ export default class NewTask extends React.Component {
         onPick: PropTypes.func.isRequired,      // () opens the file picker
         onProject: PropTypes.func.isRequired,   // (projectId)
         onCreated: PropTypes.func.isRequired,   // (taskId)
+        onBusy: PropTypes.func,                 // (busy): true while the files are sent or wait to be sent again
         onClose: PropTypes.func.isRequired
     };
 
@@ -45,10 +46,15 @@ export default class NewTask extends React.Component {
             this.change(this.touched ? {} : {form: formFromOptions(answer.options)});
         }).catch(() => {});
         this.readPhotoSize();
+        this.change({});  // the photos' problem, if any, before the defaults arrive
     }
 
-    componentDidUpdate(prevProps){
-        if (prevProps.files !== this.props.files) this.readPhotoSize();
+    componentDidUpdate(prevProps, prevState){
+        if (prevProps.files !== this.props.files){
+            this.readPhotoSize();
+            this.change({});  // the photos' problem, if any
+        }
+        if (prevState.phase !== this.state.phase && this.props.onBusy) this.props.onBusy(this.state.phase !== "edit");
     }
 
     // The first JPEG's size, from its EXIF, else from the picture itself; the browser decodes no TIFF
@@ -74,6 +80,7 @@ export default class NewTask extends React.Component {
     componentWillUnmount(){
         this._mounted = false;
         window.removeEventListener("beforeunload", this.handleLeave);
+        if (this.state.phase !== "edit" && this.props.onBusy) this.props.onBusy(false);
     }
 
     // Leaving the page stops the upload half way, a partial task left with some of the files
@@ -86,7 +93,8 @@ export default class NewTask extends React.Component {
 
     change(values){
         const next = Object.assign({}, this.state, values);
-        const { error } = optionsFromForm(next.form, this.ranges);
+        // Photos SplatMe cannot train: a task trained when it completes would only fail then
+        const error = optionsFromForm(next.form, this.ranges).error || photoProblem(this.props.files);
         this.setState(Object.assign(values, {formError: next.enabled ? error && _(error) : null}));
     }
 
@@ -94,12 +102,13 @@ export default class NewTask extends React.Component {
     setting(){
         if (!this.state.enabled) return null;
         const { options, error } = optionsFromForm(this.state.form, this.ranges);
-        return error ? undefined : Object.assign({enabled: true}, options);
+        return error || photoProblem(this.props.files) ? undefined : Object.assign({enabled: true}, options);
     }
 
-    // Before WebODM's own handler: Review and Start Processing wait for SplatMe's options to be right
+    // Before WebODM's own handler: Review and Start Processing (the panel's submit button, not its other buttons)
+    // wait for SplatMe's options to be right
     handleClick = e => {
-        if (!e.target.closest(".new-task-panel:not(.splatme-panel) button.btn-primary")) return;
+        if (!e.target.closest(".new-task-panel:not(.splatme-panel) button.btn-primary[type=submit]")) return;
         if (this.setting() !== undefined) return;
         this.change({});
         e.preventDefault();

@@ -100,7 +100,10 @@ class Train(TaskView):
 class Status(TaskView):
     def get(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
-        return Response(describe(request, task, training.follow(task)))
+        out = describe(request, task, training.follow(task))
+        if is_true(request.query_params.get("listed")):
+            out["listed"] = training.compatible(task)  # whether SplatMe → Tasks lists it (its folder is read)
+        return Response(out)
 
 
 class Check(TaskView):

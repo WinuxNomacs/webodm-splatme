@@ -1,4 +1,4 @@
-import { CHUNK, Upload, partsOf, projectByName, retried, taskData } from '../newTask';
+import { CHUNK, Upload, partsOf, photoProblem, projectByName, retried, taskData } from '../newTask';
 
 const TASKS = "/api/projects/7/tasks/";
 
@@ -146,5 +146,18 @@ describe("a new task's upload", () => {
         await expect(started).rejects.toThrow("Canceled.");
         expect(calls.some(c => c.url.endsWith("/commit/"))).toBe(false);
         expect(calls[calls.length - 1].url).toBe(TASKS + "abc/remove/");
+    });
+});
+
+describe("the photos of a new task SplatMe trains", () => {
+    const files = names => names.map(name => ({name}));
+    it("are JPEG, or all TIFFs, with any text files beside them", () => {
+        expect(photoProblem(files(["a.JPG", "b.jpeg", "gcp_list.txt", "geo.txt"]))).toBeNull();
+        expect(photoProblem(files(["a_T.tif", "b_T.TIFF", "image_groups.txt"]))).toBeNull();
+    });
+    it("name a photo of another kind, or say that JPEG and TIFF are mixed", () => {
+        expect(photoProblem(files(["a.jpg", "b.png"]))).toMatch(/b\.png is neither/);
+        expect(photoProblem(files(["a.dng"]))).toMatch(/a\.dng/);
+        expect(photoProblem(files(["a.jpg", "b.tif"]))).toMatch(/not both/);
     });
 });

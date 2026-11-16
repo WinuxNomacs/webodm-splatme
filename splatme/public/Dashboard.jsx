@@ -30,6 +30,12 @@ export default function start(){
         }
         const known = anchor => parts.some(p => p.anchor === anchor);
 
+        // SplatMe's button stays last in its group (keeping the group's rounded ends): another plugin's button can be
+        // added after it
+        document.querySelectorAll(".splatme-button-slot").forEach(slot => {
+            if (slot.nextElementSibling && slot.parentNode) slot.parentNode.appendChild(slot);
+        });
+
         // The project's buttons, shown to those who may add a task: after WebODM's and other plugins'
         document.querySelectorAll(".project-list-item .project-buttons .asset-download-buttons").forEach(group => {
             if (known(group)) return;

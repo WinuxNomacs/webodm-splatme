@@ -1321,3 +1321,10 @@ class TestSplatMe(BootTestCase):
         with mock.patch.dict(sys.modules, {"onnxruntime": None}), self.assertRaises(sky.SkyError) as raised:
             sky.load()
         self.assertIn("onnxruntime", str(raised.exception))
+
+    def test_the_status_says_whether_splatme_lists_the_task_only_when_asked(self):
+        jpeg = make_task(self.user)
+        self.assertNotIn("listed", self.status(jpeg))
+        self.assertTrue(self.client.get(f"{API}/task/{jpeg.id}/status?listed=1").data["listed"])
+        png = make_task(self.user, images=["a.png"])
+        self.assertFalse(self.client.get(f"{API}/task/{png.id}/status?listed=1").data["listed"])

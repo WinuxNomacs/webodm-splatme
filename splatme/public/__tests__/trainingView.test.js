@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, trainedSize, imageSizeRows } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, trainedSize, imageSizeRows, justCompleted, dashboardLink } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -361,5 +361,26 @@ describe("the photos' size under Image Size", () => {
         expect(rows.map(r => [r.source, r.trained, r.side, r.pixels])).toEqual([["5,280 × 3,956", "–", "–", "–"], ["640 × 512", "–", "–", "–"]]);
         expect(imageSizeRows([[640, 512]], "")[0].trained).toBe("–");
         expect(imageSizeRows([], "1600")).toEqual([]);
+    });
+});
+
+describe("a task that just completed", () => {
+    const auto = {enabled: true};
+    it("is one set to train that was processing and now has completed with no training yet", () => {
+        expect(justCompleted({task_status: 20, auto}, {task_status: 40, active: false, auto})).toBe(true);
+        expect(justCompleted({task_status: null, auto}, {task_status: 40, auto})).toBe(true);
+    });
+    it("is not one already training, one not set to train, nor one that was completed before", () => {
+        expect(justCompleted({task_status: 20, auto}, {task_status: 40, active: true, auto})).toBe(false);
+        expect(justCompleted({task_status: 20, auto: {enabled: false}}, {task_status: 40, auto: {enabled: false}})).toBe(false);
+        expect(justCompleted({task_status: 40, auto}, {task_status: 40, auto})).toBe(false);
+        expect(justCompleted(null, {task_status: 40, auto})).toBe(false);
+        expect(justCompleted({task_status: 20, auto}, {task_status: 30, auto})).toBe(false);
+    });
+});
+
+describe("the link to a task on the Dashboard", () => {
+    it("shows only the task's project, with the task's panel open", () => {
+        expect(dashboardLink(12, "ab-cd")).toBe("/dashboard/?id=12&project_task_open=12&project_task_expanded=ab-cd");
     });
 });

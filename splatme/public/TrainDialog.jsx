@@ -44,7 +44,10 @@ export default class TrainDialog extends React.Component {
     };
 
     handleStart = () => {
-        const check = this.state.check || {};
+        // Enter in More Steps submits the form too: not while a start is being answered, nor when it cannot start
+        const known = this.state.check;
+        if (this.state.starting || !known || known.problem || known.node_error) return;
+        const check = known;
         const { options, error } = this.state.resume ?
             continueFromForm(this.state.more, check.trained_steps, check.ranges) :
             optionsFromForm(this.state.form, check.ranges);
@@ -67,14 +70,14 @@ export default class TrainDialog extends React.Component {
         const total = trained + (/^\d+$/.test(String(more).trim()) ? parseInt(more, 10) : 0);
         const footer = (
             <React.Fragment>
-                <button type="button" className="btn btn-default" onClick={this.props.onClose}>{_("Close")}</button>
+                <button type="button" className="btn btn-default" disabled={starting} onClick={this.props.onClose}>{_("Close")}</button>
                 <button type="button" className="btn btn-primary" disabled={blocked || starting} onClick={this.handleStart}>
                     <i className={starting ? "fa fa-circle-notch fa-spin fa-fw" : "fa fa-splat fa-fw"}></i> {_("Start Training")}
                 </button>
             </React.Fragment>
         );
         return (
-            <Dialog title={_("Train Splats")} onClose={this.props.onClose} footer={footer}>
+            <Dialog title={_("Train Splats")} onClose={this.props.onClose} busy={starting} footer={footer}>
                 {!check ? <p><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Checking the task and the splat node")}</p> : ""}
                 {check && check.problem ? <div className="alert alert-danger"><i className="fa fa-exclamation-triangle"></i> {check.problem}</div> : ""}
                 {check && check.node_error ? <div className="alert alert-danger"><i className="fa fa-exclamation-triangle"></i> {check.node_error}</div> : ""}

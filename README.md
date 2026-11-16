@@ -169,7 +169,9 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    processing; for users who may only look at the project, any task) says why.
 
    On the Dashboard, a task's panel has a **Splats** line under its Task ID ("Trained, 7,000 steps", or the
-   training's step) with **Open in SplatMe**, which opens the Tasks page at that task. Training is not in the
+   training's step) with **Open in SplatMe**, which opens the Tasks page at that task (for a task SplatMe can
+   train; another says that SplatMe trains tasks whose photos are JPEG). A task's name on the Tasks page opens the
+   Dashboard at its panel, with only its project shown. Training is not in the
    task's panel itself: WebODM keeps only the first plugin's answer to that panel's hook, so a SplatMe button
    there dropped other plugins' buttons (such as Lightning's Share).
 
@@ -178,11 +180,13 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    photos, with a GCP file and other text files if the task has them. WebODM's own New Task panel opens (name,
    processing node, options, resize, alignment), with SplatMe's panel above it: **Train Splats When
    Completed**, ticked, with the Quality, Ignore Sky (or Thermal Colours when the photos picked are TIFFs), Crop
-   To Boundary and Advanced. On **Start Processing**,
+   To Boundary and Advanced. While Train Splats When Completed is ticked, photos SplatMe cannot train (not JPEG,
+   nor all DJI Thermal Analyzer's TIFFs) are named there and hold up Start Processing. On **Start Processing**,
    SplatMe creates the task through WebODM's API, saves its training setting, uploads the files (a large file
    in parts, each sent again if the connection drops) and starts its processing; the row then follows the
    processing (its progress, and WebODM's error if it fails) and the training. If some files still fail,
-   **Try Again** sends them, or **Cancel** removes the task. Leaving the page during the upload stops it.
+   **Try Again** sends them, or **Cancel** removes the task. Leaving the page during the upload stops it, and
+   another New Task With Splats waits until it is done.
    Unticked, or made from WebODM's own Select Images and GCP, the task is an ordinary one. The panel
    starts with the user's own options, saved on **SplatMe → Settings** (**New Task With Splats**); until they
    save some, with the administrators' defaults from **Administration → SplatMe** (High until they change

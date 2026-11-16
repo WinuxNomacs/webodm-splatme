@@ -194,3 +194,16 @@ export class Upload {
         this.onProgress({sent: this.sent, total: this.total, files: this.files.length, done: this.done});
     }
 }
+
+// Why SplatMe could not train a task of these files, or null: its photos must be JPEG, or all TIFFs (DJI Thermal
+// Analyzer's); text files (GCP, geo, image groups) and other files WebODM takes are not photos
+const PHOTO = /\.(jpe?g|tiff?|png|dng|nef|raw|webp|bmp|gif|heic)$/i;
+export function photoProblem(files){
+    const photos = files.map(f => f.name).filter(name => PHOTO.test(name));
+    const other = photos.find(name => !/\.(jpe?g|tiff?)$/i.test(name));
+    if (other) return "SplatMe trains tasks whose photos are JPEG (or DJI Thermal Analyzer's TIFFs), and " + other + " is neither.";
+    if (photos.some(n => /\.jpe?g$/i.test(n)) && photos.some(n => /\.tiff?$/i.test(n))){
+        return "SplatMe trains tasks whose photos are all JPEG or all DJI Thermal Analyzer's TIFFs, not both.";
+    }
+    return null;
+}

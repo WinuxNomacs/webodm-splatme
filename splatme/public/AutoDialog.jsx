@@ -35,6 +35,7 @@ export default class AutoDialog extends React.Component {
     }
 
     handleSave = () => {
+        if (this.state.saving) return;  // Enter in a field submits the form too
         const { options, error } = optionsFromForm(this.state.form, this.state.ranges);
         if (error && this.state.enabled){
             this.setState({error: _(error), advanced: true});
@@ -52,14 +53,14 @@ export default class AutoDialog extends React.Component {
         const { enabled, form, advanced, saving, error, showCrop, thermal } = this.state;
         const footer = (
             <React.Fragment>
-                <button type="button" className="btn btn-default" onClick={this.props.onClose}>{_("Close")}</button>
+                <button type="button" className="btn btn-default" disabled={saving} onClick={this.props.onClose}>{_("Close")}</button>
                 <button type="button" className="btn btn-primary" disabled={saving} onClick={this.handleSave}>
                     <i className={saving ? "fa fa-circle-notch fa-spin fa-fw" : "fa fa-save fa-fw"}></i> {_("Save")}
                 </button>
             </React.Fragment>
         );
         return (
-            <Dialog title={_("Train Splats When Completed")} onClose={this.props.onClose} footer={footer}>
+            <Dialog title={_("Train Splats When Completed")} onClose={this.props.onClose} busy={saving} footer={footer}>
                 <p>{_("When this task completes processing, and each time it is processed again, its splats are trained on the splat node with these options. Nothing else is needed: the model then shows in the task's 3D view.")}</p>
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleSave(); }}>
