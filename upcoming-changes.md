@@ -9,28 +9,31 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
-   documentation for accuracy and for saying only what helps. Reading only; the findings go to the user. See
-   "1. Release review of 0.2.0 (planned)".
+1. The splat node made robust (asked 2026-11-16: WebODM's maintainer called `node/splatnode.py` fragile): the
+   service reshaped so a failure of its own machinery can't leave it stuck or silent, with tests that make each
+   failure happen; splat node 0.2.2, in SplatMe 0.2.0. See "1. The splat node made robust (planned)".
 
 **Then**
 
-2. Fixes from the review of 0.2.0: the findings the user chooses, on branches with tests, then the release check
+2. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
+   documentation for accuracy and for saying only what helps. Reading only; the findings go to the user. See
+   "2. Release review of 0.2.0 (planned)".
+3. Fixes from the review of 0.2.0: the findings the user chooses, on branches with tests, then the release check
    on a throwaway WebODM (0.1.1 upgraded to 0.2.0).
-3. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+4. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
    0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
    confirmation; the entry waits for the user's approval).
 
 **Later**
 
-4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
-   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
+5. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "5. HTTPS to the splat node
    (proposed)".
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+6. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+7. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "6. Steps for an Image Size (proposed)".
+   "7. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -358,7 +361,100 @@ Found on the way:
 
 ## Phase details
 
-### 1. Release review of 0.2.0 (planned)
+### 1. The splat node made robust (planned)
+
+**Asked 2026-11-16:** WebODM's maintainer called `node/splatnode.py` fragile (their wording was not found in the
+repository's issues, pull requests or commit comments). Reviewed the same day, reading the code and then making each
+suspected failure happen against the real service (the tests' stand-in trainer, faults injected by hand).
+
+**Found, run and confirmed:**
+
+- A. The training thread dies on any error outside the training itself (a write failing for a full disk as a job
+  starts, in `work()` or in `finish()`), and nothing notices: `/health` answers 200, Docker says healthy, new jobs
+  are accepted and wait forever, the first stays "running". Only a restart clears it.
+- B. One `job.json` without a `state` stops the node from starting (`KeyError` in `load()`): the container
+  restarts in a loop until the file is deleted by hand.
+- C. An error the code did not expect (a full disk during an upload) closes the connection without an answer:
+  SplatMe says the node does not answer instead of why.
+- D. Nothing has a deadline on the trainer: Cancel sends SIGTERM only, so a trainer that does not exit stays
+  "running" and holds the queue, and `DELETE` waits for it forever (its request timed out). A trainer that hangs
+  without exiting (as OpenSplat did on an unreadable photo, fixed at the pinned commit) holds the GPU for good.
+- E. No socket timeout (`Handler.timeout` is None): a client that stalls mid-upload holds a thread and its partly
+  written job folder until the node restarts.
+
+**Found by reading:**
+
+- F. `finish()` and `expire()` delete a job's extracted photos (up to gigabytes) while holding the one lock every
+  request waits for: SplatMe's status requests time out after 15 s, and 5 minutes without an answer fails a training.
+  Not measured.
+- G. A job's state has no single owner: job records are changed from several threads, partly outside the lock; state
+  changes happen in six places with no check that a change is allowed; the internal `canceling` flag is saved and
+  served by the API; `self.process` assumes one job.
+- H. Progress and "out of memory" come from OpenSplat's console wording (`STEP_LINE`, a substring); a reworded
+  trainer silently loses progress, time left and the memory message, and no test holds real output.
+- I. Routing is one `if` chain: a wrong method's 405 says "Not found"; HEAD answers 501.
+- J. The tests' stand-in trainer always behaves, and no test fills the disk, damages a job file, stalls a client or
+  ignores SIGTERM: why all of the above passed.
+
+**Sound:** zip entry names checked before extraction, the token compared in constant time, `job.json` replaced
+atomically, options range-checked, a failed upload cleaned up, the node run as an unprivileged user.
+
+**Root causes, and what changes in the approach:**
+
+1. Errors were handled for a job, not for the machinery that runs the jobs. Now: every loop that runs unattended is
+   supervised, and a failure it can't recover from ends the process (crash-only), which Docker restarts
+   (`restart: unless-stopped` in every compose file the node is run from) and whose start fails the job that was
+   running, as a restart already does.
+2. Waits had no deadline. Now: every wait has one (sockets, the trainer's silence, the trainer's stop, a request
+   waiting on a job).
+3. State had many writers under one lock that also covered slow work. Now: one owner of the jobs' state, one
+   function for a state change that refuses an illegal one, copies handed out, and no file work under the lock.
+4. The stand-ins only behaved. Now: each failure above has a test that makes it happen, written before the fix and
+   seen failing on the current code; the stand-in trainer can misbehave (ignore SIGTERM, go silent, crash).
+5. The trainer's output was matched from memory of what it prints. Now: matched against lines captured from a real
+   run of the pinned OpenSplat, kept as a test fixture and captured again when the pin changes.
+
+**The design** (same HTTP API and JSON, so SplatMe 0.2.0 needs no change; Python's standard library only, as now):
+
+- **Jobs' state** in one class (the store): `create`, `transition(job_id, to, **fields)` (allowed moves only:
+  queued → running or canceled; running → completed, failed or canceled; anything else refused and logged), reads
+  answer copies. Saved through the same atomic write. The request to cancel is kept beside the record, not in it.
+- **Files** are removed outside the lock: a finished job's leftovers and an expired or deleted job's folder are
+  renamed into `trash/` under the lock (instant), and deleted by the worker without it; `trash/` is emptied at start.
+- **The worker** catches and logs everything per pass and goes on; a job whose handling raised is failed with the
+  error. If the worker's thread ends anyway, `/health` answers 503 and the process exits with an error, so Docker
+  restarts it. Its last pass time is in `/health`, so a stuck worker is visible too.
+- **Deadlines:** the trainer starts in its own process group; Cancel and stop send SIGTERM, then SIGKILL to the group
+  after a grace period (20 s, inside compose's 30 s `stop_grace_period`). A trainer silent longer than
+  `SPLATNODE_STALL_MINUTES` is stopped and its job failed with that reason; the default is set from the longest
+  silence measured in a real training of the largest dev task (HomerunObliqueRGB, 959 photos), with a margin.
+  `Handler.timeout` 120 s per socket read or write. `DELETE` of a running job stops it and answers at once; its
+  files go when the trainer has stopped.
+- **Startup** never fails on one job: a `job.json` that does not read or lacks a field is moved to `broken/`, named in
+  the log, and the node starts.
+- **Every request is answered:** an unexpected error answers 500 with its message (507 for a full disk), logged with
+  its traceback. Routing is a table of (method, path pattern) → handler: 405 with `Allow`, HEAD wherever GET is.
+- **Disk:** uploads in progress reserve their share of the free space, so two at once can't both pass the check.
+- **The trainer's output:** progress and the memory message are matched against `node/tests/opensplat-output.txt`,
+  lines captured from a real run at the pinned commit (step lines, preprocessing, CUDA's out-of-memory). A running
+  job with no step line after its preprocessing logs a warning, so a reworded trainer shows in the log.
+- **Version:** splat node 0.2.2 (0.2.1 was never published: the release workflow builds a node version once and
+  refuses a changed node without a new one). Getting Started's expected output and the CHANGELOG follow.
+
+**Tests** (`node/tests`, written first, each seen failing on the current code): a full disk at a job's start, at its
+end and mid-upload; a damaged `job.json`; a trainer that ignores SIGTERM (Cancel, `DELETE`, stop); a silent trainer;
+a stalled upload; the worker's thread ending (503, the exit); an illegal state change; a status request answered
+while a large folder is being deleted (timed); the fixture's lines parsed. Then a real training on the dev stack's
+node (`dev/webodm.sh up --build splat-node`), cancel and delete during it, and a restart of the throwaway node with a
+job running.
+
+**Build order:** the failing tests; the store and the transitions; the worker, the deadlines and the files; the
+requests; the fixture from a real run; then the real checks, the docs and the version.
+
+**Open decision:** none in the design (it changes no behaviour SplatMe or an administrator sees, except clearer
+errors and stuck states that now end). The stall default is measured, not chosen.
+
+### 2. Release review of 0.2.0 (planned)
 
 Asked 2026-11-16, before 0.2.0's tag: a review for bugs and weak areas to harden before SplatMe is published in
 WebODM's plugin directory, and of the documentation for accuracy and for saying only as much as it should (a
@@ -369,7 +465,9 @@ otherwise (`CLAUDE.md`; the procedure is the `release-review` skill).
 0.2.0. This one reads what changed since `v0.1.1` (37 commits, 44 files) in full, including those fixes (the
 follower job of J, the install script's rework), the guided setup and the docs site; then the whole product again
 for weak areas, as that review did not look at hardening (limits, timeouts, resource use) or the dependencies'
-state.
+state. It runs after phase 1 and applies phase 1's lessons to the rest: the plugin's own unattended code (the
+follower job and its heartbeat in `training.py`, `splatnode.sh`) gets the same failure-by-failure probing, run, not
+only read.
 
 **The parts, read in parallel** (one subagent each, briefed with its files and the skill's lenses; each finding
 checked again in the code before it is reported):
@@ -1697,7 +1795,7 @@ for all three. Bootstrap's `nav-tabs` look with the page's own switching (`showT
 Checked headless: the default tab, a click, ArrowRight moving and wrapping with the focus, Copy in a tab
 (the Clipboard API and the fallback); at 320 px the tabs stack, no sideways scroll. Django 88.
 
-### 4. HTTPS to the splat node (proposed)
+### 5. HTTPS to the splat node (proposed)
 
 Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it
 belongs in 0.2.0.
@@ -1793,7 +1891,7 @@ Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
-### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 6. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1814,7 +1912,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 6. Steps for an Image Size (proposed)
+### 7. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
