@@ -6,66 +6,93 @@ WebODM can export a task's training data and display a trained splat model, but 
 hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
 puts the model in the task's 3D view.
 
-**Status: in development.** The training container (the "splat node") works, and the plugin trains a task
-through it, from **SplatMe → Tasks** or by itself when a task completes. There is no release yet. The
-plan is in [upcoming-changes.md](upcoming-changes.md).
+![A thermal task's trained splats in WebODM's 3D view](screenshots/model.png)
+
+**Status: 0.1.0, the first release, marked experimental.** It has been used on WebODM 4.0.0 in Docker with an
+8 GB NVIDIA GPU. Problems and ideas go in the repository's
+[issues](https://github.com/WinuxNomacs/webodm-splatme/issues); what is planned is in
+[upcoming-changes.md](upcoming-changes.md).
 
 ## Requirements
 
 - WebODM 4.0.0 or later, installed with Docker. WebODM's native Windows app is not supported: it has no
   `splat-tools` to convert a trained model, and cannot build a plugin's page scripts.
-- An NVIDIA GPU that Docker can use, for the training container.
+- An NVIDIA GPU that Docker can use, for the training container (the "splat node"), on WebODM's machine or
+  another one: Docker, Docker Compose and the
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-## The splat node
+## Install
 
-Training runs in its own container, on a machine with an NVIDIA GPU, Docker, Docker Compose and the
-[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-It does not have to be WebODM's machine: WebODM sends it a task's training data over HTTP and fetches the trained
-model. [node/splatnode.sh](node/splatnode.sh) installs, upgrades and uninstalls it:
+By a WebODM administrator, in this order:
 
-```
-curl -fsSL https://raw.githubusercontent.com/WinuxNomacs/webodm-splatme/main/node/splatnode.sh | bash -s install
-```
+1. **The plugin**: in WebODM, **Administration → Plugins → Install Plugins**, find SplatMe (marked
+   Experimental) and press **Install**. Or download `splatme-<version>.zip` from the
+   [latest release](https://github.com/WinuxNomacs/webodm-splatme/releases/latest) and send it with **Load
+   Plugin (.zip)** on the same page.
+2. **Restart WebODM once** (`./webodm.sh restart` in WebODM's folder). WebODM's web server runs several
+   processes and only the one that received the plugin loads it, so until the restart SplatMe's pages, scripts
+   and API fail now and then; and WebODM's worker, which tells SplatMe a task has completed, loads plugins only
+   when it starts. Until then SplatMe → Settings, SplatMe's panel and a task set to train say that tasks are
+   not trained by themselves yet.
+3. **The splat node**, on the machine with the GPU:
 
-`install` checks that a container can use the GPU, writes a compose file and a generated token to `~/splatnode`
-(`SPLATNODE_DIR`), downloads the node's image (`ghcr.io/winuxnomacs/splatme-node`, published with each release;
-until the first one, build it with `docker build -t splatme-node node` and set `SPLATNODE_IMAGE=splatme-node`)
-and starts it. When WebODM runs on the same machine, the node joins WebODM's Docker network, listens on that
-machine only, and SplatMe's settings get its address and token, so nothing needs entering (with several WebODMs
-on the machine, name one: `--webodm <its webapp container>`). Otherwise, or with `--standalone`, it listens on
-port 3100 (`--port`) and prints the address and token to enter in SplatMe's settings. `upgrade` downloads the
-newest image and restarts the node, keeping its jobs and token; `status` says whether it answers; `connect` gives
-SplatMe the address and token again (after installing SplatMe); `uninstall` removes it, and asks before deleting
-its jobs and its image and before removing it from SplatMe's settings.
+   ```
+   curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
+   ```
 
-Without the script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d` (add `--build` to
-compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
-v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series, and takes a while).
+   It checks that a container can use the GPU, downloads the node's image (6.6 GB) and starts it. **On WebODM's
+   machine** the node joins WebODM's Docker network, listens on that machine only, and SplatMe's settings get
+   its address and token: there is nothing to enter. (With several WebODMs on the machine, it names them and
+   asks for one: `--webodm <its webapp container>`. A node installed before the plugin is connected afterwards
+   with `connect`.) **On another machine**, or with `--standalone`, it listens on port 3100 (`--port`) and
+   prints its address and token: enter them on **Administration → SplatMe** in WebODM's side menu, where **Test
+   Connection** says what is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved.
+   Every request to the node needs its token, but the connection is plain HTTP: let only WebODM's machine reach
+   that port.
 
-The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
-(`SPLATNODE_KEEP_HOURS`). Every request needs the token.
+   ![Administration → SplatMe, connected to the splat node](screenshots/admin.png)
 
-Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <token>`:
+Then train a task on **SplatMe → Tasks** (below).
 
-| Request | Does |
-|---|---|
-| `GET /info` | The node, its trainer, its GPU, its queue and the options a job accepts |
-| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`. Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total |
-| `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error |
-| `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
-| `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
-| `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |
+## Upgrade
+
+Between trainings: a training running during an upgrade picks up again or fails with a message.
+
+- **The plugin**: **Install Plugins** shows **Update** when a newer SplatMe is listed. With the zip instead:
+  delete SplatMe on Administration → Plugins (its row's bin), then **Load Plugin (.zip)** with the new zip, which
+  WebODM refuses while a plugin of that name is installed. Either way SplatMe's settings, users' options and tasks' trainings are
+  kept (they are in WebODM's database, not in the plugin's folder). **Restart WebODM once** afterwards. The
+  sky model is downloaded again by the next training with Ignore Sky, as an update replaces the plugin's folder.
+- **The splat node**: `curl -fsSL …/splatnode.sh | bash -s upgrade` (the same address as above) downloads the
+  newest image and restarts the node, keeping its jobs and token. SplatMe needs a node of version 0.2.0 or
+  later, and **Test Connection** says when the node is older.
+
+## Uninstall
+
+- **The splat node**: `curl -fsSL …/splatnode.sh | bash -s uninstall` stops and removes the node and its folder
+  (`~/splatnode`), and asks before deleting its jobs' data and its image, and before removing it from
+  SplatMe's settings (`--yes` answers yes to all).
+- **The plugin**: its row's bin on Administration → Plugins removes the plugin's folder, with the sky model it
+  downloaded. It leaves:
+  - **The trained models**: each task keeps its model in its 3D view, as a model uploaded by hand, and the
+    model as the trainer wrote it (`assets/splats/splatme-model.ply`, kept for continuing a training), both
+    deleted with the task. To delete only the kept ones (the tasks then cannot be continued):
+    `docker exec webapp sh -c 'rm -f /webodm/app/media/project/*/task/*/assets/splats/splatme-model.ply'`.
+  - **SplatMe's settings and records** in WebODM's database (the node's address and token, the
+    administrators' defaults, users' options, each task's training), which a reinstall finds again. To delete
+    them:
+    `docker exec webapp python manage.py shell -c "from app.models import PluginDatum; PluginDatum.objects.filter(key__startswith='splatme::').delete()"`.
 
 ## Using it
 
-1. **Connect the node** (superusers): **Administration → SplatMe** in WebODM's side menu. Enter the node's
-   address as WebODM's containers reach it (`http://<host>:3100`) and its token; **Test Connection** says what
-   is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved. Every user sees on
-   **SplatMe → Settings** in the side menu whether the node is ready, its address, its GPU and its queue (never the
-   token, and what is wrong with the node only as "ask an administrator"). WebODM has no plugin hook for
-   Administration, so SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is at
-   `/plugins/splatme/admin/`.
-2. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks SplatMe can train in the projects
+![SplatMe → Tasks with a trained thermal task](screenshots/tasks.png)
+
+Every user sees on **SplatMe → Settings** in the side menu whether the node is ready, its address, its GPU and
+its queue (never the token, and what is wrong with the node only as "ask an administrator"). The node's address
+and token are on **Administration → SplatMe** (superusers): WebODM has no plugin hook for Administration, so
+SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is at `/plugins/splatme/admin/`.
+
+1. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks SplatMe can train in the projects
    the user can see (a **Project** filter narrows it), press **Train Splats** on a completed task. A task is
    listed when its photos are JPEG (or DJI Thermal Analyzer's TIFFs, below) and, once completed, it has what a
    training needs (a point cloud, its photos), or when it already has splats; a project with no such task is not
@@ -75,6 +102,8 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    at the default image size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU
    memory, whatever the number of photos. The dialog says first if the task cannot be trained, and warns when
    nearly all photos point straight down.
+
+   <img src="screenshots/train.png" alt="The Train Splats dialog with Advanced open" width="400">
 
    **Advanced** has the steps, the image size and the most gaussians as numbers:
    - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
@@ -123,7 +152,7 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    many steps again, or beyond, adds no gaussians (the steps table says so), and a model that lacks detail
    everywhere is better started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
    be continued.
-3. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
+2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
    about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
    progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after
    a reload. When it is done, **View in 3D** opens the model. A task that cannot be trained (failed or canceled
@@ -134,7 +163,7 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    task's panel itself: WebODM keeps only the first plugin's answer to that panel's hook, so a SplatMe button
    there dropped other plugins' buttons (such as Lightning's Share).
 
-4. **Train automatically**: on **SplatMe → Tasks**, press **New Task With Splats** in a project's heading
+3. **Train automatically**: on **SplatMe → Tasks**, press **New Task With Splats** in a project's heading
    (or beside **Select Images and GCP** in a project on the Dashboard, which opens it there) and pick the
    photos, with a GCP file and other text files if the task has them. WebODM's own New Task panel opens (name,
    processing node, options, resize, alignment), with SplatMe's panel above it: **Train Splats When
@@ -156,12 +185,6 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    a WebODM version draws its page differently, they are not there, and the Tasks page still creates, trains
    and sets the training.
 
-   **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`). WebODM's web
-   server runs several processes and only the one that received the plugin loads it, so until the restart
-   SplatMe's pages, scripts and API fail now and then; and WebODM's worker, which tells SplatMe a task has
-   completed, loads plugins only when it starts. Until then SplatMe → Settings, SplatMe's panel and a task set
-   to train also say that tasks are not trained by themselves yet.
-
 Training needs the right to change the task's project. The task must have completed with a point cloud and
 still have its photos (JPEG, or DJI Thermal Analyzer's TIFFs). The trained model replaces the task's splat model only when training succeeds,
 and then shows in the task's 3D view like a model uploaded by hand. WebODM converts it for its viewer with its
@@ -169,8 +192,29 @@ own converter, as it does a model uploaded by hand; the model as the trainer wro
 folder (`assets/splats/splatme-model.ply`, about 250 bytes per gaussian) for continuing, and counts in the
 task's size.
 
-The plugin needs a splat node of version 0.2.0 or later; **Test Connection** says when the node is older.
-Update the node with the command that started it.
+## The splat node
+
+[node/splatnode.sh](node/splatnode.sh) writes a compose file and its `.env` (with the token, readable by its
+owner only) to `~/splatnode` (`SPLATNODE_DIR`); `status` says whether the node answers, and `connect` gives
+SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM). Without the
+script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d`, from a checkout (add `--build` to
+compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
+v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series, and takes a while). The image is
+`ghcr.io/winuxnomacs/splatme-node`, tagged with the node's version and `latest`.
+
+The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
+(`SPLATNODE_KEEP_HOURS`). Every request needs the token.
+
+Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <token>`:
+
+| Request | Does |
+|---|---|
+| `GET /info` | The node, its trainer, its GPU, its queue and the options a job accepts |
+| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`. Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total |
+| `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error |
+| `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
+| `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
+| `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |
 
 ## The plugin's API
 

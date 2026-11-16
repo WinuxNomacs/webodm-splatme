@@ -1,4 +1,5 @@
-# The release: the plugin's zip on a GitHub release, and the splat node's image on ghcr.io.
+# The release: the plugin's zip and the splat node's script on a GitHub release, and the splat node's image on
+# ghcr.io.
 # Runs only for a pushed tag v<the plugin's version> (as in splatme/manifest.json), or by hand (Actions > Release >
 # Run workflow), never for an ordinary push or a pull request. By hand it builds both and publishes nothing,
 # unless "Push the splat node's image" is ticked.
@@ -25,20 +26,23 @@ jobs:
       contents: write  # to create the release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - name: Build splatme.zip
+      - name: Build the zip
         run: |
           # A tag's version must be the manifest's
           version=""
           if [ "$GITHUB_REF_TYPE" = tag ]; then version="${GITHUB_REF_NAME#v}"; fi
           dev/build-zip.sh HEAD "$version"
-          echo "### splatme.zip" >> "$GITHUB_STEP_SUMMARY"
-          echo "sha256 \`$(cut -d' ' -f1 dist/splatme.zip.sha256)\`" >> "$GITHUB_STEP_SUMMARY"
+          zip="$(basename dist/splatme-*.zip)"
+          echo "zip=$zip" >> "$GITHUB_ENV"
+          echo "### $zip" >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256 \`$(cut -d' ' -f1 "dist/$zip.sha256")\`" >> "$GITHUB_STEP_SUMMARY"
       - name: Create the GitHub release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/splatme.zip dist/splatme.zip.sha256 \
+          # The node's script too: the docs fetch it from releases/latest, never from main
+          gh release create "$GITHUB_REF_NAME" "dist/$zip" "dist/$zip.sha256" node/splatnode.sh \
             --verify-tag --title "SplatMe ${GITHUB_REF_NAME#v}" --generate-notes
 
   node:

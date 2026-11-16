@@ -1335,9 +1335,27 @@ Decided with the user (2026-11-14):
   Administration > Plugins and enable it; restart WebODM once; enter the node's address and token on the
   SplatMe page.
 
-To do, besides the image: something that builds `splatme.zip` (the `splatme/` folder as its single root); a
-check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
-folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
+Already built in "Install, upgrade and uninstall (built)": the zip, the release workflow, the published image
+(0.2.0), the node's script, and the check that a production WebODM builds an uploaded plugin's page scripts.
+
+Decided with the user (2026-11-16):
+
+- **The first release is 0.1.0**, and the manifest stays `"experimental": true`.
+- **The docs are the README** (no `docs/` folder): install (the node's script, then the plugin from Install
+  Plugins or Upload Plugin, then one restart of WebODM), upgrade (Update in Install Plugins, or Delete and
+  Upload; `splatnode.sh upgrade`), uninstall and what it leaves (SplatMe's settings in WebODM's database, the
+  trained models in their tasks, the node's jobs and image).
+- **The zip is named with its version** (`splatme-0.1.0.zip`), as the user's other plugins' are, so each
+  directory entry points at its own file.
+- **The node's script is attached to each GitHub release**, and the docs fetch it from
+  `…/releases/latest/download/splatnode.sh`, so administrators get the released script, never `main`'s.
+- **Screenshots in the README**, taken headless on the dev stack from tasks the user names, each shown to the
+  user before it is committed (they may show places or imagery).
+
+Build order: the zip's name and the script on the release (workflow, `dev/build-zip.sh`, the script's own
+`SELF`); the README; the screenshots; `release/0.1.0` (changelog, merged); the user pushes the tag `v0.1.0`; the
+release checked (the zip from Install Plugins' Upload on a throwaway WebODM, the script from
+`releases/latest`); the directory entry, a pull request to WebODM-Plugins opened only with the user's approval.
 
 ### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
