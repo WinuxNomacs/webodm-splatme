@@ -1,6 +1,6 @@
 # SplatMe
 
-[![SplatMe: a drone's photos becoming a trained splat model, with WebODM's logo](docs/assets/splash/splash-medium.jpg)](docs/assets/splash/splash.jpg)
+[![SplatMe: a drone's photos becoming a trained splat model](docs/assets/splash/splash-medium.jpg)](docs/assets/splash/splash.jpg)
 
 A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically via
 [OpenSplat](https://github.com/WebODM/OpenSplat).
