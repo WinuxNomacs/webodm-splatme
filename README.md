@@ -2,7 +2,8 @@
 
 [![SplatMe: a drone's photos becoming a trained splat model, with WebODM's logo](docs/assets/splash/splash-medium.jpg)](docs/assets/splash/splash.jpg)
 
-A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically.
+A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically via
+[OpenSplat](https://github.com/WebODM/OpenSplat).
 
 WebODM can export a task's training data and display a trained splat model, but the training itself is done by
 hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
