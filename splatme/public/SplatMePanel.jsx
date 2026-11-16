@@ -13,6 +13,7 @@ export default class SplatMePanel extends React.Component {
         error: PropTypes.string,
         warning: PropTypes.string,              // shown above the form (WebODM not restarted since SplatMe came)
         showCrop: PropTypes.bool,               // false for a task known to have no boundary
+        thermal: PropTypes.bool,                // the photos picked are TIFFs (DJI Thermal Analyzer's)
         onEnabled: PropTypes.func.isRequired,   // (enabled)
         onChange: PropTypes.func.isRequired,    // (name, value)
         onAdvanced: PropTypes.func.isRequired   // (open)
@@ -32,7 +33,7 @@ export default class SplatMePanel extends React.Component {
                     </label>
                 </div>
                 {enabled ?
-                    <OptionsFields form={form} advanced={advanced} showCrop={this.props.showCrop}
+                    <OptionsFields form={form} advanced={advanced} showCrop={this.props.showCrop} thermal={!!this.props.thermal}
                                    onChange={this.props.onChange} onAdvanced={this.props.onAdvanced} /> : ""}
             </div>
         );

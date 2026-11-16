@@ -26,7 +26,7 @@ export default class AutoDialog extends React.Component {
         this._mounted = true;
         // The node's ranges, to name a wrong number before saving; without them the server still checks
         request("GET", "task/" + this.props.taskId + "/check").then(check => {
-            if (this._mounted) this.setState({ranges: check.ranges, showCrop: !!check.boundary});
+            if (this._mounted) this.setState({ranges: check.ranges, showCrop: !!check.boundary, thermal: !!check.thermal});
         }).catch(() => {});
     }
 
@@ -49,7 +49,7 @@ export default class AutoDialog extends React.Component {
     };
 
     render(){
-        const { enabled, form, advanced, saving, error, showCrop } = this.state;
+        const { enabled, form, advanced, saving, error, showCrop, thermal } = this.state;
         const footer = (
             <React.Fragment>
                 <button type="button" className="btn btn-default" onClick={this.props.onClose}>{_("Close")}</button>
@@ -73,7 +73,7 @@ export default class AutoDialog extends React.Component {
                         </div>
                     </div>
                     {enabled ?
-                        <OptionsFields form={form} advanced={advanced} showCrop={showCrop}
+                        <OptionsFields form={form} advanced={advanced} showCrop={showCrop} thermal={!!thermal}
                                        onChange={(name, value) => this.setState({form: {...form, [name]: value}, error: null})}
                                        onAdvanced={open => this.setState({advanced: open})} /> : ""}
                 </form>

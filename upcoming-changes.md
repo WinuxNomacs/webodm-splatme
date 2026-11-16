@@ -9,14 +9,11 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Thermal tasks: DJI thermal TIFFs converted to radiometric JPEGs, when DJI Thermal Analyzer is installed.
-   After the phases before it, so thermal tasks get what they built, and released with the next
-   webodm-dji-thermal.
+1. Docs and first release.
 
 **Later**
 
-2. Docs and first release.
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 
 **Dropped**
@@ -33,6 +30,13 @@ other software. The plugin does that step.
 
 **Done**
 
+- Thermal tasks (2026-11-15): DJI Thermal Analyzer's tasks listed and trained, their temperature TIFFs drawn
+  as JPEGs over one range for the whole task in a Thermal Colours palette (nine: Grayscale, Black Hot, Iron and
+  WebODM's own maps), given to WebODM's export through a stand-in task (`thermal.py`; `training.py`'s
+  `compatible`, `problem`, `parse_options`' `palette`, `export_and_send`'s Drawing stage; `api.py`'s `check`
+  `thermal` and `status` `thermal`); Thermal Colours in place of Ignore Sky in `OptionsFields.jsx` and on
+  Settings (`options.html`); the row names the palette and range (`trainingView.js` `thermalText`). Tests: six
+  Django tests (`# Thermal tasks`), Jest's "a thermal task's colours". See "Thermal tasks (built)".
 - OpenSplat presets (2026-11-15): a study of OpenSplat's code and 25 measured trainings, then Draft 3,000 steps
   (2,000 grew nothing), Standard 7,000, a new Fine 15,000 and High 30,000, each hint with its time and GPU
   memory; a note for step counts the trainer handles badly (`trainingView.js` `stepsNote`, also in
@@ -263,7 +267,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 2.
+  workflow, to decide in phase 1.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -304,7 +308,7 @@ splat itself is poor). The other five tasks there are thermal TIFFs, which WebOD
 Found on the way:
 
 - A task whose images are not JPEG (the thermal tasks' TIFFs) cannot be exported: the plugin says so before
-  starting. Converting them is phase 1 (Thermal tasks).
+  starting. Drawing them is "Thermal tasks (built)".
 - A headless browser draws the 3D view in software, slowly: a screenshot of it needs a small window and a long
   timeout (800x520, four minutes).
 
@@ -421,13 +425,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 3).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 2).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 3).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 2).
 
 ### SplatMe's panel (built)
 
@@ -475,7 +479,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 3. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 2. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -919,7 +923,7 @@ Proposed:
   link when the name is not one project's). The Dashboard's button keeps opening the box for its project, listed
   or not.
 - When nothing is listed: a sentence saying no task can be trained yet, with New Task With Splats.
-- Thermal tasks (phase 1) become compatible when that phase converts them.
+- Thermal tasks (DJI Thermal Analyzer's) became compatible with "Thermal tasks (built)".
 
 Decided with the user (2026-11-15):
 
@@ -1080,18 +1084,101 @@ HomerunObliqueRGB, 1,005 photos (the trainer's own pick of a held-out photo, `�
   returned a 406,628-gaussian model; the job was deleted. Not trained through SplatMe, which would have
   replaced a dev task's splats: the pin changes only the node.
 
-### 1. Thermal tasks
+### Thermal tasks (built)
 
-WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs. With the DJI Thermal Analyzer
-plugin installed, convert them to radiometric JPEGs with its DJI thermal SDK and export those; without it, the
-task is refused with a message naming that plugin. To check first: how that plugin exposes the conversion, and
-that the export can be given the converted images (it reads `task.get_image_path`).
+WebODM's export refuses images that are not JPEG, and a thermal task's are TIFFs.
 
-Moved later (2026-11-15, the user's decision): it is released at the same time as the next webodm-dji-thermal,
-whose release the user makes, and thermal tasks are to benefit from the work before it (new tasks in SplatMe,
-the presets). webodm-dji-thermal itself is still not touched from here.
+**Found (2026-11-15, reading only, on the user's DJI Thermal Analyzer stack at :8002):**
 
-### 2. Docs and first release
+- **No conversion is needed.** A task made by DJI Thermal Analyzer's Thermal Task button holds TIFFs of
+  temperatures, not R-JPEGs: single-band float32, degrees Celsius, 640 × 512 on the M4T (`converter.convert`,
+  dji-thermal-cli's `temp_c` TIFF). The R-JPEGs are not kept. Each TIFF's XMP has `Camera:BandName="LWIR"` (what
+  ODM goes by) and DJI Thermal Analyzer's own namespace `urn:dji-thermal-cli:xmp:1.0` (`dtc`), after the pixels,
+  which the TIFF's tag 700 points to. Drawing the temperatures needs only numpy and Pillow (WebODM's): neither
+  that plugin nor DJI's SDK has to be installed.
+- **One range for the whole task.** A photo stretched to its own range (as DJI's previews are) shows the same roof
+  in a different shade in each view, and the model blurs.
+- **The task's point cloud is grayscale** (ODM's thermal colouring), the starting colours of every palette.
+- **WebODM 4.0.0 ships matplotlib's colour maps** (`app.vendor.rio_tiler.colormap.cmap`: gray, magma, inferno,
+  plasma, viridis, cividis, jet and their `_r`), which its map layers offer; DJI's own palettes (Iron Red,
+  Arctic...) exist only inside DJI's photos and cannot be bundled.
+- **The export can be reused whole**: `prepare_export` reads the shots' names from `odm_report/shots.geojson` and
+  each image from `task.get_image_path`. Given a stand-in for the task that answers both with the drawn JPEGs
+  (and everything else as the task), it writes the cameras, the images and the sampled point cloud as for any
+  task: nothing of WebODM is copied.
+
+**Decided with the user (2026-11-15):**
+
+- **Only DJI Thermal Analyzer's tasks**: every photo a TIFF with its `dtc` metadata. Other thermal TIFFs (in
+  hundredths of a kelvin, or raw counts, and none at hand to test) stay unlisted, as today.
+- **Thermal Colours chosen per training**: Grayscale (white is hot, the default), Black Hot, Iron (SplatMe's own,
+  from colour stops: black, purple, red, yellow, white), Magma, Inferno, Plasma, Viridis, Cividis, Jet (WebODM's
+  own maps). The hottest is the right-hand end, as WebODM's map layers draw them.
+- **The test task**: a thermal task on the dev stack (:8008) from ThermalTest's 218 TIFFs (copied from :8002,
+  reading only there), processed and trained, and kept for later checks.
+- **Released with SplatMe's own** (not tied to webodm-dji-thermal any more: nothing of it is used).
+  webodm-dji-thermal is still not touched from here. Reading a temperature back from a trained model (its 3D
+  page) would be a change in that repo, raised with the user there.
+
+**The design:**
+
+- `thermal.py`: whether a task is DJI Thermal Analyzer's (`is_thermal`: its first TIFF's tag 700, read without the
+  pixels), the palettes (`PALETTES`: key, name, 256 colours from WebODM's maps or Iron's stops), and `draw(task,
+  palette, folder, progress)`: a first pass over every photo for the task's range (low and high percentiles of
+  all pixels, so the cold sky and a few hot pixels do not flatten the rest), a second writing each photo as
+  `<name>.jpg` in the palette, and a stand-in task for `prepare_export`. Returns the range in °C.
+- `training.py`: `compatible` and `problem` accept a thermal task; `export_and_send` draws before exporting (its
+  own stage, "Drawing the thermal photos"); the option `palette` (default `gray`) checked like the others,
+  saved in automatic training's options and the user's and administrators' defaults; a continued training keeps
+  its palette, as it keeps the other options. Ignore Sky is not applied to a thermal task (the sky model is for
+  colour photos). The job's record keeps `thermal: {palette, low, high}`.
+- `api.py`: `check` says `thermal`, `status` passes the job's `thermal`.
+- The pages: **Thermal Colours** under Quality in the Train Splats and Change dialogs of a thermal task, in the
+  New Task With Splats panel when the photos picked are TIFFs, and on SplatMe → Settings (and its Administration
+  page) with the hint "For DJI Thermal Analyzer's tasks"; Ignore Sky hidden for a thermal task. The task's row
+  says "Thermal Colours: Grayscale, 10.3 °C (black) to 43.5 °C (white)", in WebODM's unit system as DJI Thermal
+  Analyzer shows temperatures.
+- The README and the API table.
+
+**Build order:** `thermal.py` with Django tests (TIFFs made in the test, with and without the `dtc` metadata;
+the range; the drawn JPEGs; the stand-in export); then `training.py` and `api.py` with their tests; the pages
+with Jest (`trainingView.js`: the palettes, the row's text); the test task on :8008 and a training of it,
+measured (the presets' times on 640 × 512 frames), and a check in the browser.
+
+**As built and checked (2026-11-15, branch `thermal-tasks`):**
+
+- As designed, with: the range from the 1st and 99th percentiles of every 4th pixel across and down; the Drawing
+  stage has no share of the progress bar (it takes seconds); `palette` is kept in the options only when it is
+  not `gray`, as `ignore_sky` and `crop` only when not their default.
+- The test task on :8008: project Thermal, task ThermalTest (218 TIFFs copied from :8002's ThermalTest, uploaded
+  in parts through WebODM's API with that task's options), processed on the dev node, kept. Recognised, no
+  problem, range 14.88 to 47.27 °C (the pixels themselves -17.5 to 55.4: the cold 1% is sky). A contact sheet of
+  four photos in Grayscale and Iron: the roofs, the ground and the vegetation the same shade from photo to photo.
+- Trained through SplatMe with Standard and Iron: drawing and export 7 s, training to completed in 72 s, GPU
+  peak 1.85 GB (with about 0.9 GB the desktop holds). **WebODM's worker ran the old code** (its pool process had
+  imported SplatMe before the change) and failed the first try with the export's "not a JPEG"; the worker was not
+  restarted (the user's stack), and the job ran instead through the same `training.run` in `sm-webapp`. Anyone
+  updating the plugin restarts WebODM, as the README says.
+- Measured on the node with the task's export in Grayscale (as for the presets, photo 0102 held out):
+
+  | Quality | Time | GPU memory | Gaussians | PSNR |
+  |---|---|---|---|---|
+  | Draft 3,000 | 35 s | 0.9 GB | 278k | 29.06 |
+  | Standard 7,000 | 74 s | 1.0 GB | 56k | 29.77 |
+  | Fine 15,000 | 136 s | 1.0 GB | 84k | 33.13 |
+  | High 30,000 | 288 s | 1.1 GB | 113k | 33.84 |
+
+  About a quarter of the RGB times. The final prune leaves few gaussians on these smooth frames (Standard: 29k
+  of 176k in the Iron training). The PSNRs are not comparable with the RGB ones (one channel, smooth pictures).
+  The README says so; the presets' hints, measured on RGB photos, are unchanged.
+- Browser (admin, GETs only): the row reads "Splats trained (7,000 steps) in 1 min 9 s. Thermal Colours: Iron,
+  from 14.9 °C to 47.3 °C."; Train Splats Again → Start Over shows Thermal Colours with the nine palettes and no
+  Ignore Sky; Settings shows Thermal Colours (Grayscale); no horizontal scroll at 390 px; no page error (only the
+  dev livereload, and WebODM's 3D page asking for the task's point cloud). The 3D view draws no splats in
+  headless Chromium, for an RGB task alike: the model was not looked at in 3D.
+- Checks: Django 77 (SplatMe's with WebODM's `test_plugins` and `test_splats`), Jest 56, ESLint, Ruff.
+
+### 1. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
 
@@ -1109,7 +1196,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review

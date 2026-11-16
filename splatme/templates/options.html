@@ -54,6 +54,24 @@ shared (the admin page) the administrators', for users who saved none, which onl
         </div>
     </div>
     <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-palette">Thermal Colours</label>
+        <div class="col-sm-9">
+            <select class="form-control" id="splatme-auto-palette">
+                <option value="gray">Grayscale</option>
+                <option value="gray_r">Black Hot</option>
+                <option value="iron">Iron</option>
+                <option value="magma">Magma</option>
+                <option value="inferno">Inferno</option>
+                <option value="plasma">Plasma</option>
+                <option value="viridis">Viridis</option>
+                <option value="cividis">Cividis</option>
+                <option value="jet">Jet</option>
+            </select>
+            <span class="help-block">For DJI Thermal Analyzer's tasks: the colours the temperatures are drawn in, which
+                the model shows. They run from the task's coldest to its hottest, the same in every photo.</span>
+        </div>
+    </div>
+    <div class="form-group">
         <div class="col-sm-9 col-sm-offset-3">
             <button type="submit" class="btn btn-primary" id="splatme-auto-save"><i class="fa fa-save fa-fw"></i> Save</button>
             <button type="button" class="btn btn-default" id="splatme-auto-reset" style="display: none;"><i class="fa fa-undo fa-fw"></i> Use The Administrators' Defaults</button>
@@ -98,6 +116,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
     var gaussians = document.getElementById("splatme-auto-gaussians");
     var sky = document.getElementById("splatme-auto-sky");
     var crop = document.getElementById("splatme-auto-crop");
+    var palette = document.getElementById("splatme-auto-palette");  // as public/trainingView.js's THERMAL_PALETTES
     var saved = document.getElementById("splatme-auto-saved");
     var error = document.getElementById("splatme-auto-error");
     var reset = document.getElementById("splatme-auto-reset");
@@ -144,6 +163,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
         sky.checked = !!options.ignore_sky;
         crop.checked = options.crop !== false;
+        palette.value = options.palette || "gray";
         qualityOfSteps();
     }
 
@@ -179,7 +199,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
     form.addEventListener("submit", function(e){
         e.preventDefault();
         save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value,
-            max_gaussians: gaussians.value, ignore_sky: sky.checked, crop: crop.checked});
+            max_gaussians: gaussians.value, ignore_sky: sky.checked, crop: crop.checked, palette: palette.value});
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });
 

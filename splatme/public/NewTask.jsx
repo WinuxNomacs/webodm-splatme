@@ -197,6 +197,7 @@ export default class NewTask extends React.Component {
                             <div ref={el => { this.splatmePanel = el; }}>
                                 <SplatMePanel enabled={enabled} form={form} advanced={advanced} error={formError}
                                               warning={enabled && listening === false ? _(NOT_LISTENING) : null}
+                                              thermal={files.some(f => /\.tiff?$/i.test(f.name))}
                                               onEnabled={value => { this.touched = true; this.change({enabled: value}); }}
                                               onChange={(name, value) => { this.touched = true; this.change({form: Object.assign({}, form, {[name]: value})}); }}
                                               onAdvanced={open => this.setState({advanced: open})} />
