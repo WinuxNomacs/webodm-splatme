@@ -2,10 +2,13 @@
 """Stands in for OpenSplat in the service's tests: the same arguments and output, no training.
 
 FAKE_TRAINER (environment): "fail" ends with an error, "oom" with CUDA's out-of-memory message, "slow" waits
-a long time between steps (for the tests that cancel).
+a long time between steps (for the tests that cancel). Misbehaving, for the tests that make failures happen:
+"stubborn" ignores SIGTERM, "silent" stops printing without exiting; both give up after 60 s, so a run against a
+node that can't stop them leaves nothing behind for long.
 """
 
 import os
+import signal
 import sys
 import time
 
@@ -22,6 +25,12 @@ os.mkdir(os.path.join(os.path.dirname(dataset), "opensplat-extracted"))
 print("Using CUDA", flush=True)
 if mode == "fail":
     print("No cameras see any sparse points", flush=True)
+    sys.exit(1)
+if mode in ("stubborn", "silent"):
+    if mode == "stubborn":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    print(f"Step 10: 0.2 [{1000 // steps}%]", flush=True)
+    time.sleep(60)
     sys.exit(1)
 if mode == "oom":
     print("CUDA out of memory. Tried to allocate 2.00 GiB", flush=True)

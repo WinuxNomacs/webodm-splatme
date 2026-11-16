@@ -1,8 +1,10 @@
+import errno
 import http.client
 import io
 import json
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import threading
@@ -14,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import splatnode
 
 splatnode.Handler.log_message = lambda *args: None
+splatnode.log = lambda message: None  # the failures the tests make happen are logged on purpose
 TRAINER = os.path.join(os.path.dirname(__file__), "fake_trainer.py")
 
 
@@ -41,6 +44,11 @@ class NodeTestCase(unittest.TestCase):
     def start(self):
         self.server = splatnode.make_server("127.0.0.1", 0, self.data, TRAINER, self.token)
         self.port = self.server.server_address[1]
+        # Short deadlines, so the tests that make a trainer misbehave don't wait for the real ones
+        self.server.node.grace = 1
+        self.server.node.stall_seconds = 60
+        self.worker_deaths = []
+        self.server.node.on_worker_death = lambda: self.worker_deaths.append(True)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.stop)
 
@@ -57,7 +65,7 @@ class NodeTestCase(unittest.TestCase):
         conn.request(method, path, body=body, headers=headers)
         response = conn.getresponse()
         data = response.read()
-        if response.getheader("Content-Type") == "application/json":
+        if response.getheader("Content-Type") == "application/json" and data:
             data = json.loads(data)
         return response, data
 
@@ -73,6 +81,22 @@ class NodeTestCase(unittest.TestCase):
                 return job
             time.sleep(0.05)
         self.fail("The job stayed {}".format(job["state"]))
+
+    def wait_for_a_step(self, job_id):
+        """Until the trainer has printed a step: a misbehaving stand-in has then set itself up (SIGTERM ignored)."""
+        for _ in range(200):
+            if self.request("GET", "/jobs/" + job_id)[1]["step"]:
+                return
+            time.sleep(0.05)
+        self.fail("The trainer printed no step")
+
+    def wait_gone(self, job_id):
+        """Until the job's folder is gone (deleted by the worker, outside the lock)."""
+        for _ in range(100):
+            if not os.path.exists(os.path.join(self.data, "jobs", job_id)):
+                return
+            time.sleep(0.05)
+        self.fail("The job's folder is still there")
 
     def files(self, job_id):
         return sorted(os.listdir(os.path.join(self.data, "jobs", job_id)))
@@ -161,7 +185,7 @@ class TestSplatNode(NodeTestCase):
         self.wait(job["id"], ("running",))
         self.assertEqual(self.request("DELETE", "/jobs/" + job["id"])[0].status, 200)
         self.assertEqual(self.request("GET", "/jobs/" + job["id"])[0].status, 404)
-        self.assertFalse(os.path.exists(os.path.join(self.data, "jobs", job["id"])))
+        self.wait_gone(job["id"])
 
     def test_a_restart_keeps_finished_jobs_requeues_waiting_ones_and_fails_the_running_one(self):
         done = self.wait(self.create()["id"])
@@ -252,6 +276,179 @@ class TestSplatNode(NodeTestCase):
         self.assertEqual(self.request("GET", "/jobs/" + "0" * 32)[0].status, 404)
         self.assertEqual(self.request("GET", "/jobs/..%2F..")[0].status, 404)
         self.assertEqual(self.request("GET", "/nothing")[0].status, 404)
+
+
+def failing_once(original, when, error=None):
+    """original, except that its first call for which when(*args) is true raises error (a full disk)."""
+    state = {"failed": False}
+
+    def wrapper(*args, **kwargs):
+        if not state["failed"] and when(*args):
+            state["failed"] = True
+            raise error or OSError(errno.ENOSPC, "No space left on device")
+        return original(*args, **kwargs)
+
+    return wrapper
+
+
+class TestFailures(NodeTestCase):
+    """Each failure is made to happen: the node must end it with a clear message and keep working."""
+
+    def patch(self, owner, name, value):
+        original = getattr(owner, name)
+        setattr(owner, name, value)
+        self.addCleanup(setattr, owner, name, original)
+        return original
+
+    def test_a_full_disk_as_a_job_starts_fails_that_job_and_the_next_one_trains(self):
+        node = self.server.node
+        self.patch(type(node), "save", failing_once(type(node).save, lambda _, job: job["state"] == "running"))
+        first = self.wait(self.create()["id"])
+        self.assertEqual(first["state"], "failed")
+        self.assertIn("No space left on device", first["error"])
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+        self.assertEqual(self.request("GET", "/health", token="")[0].status, 200)
+
+    def test_a_full_disk_as_a_job_ends_does_not_stop_the_next_one(self):
+        node = self.server.node
+        self.patch(type(node), "save", failing_once(type(node).save, lambda _, job: job["state"] == "completed"))
+        first = self.wait(self.create()["id"])
+        self.assertIn(first["state"], splatnode.FINISHED)
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_a_full_disk_during_an_upload_is_answered_and_leaves_nothing(self):
+        self.patch(splatnode, "check_dataset", failing_once(splatnode.check_dataset, lambda *_: True))
+        response, data = self.request("POST", "/jobs?steps=20", body=training_zip())
+        self.assertEqual(response.status, 507)
+        self.assertIn("No space left on device", data["error"])
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+
+    def test_an_unexpected_error_is_answered_with_its_message(self):
+        self.patch(type(self.server.node), "info", lambda self: 1 / 0)
+        response, data = self.request("GET", "/info")
+        self.assertEqual(response.status, 500)
+        self.assertIn("division by zero", data["error"])
+
+    def test_a_damaged_job_file_is_set_aside_and_the_node_starts(self):
+        good, damaged, unreadable = (self.wait(self.create()["id"]) for _ in range(3))
+        self.stop()
+        with open(os.path.join(self.data, "jobs", damaged["id"], "job.json"), "w") as f:
+            f.write('{"id": "x"}')
+        with open(os.path.join(self.data, "jobs", unreadable["id"], "job.json"), "w") as f:
+            f.write("not json")
+        self.start()
+        self.assertEqual(self.request("GET", "/jobs/" + good["id"])[1]["state"], "completed")
+        for job in (damaged, unreadable):
+            self.assertEqual(self.request("GET", "/jobs/" + job["id"])[0].status, 404)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.data, "broken"))), sorted([damaged["id"], unreadable["id"]]))
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_a_trainer_that_ignores_sigterm_is_killed_after_the_grace_period(self):
+        os.environ["FAKE_TRAINER"] = "stubborn"
+        job = self.create()
+        self.wait_for_a_step(job["id"])
+        canceling = self.request("POST", "/jobs/{}/cancel".format(job["id"]))[1]
+        self.assertNotIn("canceling", canceling)
+        self.assertEqual(self.wait(job["id"])["state"], "canceled")
+        os.environ.pop("FAKE_TRAINER")
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_deleting_a_job_whose_trainer_ignores_sigterm_answers_at_once(self):
+        os.environ["FAKE_TRAINER"] = "stubborn"
+        job = self.create()
+        self.wait_for_a_step(job["id"])
+        started = time.monotonic()
+        self.assertEqual(self.request("DELETE", "/jobs/" + job["id"])[0].status, 200)
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(self.request("GET", "/jobs/" + job["id"])[0].status, 404)
+        self.wait_gone(job["id"])
+
+    def test_stopping_the_node_ends_a_trainer_that_ignores_sigterm(self):
+        os.environ["FAKE_TRAINER"] = "stubborn"
+        job = self.create()
+        self.wait_for_a_step(job["id"])
+        process = self.server.node.process
+        self.stop()
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(self.server.node.worker.is_alive())
+
+    def test_a_trainer_that_goes_silent_is_stopped_and_its_job_says_why(self):
+        self.server.node.stall_seconds = 1
+        os.environ["FAKE_TRAINER"] = "silent"
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("printed nothing for", job["error"])
+
+    def test_an_upload_that_stalls_is_dropped_and_leaves_nothing(self):
+        self.assertIsNotNone(splatnode.Handler.timeout)
+        self.patch(splatnode.Handler, "timeout", 0.5)
+        stalled = socket.create_connection(("127.0.0.1", self.port))
+        self.addCleanup(stalled.close)
+        stalled.sendall(b"POST /jobs HTTP/1.1\r\nAuthorization: Bearer secret\r\nContent-Length: 100000\r\n\r\nxx")
+        time.sleep(0.2)
+        self.assertEqual(len(os.listdir(os.path.join(self.data, "jobs"))), 1)
+        time.sleep(1)
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_two_uploads_at_once_cannot_count_on_the_same_free_space(self):
+        body = training_zip()
+        usage = shutil.disk_usage(self.data)
+        self.patch(splatnode.shutil, "disk_usage", lambda _: usage._replace(free=int(len(body) * 4)))
+        first = socket.create_connection(("127.0.0.1", self.port))
+        self.addCleanup(first.close)
+        headers = f"POST /jobs HTTP/1.1\r\nAuthorization: Bearer secret\r\nContent-Length: {len(body)}\r\n\r\n"
+        first.sendall(headers.encode() + body[:10])
+        time.sleep(0.2)
+        response, data = self.request("POST", "/jobs?steps=20", body=body)
+        self.assertEqual(response.status, 507, data)
+
+    def test_when_the_worker_thread_ends_health_says_so_and_the_node_is_told(self):
+        node = self.server.node
+        self.patch(type(node), "next_job", lambda self: (_ for _ in ()).throw(SystemExit()))
+        with node.lock:
+            node.lock.notify_all()
+        self.create()
+        node.worker.join(5)
+        self.assertFalse(node.worker.is_alive())
+        self.assertEqual(self.worker_deaths, [True])
+        response, data = self.request("GET", "/health", token="")
+        self.assertEqual(response.status, 503)
+        self.assertFalse(data["ok"])
+
+    def test_a_worker_that_stops_beating_shows_in_health(self):
+        node = self.server.node
+        node.heartbeat -= node.HEARTBEAT_LIMIT + 1
+        self.patch(type(node), "beat", lambda self: None)
+        self.assertEqual(self.request("GET", "/health", token="")[0].status, 503)
+
+    def test_an_illegal_state_change_is_refused(self):
+        job = self.wait(self.create()["id"])
+        with self.assertRaises(splatnode.IllegalTransition):
+            self.server.node.transition(job["id"], "running")
+        self.assertEqual(self.request("GET", "/jobs/" + job["id"])[1]["state"], "completed")
+
+    def test_a_job_is_answered_while_a_finished_jobs_files_are_deleted(self):
+        real, deleting = shutil.rmtree, threading.Event()
+
+        def slow_rmtree(*args, **kwargs):  # as the photos of a large task take
+            deleting.set()
+            time.sleep(2)
+            real(*args, **kwargs)
+
+        self.patch(splatnode.shutil, "rmtree", slow_rmtree)
+        job = self.create()
+        self.assertTrue(deleting.wait(10))
+        started = time.monotonic()
+        self.request("GET", "/jobs/" + job["id"])
+        self.assertLess(time.monotonic() - started, 1)
+
+    def test_a_wrong_method_is_told_what_is_allowed_and_head_answers_like_get(self):
+        response, data = self.request("PUT", "/jobs")
+        self.assertEqual(response.status, 405)
+        self.assertEqual(response.getheader("Allow"), "GET, HEAD, POST")
+        response, data = self.request("HEAD", "/health", token="")
+        self.assertEqual((response.status, data), (200, b""))
 
 
 if __name__ == "__main__":
