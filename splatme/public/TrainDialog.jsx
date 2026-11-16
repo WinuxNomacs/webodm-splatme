@@ -4,7 +4,8 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps, stagesText, DEFAULT_PALETTE } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, DEFAULT_PALETTE } from './trainingView';
+import StagesTable from './StagesTable';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
 // that all point down, the options, and Start Training. A task whose trained model SplatMe kept can be continued
@@ -103,7 +104,7 @@ export default class TrainDialog extends React.Component {
                                 <span className="help-block">
                                     {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
                                 </span>
-                                {total > trained ? <span className="help-block splatme-stages">{_(stagesText(total, trained))}</span> : ""}
+                                <StagesTable total={total} from={trained} />
                             </div>
                         </div> :
                         <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}

@@ -24,7 +24,13 @@ shared (the admin page) the administrators', for users who saved none, which onl
             <input type="number" min="1" class="form-control" id="splatme-auto-steps">
             <span class="help-block">How long the trainer works on the model. It grows the model in the first half of
                 the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.</span>
-            <span class="help-block" id="splatme-auto-stages"></span>
+            <table class="table table-bordered table-condensed" id="splatme-auto-stages" style="table-layout: fixed; width: 100%; margin-top: 5px; margin-bottom: 5px;">
+                <caption style="padding-top: 0;">Of these steps:</caption>
+                <thead><tr><th style="text-align: center;">Warm-up</th><th style="text-align: center;">Growing</th>
+                    <th style="text-align: center;">Refining</th><th style="text-align: center;">Polishing</th></tr></thead>
+                <tbody><tr><td style="text-align: center;"></td><td style="text-align: center;"><span></span><br><small></small></td>
+                    <td style="text-align: center;"></td><td style="text-align: center;"></td></tr></tbody>
+            </table>
         </div>
     </div>
     <div class="form-group">
@@ -106,29 +112,36 @@ shared (the admin page) the administrators', for users who saved none, which onl
         return "";
     }
 
-    // As public/trainingView.js's trainingStages and stagesText, for a new training
-    function stagesText(value){
+    // As public/trainingView.js's trainingStages and stagesCells, for a new training: [[percent text, rounds text]]
+    function stagesCells(value){
         var total = Number(value);
-        if (!(total >= 1) || Math.floor(total) !== total) return "";
+        if (!(total >= 1) || Math.floor(total) !== total) return [["\u2013"], ["\u2013", "\u2013"], ["\u2013"], ["\u2013"]];
         var grownUntil = Math.min(15000, Math.floor(total / 2)), polishFrom = Math.min(20000, Math.floor(total * 2 / 3));
         var rounds = 0;
         for (var step = 1000; step < grownUntil; step += 500) rounds++;
         var growing = rounds ? grownUntil - 500 : 0;
-        var stages = [["Warm-up", grownUntil - growing], ["Growing", growing], ["Refining", polishFrom - grownUntil],
-                      ["Polishing", total - polishFrom]].filter(function(s){ return s[1] > 0; });
-        var shares = stages.map(function(s){ return Math.floor(s[1] * 100 / total); });
-        var order = stages.map(function(s, i){ return [s[1] * 100 / total - shares[i], i]; }).sort(function(a, b){ return b[0] - a[0]; });
+        var counts = [grownUntil - growing, growing, polishFrom - grownUntil, total - polishFrom];
+        var shares = counts.map(function(c){ return Math.floor(c * 100 / total); });
+        var order = counts.map(function(c, i){ return [c * 100 / total - shares[i], i]; }).sort(function(a, b){ return b[0] - a[0]; });
         var missing = 100 - shares.reduce(function(a, b){ return a + b; }, 0);
         for (var k = 0; k < missing; k++) shares[order[k][1]]++;
-        return "Of these steps: " + stages.map(function(s, i){
-            return s[0] + " " + shares[i] + "%" + (s[0] === "Growing" ? " (" + rounds + (rounds === 1 ? " round)" : " rounds)") : "");
-        }).join(" \u00b7 ");
+        return shares.map(function(share, i){
+            return i === 1 ? [share + "%", rounds + (rounds === 1 ? " round" : " rounds")] : [share + "%"];
+        });
     }
 
     function showHint(){
         document.getElementById("splatme-auto-hint").textContent =
             quality.value === "custom" ? (stepsNote(steps.value) || HINTS.custom) : HINTS[quality.value];
-        document.getElementById("splatme-auto-stages").textContent = stagesText(steps.value);
+        var cells = document.querySelectorAll("#splatme-auto-stages td");
+        stagesCells(steps.value).forEach(function(cell, i){
+            if (cell.length > 1){
+                cells[i].querySelector("span").textContent = cell[0];
+                cells[i].querySelector("small").textContent = cell[1];
+            }else{
+                cells[i].textContent = cell[0];
+            }
+        });
     }
     var state = document.getElementById("splatme-auto-state");
     var form = document.getElementById("splatme-auto-form");

@@ -36,9 +36,10 @@ export function stepsNote(steps){
 export const STEPS_HINT = "How long the trainer works on the model. It grows the model in the first half of the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.";
 const GROW_FROM = 500, GROW_EVERY = 500, GROW_UNTIL = 15000, POLISH_FROM = 20000;
 
-// The steps from+1 to total in the trainer's stages: [{key, label, steps}] (only those with steps) and how many
-// times it grows the model in them. from: the steps a continued model already has. Steps before the growing ends
-// in which it grows the model no more are a warm-up.
+// The steps from+1 to total in the trainer's stages, all four in order: {stages: [{key, label, steps, percent}],
+// rounds}, rounds being how many times it grows the model in them, or null for a number that is not a training's.
+// from: the steps a continued model already has. Steps before the growing ends in which it grows the model no more
+// are a warm-up. The percentages are whole and add up to 100.
 export function trainingStages(total, from){
     total = Number(total);
     from = Math.max(0, Number(from) || 0);
@@ -55,28 +56,23 @@ export function trainingStages(total, from){
         {key: "refining", label: "Refining", steps: span(grownUntil, polishFrom)},
         {key: "polishing", label: "Polishing", steps: span(polishFrom, total)}
     ];
-    return {stages: stages.filter(s => s.steps > 0), rounds};
+    // Whole percentages: each rounded down, then the largest remainders rounded up until they add up to 100
+    const exact = stages.map(s => s.steps * 100 / (total - from));
+    const percents = exact.map(Math.floor);
+    const order = exact.map((e, i) => [e - percents[i], i]).sort((x, y) => y[0] - x[0]);
+    const missing = 100 - percents.reduce((x, y) => x + y, 0);
+    for (let k = 0; k < missing; k++) percents[order[k][1]]++;
+    return {stages: stages.map((s, i) => ({...s, percent: percents[i]})), rounds};
 }
 
-// Whole percentages that add up to 100 (the largest remainders rounded up)
-function percentages(counts){
-    const sum = counts.reduce((a, b) => a + b, 0);
-    const exact = counts.map(c => c * 100 / sum);
-    const result = exact.map(Math.floor);
-    const order = exact.map((e, i) => [e - result[i], i]).sort((a, b) => b[0] - a[0]);
-    const missing = 100 - result.reduce((a, b) => a + b, 0);
-    for (let k = 0; k < missing; k++) result[order[k][1]]++;
-    return result;
-}
-
-// "Of these steps: Warm-up 2% · Growing 48% (28 rounds) · Refining 17% · Polishing 33%", or "" for a number that
-// is not a training's
-export function stagesText(total, from){
+// The stages' table under Steps as text, cell by cell: [{label, value}] with the growing's rounds after its share,
+// a dash for each when the number is not a training's
+export function stagesCells(total, from){
     const result = trainingStages(total, from);
-    if (!result) return "";
-    const shares = percentages(result.stages.map(s => s.steps));
-    return "Of these steps: " + result.stages.map((s, i) => s.label + " " + shares[i] + "%" +
-        (s.key === "growing" ? " (" + result.rounds + (result.rounds === 1 ? " round)" : " rounds)") : "")).join(" · ");
+    const labels = ["Warm-up", "Growing", "Refining", "Polishing"];
+    if (!result) return labels.map(label => ({label, value: "–", rounds: label === "Growing" ? "–" : null}));
+    return result.stages.map(s => ({label: s.label, value: s.percent + "%",
+        rounds: s.key === "growing" ? result.rounds + (result.rounds === 1 ? " round" : " rounds") : null}));
 }
 
 // A job's states in order, with the share of the whole bar each takes (measured on 220 photos: the export and the
