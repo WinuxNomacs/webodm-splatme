@@ -5,9 +5,15 @@
 (function(){
     // Not through WebODM's hooks (addNewTaskButton, addTaskActionButton): they keep only the first plugin's answer,
     // and an immediate one from SplatMe would drop another plugin's button that answers after loading its script
-    if (/^\/dashboard\//.test(window.location.pathname)){
+    // Started once the page is parsed: plugins' scripts load in the page's head, and Dashboard.js watches
+    // document.body, which a fast (cached) import could otherwise find missing
+    function startDashboard(){
         PluginsAPI.SystemJS.import("splatme/build/Dashboard.css");
         PluginsAPI.SystemJS.import("splatme/build/Dashboard.js").then(function(m){ (m["default"] || m)(); });
+    }
+    if (/^\/dashboard\//.test(window.location.pathname)){
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startDashboard);
+        else startDashboard();
     }
 
     // Administration has no plugin hook: SplatMe's item goes at the end of its list, found by its Plugins link.
