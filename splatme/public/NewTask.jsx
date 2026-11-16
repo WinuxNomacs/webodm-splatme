@@ -30,7 +30,8 @@ export default class NewTask extends React.Component {
             phase: "edit",      // "edit", "uploading", "failed"
             attempt: 0,         // WebODM's panel is drawn afresh after a failed creation
             enabled: true, form: formFromOptions(null), advanced: false, formError: null,
-            listening: null, error: null, progress: null
+            listening: null, error: null, progress: null,
+            photoSizes: null    // the first photo's size, for SplatMe's Image Size table
         };
     }
 
@@ -42,6 +43,31 @@ export default class NewTask extends React.Component {
             if (!this._mounted) return;
             this.setState({listening: answer.listening});
             this.change(this.touched ? {} : {form: formFromOptions(answer.options)});
+        }).catch(() => {});
+        this.readPhotoSize();
+    }
+
+    componentDidUpdate(prevProps){
+        if (prevProps.files !== this.props.files) this.readPhotoSize();
+    }
+
+    // The first JPEG's size, from its EXIF, else from the picture itself; the browser decodes no TIFF
+    readPhotoSize(){
+        const first = this.props.files.find(f => /^image\/jpe?g$/i.test(f.type));
+        if (!first){
+            if (this.state.photoSizes) this.setState({photoSizes: null});
+            return;
+        }
+        const done = (width, height) => {
+            if (this._mounted && this.props.files.indexOf(first) !== -1 && width > 0 && height > 0) this.setState({photoSizes: [[width, height]]});
+        };
+        exifr.parse(first, {ifd0: false, exif: [0xA002, 0xA003], gps: false, interop: false, ifd1: false}).then(exif => {
+            exif = exif || {};
+            if (exif.ExifImageWidth && exif.ExifImageHeight) return done(exif.ExifImageWidth, exif.ExifImageHeight);
+            const url = URL.createObjectURL(first), img = new Image();
+            img.onload = () => { URL.revokeObjectURL(url); done(img.naturalWidth, img.naturalHeight); };
+            img.onerror = () => URL.revokeObjectURL(url);
+            img.src = url;
         }).catch(() => {});
     }
 
@@ -197,7 +223,7 @@ export default class NewTask extends React.Component {
                             <div ref={el => { this.splatmePanel = el; }}>
                                 <SplatMePanel enabled={enabled} form={form} advanced={advanced} error={formError}
                                               warning={enabled && listening === false ? _(NOT_LISTENING) : null}
-                                              thermal={files.some(f => /\.tiff?$/i.test(f.name))}
+                                              thermal={files.some(f => /\.tiff?$/i.test(f.name))} photoSizes={this.state.photoSizes}
                                               onEnabled={value => { this.touched = true; this.change({enabled: value}); }}
                                               onChange={(name, value) => { this.touched = true; this.change({form: Object.assign({}, form, {[name]: value})}); }}
                                               onAdvanced={open => this.setState({advanced: open})} />

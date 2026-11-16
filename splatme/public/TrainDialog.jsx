@@ -5,6 +5,7 @@ import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
 import { optionsFromForm, continueFromForm, defaultMoreSteps, DEFAULT_PALETTE } from './trainingView';
+import StagesTable from './StagesTable';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
 // that all point down, the options, and Start Training. A task whose trained model SplatMe kept can be continued
@@ -19,7 +20,7 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
-                      form: {steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
+                      form: {steps: "30000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
     }
 
     componentDidMount(){
@@ -28,7 +29,7 @@ export default class TrainDialog extends React.Component {
             if (!this._mounted) return;
             const defaults = check.defaults || {};
             const trained = check.trained_steps || 0;
-            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 7000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
+            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
         }).catch(e => {
             if (this._mounted) this.setState({check: {}, error: e.message});
         });
@@ -100,12 +101,13 @@ export default class TrainDialog extends React.Component {
                             <div className="col-sm-8">
                                 <input type="number" min="1" className="form-control splatme-more-steps" value={more}
                                        onChange={e => this.setState({more: e.target.value, error: null})} />
+                                <StagesTable total={total} from={trained} />
                                 <span className="help-block">
                                     {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
                                 </span>
                             </div>
                         </div> :
-                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
+                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} photoSizes={(check || {}).photo_sizes} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>
         );

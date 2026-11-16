@@ -56,12 +56,27 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    training needs (a point cloud, its photos), or when it already has splats; a project with no such task is not
    listed. **New Task With Splats** above the
    list creates a task in any project the user may change, listed or not. Choose a **Quality**: Draft
-   (3,000 steps), Standard (7,000), Fine (15,000) or High (30,000). On an 8 GB laptop GPU at the default image
-   size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU memory, whatever the
-   number of photos. **Advanced** has the steps, the image size and the most gaussians as numbers. The image
-   size is what to lower when the GPU runs out of memory. A number of steps the trainer handles badly gets a
-   note: up to 2,000 steps grows no new gaussians, and 3,001 to 5,999 trains worse than 3,000. The dialog says first if the task cannot be trained, and warns when nearly all photos
-   point straight down.
+   (3,000 steps), Standard (7,000), Fine (15,000) or High (30,000, the default: OpenSplat's own). On an 8 GB GPU
+   at the default image size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU
+   memory, whatever the number of photos. The dialog says first if the task cannot be trained, and warns when
+   nearly all photos point straight down.
+
+   **Advanced** has the steps, the image size and the most gaussians as numbers:
+   - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
+     half of the steps, up to step 15,000, then refines it; steps beyond 30,000 only refine it. A table under
+     the number gives the share of the steps in each stage, with how many times the model is grown: **Warm-up**
+     (the starting points from the point cloud adjusted), **Growing**, **Refining** (the model adjusted once
+     every 32 photos, faint gaussians removed every 3,000 steps) and **Polishing** (the same, once every 64
+     photos); each heading's hover tip says what the stage does. A number of steps the trainer handles badly
+     gets a note: up to 2,000 steps grows no new gaussians, and 3,001 to 5,999 trains worse than 3,000.
+   - **Image Size** (1,600 by default): the photos' longer side as the trainer sees them. Larger photos are
+     scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost; smaller ones
+     are not enlarged, and 0 keeps them as they are. It is what to lower when the GPU runs out of memory, which
+     depends on it most. A table under the number gives the task's photo size (one row per camera), its size
+     at the Image Size entered, and how much the longer side and the pixels change. Full-size photos cost far
+     more: a training of 12-megapixel photos at 30,000 steps ran about 15 times slower than at 1,600 and
+     filled an 8 GB GPU before its model had finished growing.
+   - **Max Gaussians**: the most gaussians the model may grow to, a limit for very large scenes.
 
    **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the
    model: SplatMe finds the sky in each photo and the training leaves those pixels out. It looks only above
@@ -88,9 +103,10 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
 
    A task SplatMe has trained can be trained further instead of starting over: the dialog then opens with
    **Start Over** and **Continue From Step** (the steps the model has), and continuing asks only **More
-   Steps**. The other options stay as the model was trained. Continuing sharpens the model the task has; it
-   adds few new gaussians, so a model that lacks detail everywhere is better started over at a higher
-   Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
+   Steps**. The other options stay as the model was trained. Continuing sharpens the model the task has: the
+   model grows only before half the new total of steps (and before step 15,000), so continuing a model by as
+   many steps again, or beyond, adds no gaussians (the steps table says so), and a model that lacks detail
+   everywhere is better started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
    be continued.
 3. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
    about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
@@ -115,7 +131,7 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    **Try Again** sends them, or **Cancel** removes the task. Leaving the page during the upload stops it.
    Unticked, or made from WebODM's own Select Images and GCP, the task is an ordinary one. The panel
    starts with the user's own options, saved on **SplatMe → Settings** (**New Task With Splats**); until they
-   save some, with the administrators' defaults from **Administration → SplatMe** (Standard until they change
+   save some, with the administrators' defaults from **Administration → SplatMe** (High until they change
    them). On **SplatMe → Tasks**, every task shows **Train Splats When Completed** with **Change**, which
    switches the training on or off and changes its options. A training that could not start shows on the task
    as a failed training, with the reason.
@@ -148,8 +164,8 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 |---|---|
 | `GET node` | The node's state or that it is not available, and its `url`; for administrators also what is wrong and `token_set`. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
-| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one), `thermal` (whether its photos are DJI Thermal Analyzer's TIFFs) and `trained_steps`: the steps of the model a training can continue from |
-| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (7000), `image_size` (1600, the photos' longer side in pixels; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out; not for a thermal task), `crop` (false keeps the splats outside the task's boundary), `palette` (a thermal task's colours: `gray`, the default, `gray_r`, `iron`, `magma`, `inferno`, `plasma`, `viridis`, `cividis`, `jet`). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
+| `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one), `thermal` (whether its photos are DJI Thermal Analyzer's TIFFs), `photo_sizes` (the photos' `[width, height]`, one per camera, empty before processing) and `trained_steps`: the steps of the model a training can continue from |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (30000), `image_size` (1600, the photos' longer side in pixels, larger photos scaled down whole; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out; not for a thermal task), `crop` (false keeps the splats outside the task's boundary), `palette` (a thermal task's colours: `gray`, the default, `gray_r`, `iron`, `magma`, `inferno`, `plasma`, `viridis`, `cividis`, `jet`). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
 | `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), `thermal` (a thermal task's `palette` and the range it spans, `low` and `high`, in degrees Celsius), `time_left` (while training, the seconds the steps left should take, once known), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |

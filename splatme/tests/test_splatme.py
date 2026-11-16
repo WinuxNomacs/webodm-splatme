@@ -630,6 +630,16 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(check["defaults"], training.DEFAULTS)
         self.assertEqual(check["ranges"]["steps"]["min"], 1)
         self.assertFalse(check["has_splats"])
+        self.assertEqual(check["photo_sizes"], [[48, 36]])  # the photos as processed, for the Image Size table
+
+    def test_the_check_gives_each_cameras_photo_size_largest_first_and_none_before_processing(self):
+        task = make_task(self.user)
+        with open(task.get_asset_file_or_stream("cameras.json"), "w") as f:
+            json.dump({"a": {"width": 640, "height": 512}, "b": {"width": 5280, "height": 3956},
+                       "c": {"width": 640, "height": 512}}, f)  # fmt: skip
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["photo_sizes"], [[5280, 3956], [640, 512]])
+        os.remove(task.get_asset_file_or_stream("cameras.json"))
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["photo_sizes"], [])
 
     def test_the_check_names_what_stands_in_the_way_of_the_task(self):
         task = make_task(self.user, status=status_codes.RUNNING)

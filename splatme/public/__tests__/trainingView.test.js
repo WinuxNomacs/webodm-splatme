@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, trainedSize, imageSizeRows } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -161,7 +161,7 @@ describe("a task's automatic training", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
         expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "7000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
     });
 
     test("Crop To Boundary is on unless it is unticked", () => {
@@ -285,5 +285,79 @@ describe("a task's processing in its row", () => {
         expect(runningPercent({status: 10, running_progress: 0})).toBeNull();
         expect(runningPercent({status: 40, running_progress: 1})).toBeNull();
         expect(runningPercent({status: 20})).toBeNull();
+    });
+});
+
+describe("the trainer's stages under Steps", () => {
+    const shares = (total, from) => trainingStages(total, from).stages.map(s => s.percent);
+
+    test("up to 30,000 steps about half grow the model, a sixth refine it and a third polish it", () => {
+        expect(stagesCells(30000)).toEqual([
+            {label: "Warm-up", value: "2%", rounds: null}, {label: "Growing", value: "48%", rounds: "28 rounds"},
+            {label: "Refining", value: "17%", rounds: null}, {label: "Polishing", value: "33%", rounds: null}]);
+        expect([shares(7000), trainingStages(7000).rounds]).toEqual([[7, 43, 17, 33], 5]);
+        expect(stagesCells(3000)[1]).toEqual({label: "Growing", value: "33%", rounds: "1 round"});
+    });
+
+    test("beyond 30,000 steps the extra steps only polish the model", () => {
+        expect(trainingStages(60000)).toEqual({rounds: 28, stages: [
+            {key: "warmup", label: "Warm-up", steps: 500, percent: 1}, {key: "growing", label: "Growing", steps: 14500, percent: 24},
+            {key: "refining", label: "Refining", steps: 5000, percent: 8}, {key: "polishing", label: "Polishing", steps: 40000, percent: 67}]});
+    });
+
+    test("up to 2,000 steps the model is never grown, so growing has none of them", () => {
+        expect(shares(2000)).toEqual([50, 0, 17, 33]);
+        expect(stagesCells(2000)[1]).toEqual({label: "Growing", value: "0%", rounds: "0 rounds"});
+    });
+
+    test("the percentages always add up to 100", () => {
+        for (let n = 1; n <= 70000; n += 37){
+            expect([n, shares(n).reduce((a, b) => a + b, 0)]).toEqual([n, 100]);
+        }
+    });
+
+    test("continuing a model counts only the more steps, against the new total", () => {
+        // 7,000 more on a 7,000-step model: the growing ends at 7,000, so nothing is grown
+        expect(shares(14000, 7000)).toEqual([0, 0, 33, 67]);
+        expect([shares(30000, 3000), trainingStages(30000, 3000).rounds]).toEqual([[0, 44, 19, 37], 23]);
+    });
+
+    test("each stage's heading says what the trainer does in it, the same on Settings", () => {
+        expect(Object.keys(STAGE_TIPS)).toEqual(stagesCells(30000).map(c => c.label));
+        const html = require("fs").readFileSync(__dirname + "/../../templates/options.html", "utf8");
+        const settings = [...html.matchAll(/<abbr title="([^"]*)">([^<]*)<\/abbr>/g)].map(m => [m[2], m[1].replace(/&#x27;/g, "'")]);
+        expect(settings).toEqual(Object.entries(STAGE_TIPS));
+    });
+
+    test("a number that is not a training's shows a dash in every cell, so the table keeps its size", () => {
+        for (const value of ["", "1.5", "abc"]){
+            expect(stagesCells(value).map(c => [c.value, c.rounds])).toEqual([["–", null], ["–", "–"], ["–", null], ["–", null]]);
+        }
+        expect(trainingStages(7000, 7000)).toBeNull();
+    });
+});
+
+describe("the photos' size under Image Size", () => {
+    test("the longer side is brought down to the Image Size and the other in proportion, as WebODM's export does", () => {
+        expect(imageSizeRows([[5280, 3956]], "1600")).toEqual([{source: "5,280 × 3,956", trained: "1,600 × 1,199", side: "−70%", pixels: "−91%"}]);
+        expect(trainedSize(3956, 5280, 1600)).toEqual([1199, 1600]);  // portrait
+    });
+
+    test("0, or an Image Size above the photos', keeps them as they are", () => {
+        expect(imageSizeRows([[640, 512]], "0")).toEqual([{source: "640 × 512", trained: "640 × 512", side: "0%", pixels: "0%"}]);
+        expect(imageSizeRows([[640, 512]], "1600")[0].trained).toBe("640 × 512");
+    });
+
+    test("a half pixel is rounded as Python rounds it, to the even neighbour", () => {
+        expect(trainedSize(1000, 5, 100)).toEqual([100, 0 + 1]);   // 0.5 → 0, then at least 1
+        expect(trainedSize(1000, 25, 100)).toEqual([100, 2]);      // 2.5 → 2
+        expect(trainedSize(1000, 35, 100)).toEqual([100, 4]);      // 3.5 → 4
+    });
+
+    test("each camera's photos have a row, and a number the training does not take shows dashes", () => {
+        const rows = imageSizeRows([[5280, 3956], [640, 512]], "8");
+        expect(rows.map(r => [r.source, r.trained, r.side, r.pixels])).toEqual([["5,280 × 3,956", "–", "–", "–"], ["640 × 512", "–", "–", "–"]]);
+        expect(imageSizeRows([[640, 512]], "")[0].trained).toBe("–");
+        expect(imageSizeRows([], "1600")).toEqual([]);
     });
 });

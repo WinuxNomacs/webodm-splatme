@@ -2,13 +2,13 @@
 // answers (api.py): no React here, so Jest tests them as they are.
 
 // The Quality choice: the trainer's steps, and what to expect of each. The times and memory were measured on an
-// 8 GB laptop GPU at Image Size 1,600; they hardly depend on the number of photos (upcoming-changes.md, OpenSplat
+// 8 GB GPU at Image Size 1,600; they hardly depend on the number of photos (upcoming-changes.md, OpenSplat
 // presets). Draft is 3,000 steps: up to 2,000 the trainer grows nothing.
 export const PRESETS = [
-    {key: "draft", label: "Draft", steps: 3000, hint: "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory on a laptop GPU."},
-    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets. The place to start. Training takes about 5 minutes and 5 GB of GPU memory on a laptop GPU."},
-    {key: "fine", label: "Fine", steps: 15000, hint: "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory on a laptop GPU."},
-    {key: "high", label: "High", steps: 30000, hint: "The sharpest model. Training takes about 25 minutes and 7 GB of GPU memory on a laptop GPU."}
+    {key: "draft", label: "Draft", steps: 3000, hint: "A quick look at whether the dataset trains well. Soft detail. Training takes about 2 minutes and 3 GB of GPU memory."},
+    {key: "standard", label: "Standard", steps: 7000, hint: "A good model for most datasets, in a fifth of High's time. Training takes about 5 minutes and 5 GB of GPU memory."},
+    {key: "fine", label: "Fine", steps: 15000, hint: "Sharper than Standard. Training takes about 10 minutes and 5 GB of GPU memory."},
+    {key: "high", label: "High", steps: 30000, hint: "The sharpest model, and the default: OpenSplat's own number of steps. Training takes about 25 minutes and 7 GB of GPU memory."}
 ];
 
 // Thermal Colours: the palettes a thermal task's temperatures are drawn in (thermal.py's PALETTES), coldest to hottest
@@ -27,6 +27,97 @@ export function stepsNote(steps){
     if (n <= 2000) return "Up to 2,000 steps the trainer does not grow the model, only refines the starting points. 3,000 steps or more grow it.";
     if (n > 3000 && n < 6000) return "Between 3,001 and 5,999 steps trains worse than 3,000: the trainer prunes the model at step 3,000 and has too few steps left to recover. Choose 3,000, or 6,000 or more.";
     return "";
+}
+
+// What the trainer does in each of its steps, from OpenSplat's schedule (opensplat.cpp's defaults, model.cpp's
+// optimizerStepCadence and afterTrain, at the node's pinned commit): it grows the model every 500 steps after step
+// 500 and before half the steps (at most 15,000); it then refines it, updating it once every 32 photos, until two
+// thirds of the steps (at most 20,000), and polishes it, once every 64 photos, to the end
+export const STEPS_HINT = "How long the trainer works on the model. It grows the model in the first half of the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.";
+const GROW_FROM = 500, GROW_EVERY = 500, GROW_UNTIL = 15000, POLISH_FROM = 20000;
+
+// What each stage does: the hover tip of its column's heading
+export const STAGE_TIPS = {
+    "Warm-up": "The trainer adjusts the position, size, colour and opacity of the starting points from the task's point cloud, without adding any.",
+    "Growing": "Every 500 steps, the trainer adds gaussians where the photos show detail the model lacks, and removes useless ones.",
+    "Refining": "The model no longer grows; the trainer adjusts it once every 32 photos and removes faint or redundant gaussians every 3,000 steps.",
+    "Polishing": "The same as refining, but adjusting once every 64 photos, for the finest and most stable changes."
+};
+
+// The steps from+1 to total in the trainer's stages, all four in order: {stages: [{key, label, steps, percent}],
+// rounds}, rounds being how many times it grows the model in them, or null for a number that is not a training's.
+// from: the steps a continued model already has. Steps before the growing ends in which it grows the model no more
+// are a warm-up. The percentages are whole and add up to 100.
+export function trainingStages(total, from){
+    total = Number(total);
+    from = Math.max(0, Number(from) || 0);
+    if (!Number.isInteger(total) || total <= from) return null;
+    const grownUntil = Math.min(GROW_UNTIL, Math.floor(total / 2));
+    const polishFrom = Math.min(POLISH_FROM, Math.floor(total * 2 / 3));
+    let rounds = 0;
+    for (let step = GROW_EVERY * (Math.floor(Math.max(from, GROW_FROM) / GROW_EVERY) + 1); step < grownUntil; step += GROW_EVERY) rounds++;
+    const span = (a, b) => Math.max(0, Math.min(b, total) - Math.max(a, from));  // the steps a+1 to b of this training
+    const growing = rounds ? span(GROW_FROM, grownUntil) : 0;
+    const stages = [
+        {key: "warmup", label: "Warm-up", steps: span(0, grownUntil) - growing},
+        {key: "growing", label: "Growing", steps: growing},
+        {key: "refining", label: "Refining", steps: span(grownUntil, polishFrom)},
+        {key: "polishing", label: "Polishing", steps: span(polishFrom, total)}
+    ];
+    // Whole percentages: each rounded down, then the largest remainders rounded up until they add up to 100
+    const exact = stages.map(s => s.steps * 100 / (total - from));
+    const percents = exact.map(Math.floor);
+    const order = exact.map((e, i) => [e - percents[i], i]).sort((x, y) => y[0] - x[0]);
+    const missing = 100 - percents.reduce((x, y) => x + y, 0);
+    for (let k = 0; k < missing; k++) percents[order[k][1]]++;
+    return {stages: stages.map((s, i) => ({...s, percent: percents[i]})), rounds};
+}
+
+// The stages' table under Steps as text, cell by cell: [{label, value}] with the growing's rounds after its share,
+// a dash for each when the number is not a training's
+export function stagesCells(total, from){
+    const result = trainingStages(total, from);
+    const labels = ["Warm-up", "Growing", "Refining", "Polishing"];
+    if (!result) return labels.map(label => ({label, value: "–", rounds: label === "Growing" ? "–" : null}));
+    return result.stages.map(s => ({label: s.label, value: s.percent + "%",
+        rounds: s.key === "growing" ? result.rounds + (result.rounds === 1 ? " round" : " rounds") : null}));
+}
+
+// Python's round(): a half to the even neighbour
+function roundHalfEven(x){
+    const r = Math.round(x);
+    return Math.abs(x % 1) === 0.5 ? 2 * Math.round(x / 2) : r;
+}
+
+// A photo's size as the trainer sees it at an Image Size, as WebODM's export makes it (app/splats.py's
+// compute_target_size): the longer side brought down to the Image Size, the other in proportion; never enlarged;
+// 0 keeps it as it is
+export function trainedSize(width, height, imageSize){
+    if (imageSize <= 0 || Math.max(width, height) <= imageSize) return [width, height];
+    if (width >= height) return [imageSize, Math.max(1, roundHalfEven(height * imageSize / width))];
+    return [Math.max(1, roundHalfEven(width * imageSize / height)), imageSize];
+}
+
+// A change as a whole percentage with its sign: "−70%", "0%", "+5%"
+function change(ratio){
+    const percent = Math.round((ratio - 1) * 100);
+    return percent < 0 ? "\u2212" + (-percent) + "%" : percent > 0 ? "+" + percent + "%" : "0%";
+}
+
+// The Image Size table's rows, one per size of the task's photos ([[width, height]]): {source, trained, side,
+// pixels} as text, the changes those of the longer side and of the pixels; a dash for each but the source when
+// the Image Size is not a number the training takes
+export function imageSizeRows(photoSizes, imageSize){
+    const text = String(imageSize == null ? "" : imageSize).trim();
+    const value = /^\d+$/.test(text) ? parseInt(text, 10) : NaN;
+    const valid = value === 0 || value >= 16;
+    return (photoSizes || []).map(([width, height]) => {
+        const source = width.toLocaleString("en-US") + " \u00d7 " + height.toLocaleString("en-US");
+        if (!valid) return {source, trained: "–", side: "–", pixels: "–"};
+        const [w, h] = trainedSize(width, height, value);
+        return {source, trained: w.toLocaleString("en-US") + " \u00d7 " + h.toLocaleString("en-US"),
+            side: change(Math.max(w, h) / Math.max(width, height)), pixels: change(w * h / (width * height))};
+    });
 }
 
 // A job's states in order, with the share of the whole bar each takes (measured on 220 photos: the export and the
@@ -138,7 +229,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 7000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"
