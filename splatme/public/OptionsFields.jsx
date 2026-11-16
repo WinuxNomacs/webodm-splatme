@@ -93,7 +93,7 @@ export default class OptionsFields extends React.Component {
                 {advanced ?
                     <React.Fragment>
                         {this.numberField("steps", _("Steps"), _(STEPS_HINT), "", <StagesTable total={form.steps} />)}
-                        {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. GPU memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are."), "", <ImageSizeTable photoSizes={this.props.photoSizes} imageSize={form.image_size} />)}
+                        {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. Larger photos are scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost. GPU memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are."), "", <ImageSizeTable photoSizes={this.props.photoSizes} imageSize={form.image_size} />)}
                         {this.numberField("max_gaussians", _("Max Gaussians"), _("The most points the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit"))}
                     </React.Fragment> : ""}
             </React.Fragment>
