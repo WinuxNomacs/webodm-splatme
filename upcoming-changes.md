@@ -9,25 +9,24 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The release check of 0.2.0: a throwaway WebODM with 0.1.1 installed, upgraded to 0.2.0 (the plugin and the
-   node), its data kept, then a training. The fixes it follows are built ("Fixes from the review of 0.2.0").
-
-**Then**
-
-2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
    0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
    confirmation; the entry waits for the user's approval).
 
+**Then**
+
+(nothing yet)
+
 **Later**
 
-3. The rest of the review of 0.2.0's findings (D–G, H, N, O, R, S, U), to review with the user before a release
+2. The rest of the review of 0.2.0's findings (D–G, H, N, O, R, S, U), to review with the user before a release
    (the user's decision, 2026-11-16). See "Release review of 0.2.0 (done)".
-4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
 
@@ -45,6 +44,9 @@ other software. The plugin does that step.
 
 **Done**
 
+- Release check of 0.2.0 (2026-11-16): 0.1.1 and node 0.2.0 from the published release on a throwaway WebODM,
+  upgraded to `dist/splatme-0.2.0.zip` and node 0.2.2, data kept, trainings before and after. See "Release check
+  of 0.2.0 (done)".
 - Fixes from the review of 0.2.0 (2026-11-16), in 0.2.0 with splat node 0.2.2: A, B, C, I, J, K, L, M (the plugin),
   P, Q (the node), T (the release) and the documentation. See "Fixes from the review of 0.2.0 (built)".
 - Release review of 0.2.0 (2026-11-16): findings A–U, the documentation's corrections and removals, the live
@@ -533,6 +535,32 @@ and the same line in the `release-review` skill gain "with its splash image and 
 linked to the full one; the 3D view screenshot stays below the opening paragraphs; "Thanks" ends both (before
 the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
 headless at 1,280 and 320 px: no console errors, no sideways scroll.
+
+### Release check of 0.2.0 (done)
+
+On a throwaway production WebODM 4.0.0 (port 8018, project `sm-scratch`, its own volumes and administrator,
+removed after), with a copy of a 217-photo task imported from a backup zip made from a copy of its folder (the
+dev task untouched), 2026-11-16:
+
+- **0.1.1 as published**: the release's zip and `splatnode.sh` downloaded (the zip's SHA-256 the same as the
+  local build's). Load Plugin (.zip) installed it in 8 s; after the restart it registered. The script installed
+  node 0.2.0 from ghcr.io, connected to the throwaway, and saved the address and token in SplatMe. A Draft
+  (3,000 steps) trained and imported in about 3 minutes. Then set: the default automatic options, the
+  administrator's own options and the task's automatic training.
+- **The upgrade, as Getting Started says**: Load Plugin (.zip) refused while SplatMe was installed; delete, load
+  `dist/splatme-0.2.0.zip` (SHA-256 `4c9d598a…`, from 7886338), restart. Before the restart the plugins row
+  still said 0.1.1 and `revive` answered 404 (the old processes); after it, 6 of 6 answered 204. Every SplatMe
+  data store row was the same after as before (the job's record, the three options, the node's address, the token,
+  which still matches the node's). The node: `main`'s `splatnode.sh upgrade`, with a `docker` wrapper standing in
+  for the pull of a published 0.2.2 (it moved `latest` onto the local 0.2.2 build): "The splat node runs version
+  0.2.2 (it was 0.2.0). Its jobs and token are kept. The previous image was deleted."
+- **On 0.2.0**: SplatMe saw node 0.2.2; Continue trained 0.1.1's model from step 3,000 to 8,000 and imported it.
+  Fix A with real Celery: the worker restarted during a training left its record frozen; after 103 s with no sign
+  of life, one `GET revive` (what every signed-in page asks) took the training over within a second, and it
+  completed. SplatMe → Tasks (View in 3D) and Administration → SplatMe ("The splat node is ready.") loaded
+  without console errors.
+- Cleaned up: `splatnode.sh uninstall --yes` (the jobs' volume, the tag), the stack's containers, volumes and
+  network, the task copy. The dev stack and its node were not touched.
 
 ### Fixes from the review of 0.2.0 (built)
 
