@@ -57,9 +57,16 @@ it short; edit in place.
   `newTask.js` are what Jest tests.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
-  runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum) and `compose.yml` (how a user
-  runs it). It is not part of the plugin's zip.
-- **Never push and never tag.** No workflow exists yet.
+  runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum), `splatnode.sh` (install,
+  upgrade, status, connect, uninstall: writes its own compose file and token to `~/splatnode`, joins WebODM's
+  network and saves the address and token in SplatMe's settings through `manage.py` when WebODM runs on the same
+  machine; test it with `SPLATNODE_DIR`, `SPLATNODE_PROJECT` and `SPLATNODE_IMAGE=splatme-node:dev`, against a
+  throwaway WebODM, never the user's stacks) and `compose.yml` (running it without the script). It is not part of
+  the plugin's zip.
+- **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
+  the manifest's version) or by hand: it attaches `splatme.zip` (built by `dev/build-zip.sh`) to a GitHub release
+  and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`). Never add a
+  push or pull-request trigger.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
   descriptions and messages are sentences.
 - Planned in `upcoming-changes.md` (with what the design must respect); new requests arrive in `new.md`

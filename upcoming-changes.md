@@ -1281,6 +1281,26 @@ Checked on a throwaway production WebODM 4.0.0 (2026-11-15; the pinned images wi
   keeps SplatMe's settings (its data store rows are keyed by name, not tied to the plugin's row): a saved node
   address survived an upgrade to a 0.1.1 zip.
 
+Built (2026-11-15): `dev/build-zip.sh` (the zip and its SHA-256, reproducible from a commit, the manifest's
+version checked); `.github/workflows/release.yml` (a `v*` tag or by hand: the zip on a GitHub release, the node's
+image on ghcr.io tagged with the node's version and `latest`, not rebuilt when that version is published; only
+`actions/checkout`, pinned by commit; not yet run on GitHub, and actionlint not run: the sandbox refused its
+image); `node/splatnode.sh` (install, upgrade, status, connect, uninstall). Checked with the image built here
+(`splatme-node:dev`) in a scratch folder and project, standalone and connected to a throwaway production WebODM
+with SplatMe installed from the zip:
+
+- install checks Docker, Compose and the GPU (`nvidia-smi -L` in the node's image), writes `compose.yml` and
+  `.env` (mode 600, a 64-hex-digit token), starts the node and waits for `/health`; a second install is refused.
+- **WebODM is found by each container's configured image and Compose service** (`webapp`): `docker ps` shows an
+  image pinned by digest only by its ID. With several WebODMs (this machine has two, three with the throwaway
+  one) install refuses and names them, writing nothing; `--webodm <container>` picks one.
+- Connected: the node joins WebODM's network as `splat-node`, its port bound to 127.0.0.1, and SplatMe's settings
+  get `http://splat-node:3100` and the token (passed to `docker exec` in the environment, not on a command line);
+  SplatMe reached it (version 0.2.0). Standalone: every address, and the address and token printed.
+- upgrade keeps the jobs and token; uninstall without a terminal says no to every question (the jobs' volume
+  kept, and said so); with `--yes` it cleared SplatMe's setting, deleted the volume, and kept an image another
+  container uses, saying so.
+
 Build order (to confirm step by step):
 
 1. The privacy check; the user makes the repository public.
