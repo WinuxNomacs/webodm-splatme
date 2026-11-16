@@ -3,6 +3,11 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
+## 0.1.1 (2026-11-16)
+
+- On the Dashboard, the New Task With Splats button and a task panel's Splats line were sometimes missing: SplatMe's
+  script could start before the page was parsed.
+
 ## 0.1.0 (2026-11-16)
 
 The first release, marked experimental. Needs WebODM 4.0.0 or later in Docker, and a splat node 0.2.0 or later

@@ -8,8 +8,8 @@ puts the model in the task's 3D view.
 
 ![A thermal task's trained splats in WebODM's 3D view](screenshots/model.png)
 
-**Status: 0.1.0, the first release, marked experimental.** It has been used on WebODM 4.0.0 in Docker with an
-8 GB NVIDIA GPU. Problems and ideas go in the repository's
+**Status: experimental** (the [releases](https://github.com/WinuxNomacs/webodm-splatme/releases) and their
+[changes](CHANGELOG.md)). It has been used on WebODM 4.0.0 in Docker with an 8 GB NVIDIA GPU. Problems and ideas go in the repository's
 [issues](https://github.com/WinuxNomacs/webodm-splatme/issues); what is planned is in
 [upcoming-changes.md](upcoming-changes.md).
 

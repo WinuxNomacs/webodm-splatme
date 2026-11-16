@@ -1363,8 +1363,17 @@ Built (2026-11-16): the zip named `splatme-<version>.zip` and the script attache
 rows' clean-up command matched SplatMe's 8 rows on the dev stack and nothing else, counted, not run); four
 screenshots of ThermalTest in `screenshots/`, approved by the user (the 3D view renders headless once HEAD
 requests are let through: the viewer asks for the model with HEAD first); `CHANGELOG.md`; all checks passed
-(Ruff, ESLint, Jest 67, the node's tests, Django 72). Left: the user pushes `main` and the tag `v0.1.0`; the
-release checked; the directory entry.
+(Ruff, ESLint, Jest 67, the node's tests, Django 72).
+
+Released (2026-11-16): `v0.1.0`, pushed with the user's approval; the workflow made the release (the zip, its
+`.sha256`, `splatnode.sh`) and skipped the node's image (0.2.0 published). Checked: the release's zip matches a
+local build of the tagged commit once built in UTC (zip times are local: `dev/build-zip.sh` now builds in UTC);
+`releases/latest/download/splatnode.sh` runs; the zip installs with Load Plugin (.zip) on a throwaway WebODM.
+There the first Dashboard after the restart threw in `Dashboard.js` (`observe` on a missing `document.body`:
+`main.js`, in the page's head, imported it at once), so that page had no SplatMe button or line; not
+reproduced in 25 more loads. Fixed in **0.1.1** (`main.js` starts the Dashboard's parts once the page is
+parsed), checked on the dev stack and by upgrading the throwaway WebODM by delete and load (10 Dashboards, the
+pages, no errors). Left: the user pushes `main` and the tag `v0.1.1`; the directory entry points at 0.1.1.
 
 ### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
