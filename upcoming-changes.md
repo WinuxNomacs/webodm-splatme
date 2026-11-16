@@ -1354,8 +1354,17 @@ Decided with the user (2026-11-16):
 
 Build order: the zip's name and the script on the release (workflow, `dev/build-zip.sh`, the script's own
 `SELF`); the README; the screenshots; `release/0.1.0` (changelog, merged); the user pushes the tag `v0.1.0`; the
-release checked (the zip from Install Plugins' Upload on a throwaway WebODM, the script from
+release checked (the zip from Load Plugin (.zip) on a throwaway WebODM, the script from
 `releases/latest`); the directory entry, a pull request to WebODM-Plugins opened only with the user's approval.
+
+Built (2026-11-16): the zip named `splatme-<version>.zip` and the script attached to the release
+(`dev/build-zip.sh`, `release.yml`, the script's `SELF` and usage); the README's Install, Upgrade and Uninstall
+(WebODM's own labels checked: Install Plugins, Install, Update, Load Plugin (.zip), the row's bin; the database
+rows' clean-up command matched SplatMe's 8 rows on the dev stack and nothing else, counted, not run); four
+screenshots of ThermalTest in `screenshots/`, approved by the user (the 3D view renders headless once HEAD
+requests are let through: the viewer asks for the model with HEAD first); `CHANGELOG.md`; all checks passed
+(Ruff, ESLint, Jest 67, the node's tests, Django 72). Left: the user pushes `main` and the tag `v0.1.0`; the
+release checked; the directory entry.
 
 ### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
