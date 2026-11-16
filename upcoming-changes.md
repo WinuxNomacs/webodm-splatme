@@ -9,15 +9,23 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Docs and first release, with install, upgrade and uninstall automated as far as is sensible.
+1. Install, upgrade and uninstall automated: the repository made public after a privacy check; a release
+   workflow (a pushed tag, or by hand) that builds `splatme.zip` and the splat node's image on ghcr.io; a
+   one-command script for the splat node (install, upgrade, uninstall) that connects SplatMe to it when it
+   runs on WebODM's machine; SplatMe listed in WebODM's plugin directory. See "1. Install, upgrade and
+   uninstall".
+
+**Then**
+
+2. Docs and first release.
 
 **Later**
 
-2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "3. Steps for an Image Size (proposed)".
+   "4. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -279,7 +287,7 @@ other software. The plugin does that step.
   state or fails with a message, never stays "training" forever.
 - **The node is one image and one compose file**: a published image (no half-hour build), started with one
   command, updated with `docker compose pull && docker compose up -d`. Publishing the image needs a release
-  workflow, to decide in phase 1.
+  workflow, decided in phase 1.
 - **The plugin and the node are updated separately**, so each says its version (`GET /info`) and the plugin names
   the mismatch and what to update, rather than failing mid-job. The node's API changes only by adding.
 - **Connecting the two is one settings page**: the address and the token, a "Test Connection" button that says
@@ -290,7 +298,7 @@ other software. The plugin does that step.
 
 ## Spike results (2026-11-14)
 
-Machine: RTX 5060 Laptop GPU (8 GB), Docker under WSL2. Task: "South Whitehall Drive" on the :8002 stack (220
+Machine: RTX 5060 Laptop GPU (8 GB), Docker under WSL2. Task: a residential street on the :8002 stack (220
 JPEGs of 4032x3024, exported at 1600 px, 126,513 points sampled from the dense point cloud; 209 photos straight down and 11 oblique, so the
 splat itself is poor). The other five tasks there are thermal TIFFs, which WebODM's export refuses.
 
@@ -437,13 +445,13 @@ Built, as decided:
   the page hears WebODM's own request that creates the task (jQuery's `ajaxSend` / `ajaxComplete` notices of
   `POST /api/projects/<id>/tasks/`, whose answer is the task) and saves the setting on that task. A panel that
   is canceled, or whose task could not be created, forgets it. This listens to the page's requests, which is
-  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 2).
+  not one of WebODM's plugin hooks: it goes when WebODM tells plugins of a created task (phase 3).
 - **Not built: SplatMe's row in the New Task panel** (chosen as "Both": the row and the button in the dialog).
   WebODM stops listening to a hook after the first plugin's answer (`ApiFactory.js` removes the listener one
   tick after the first response). Lightning, a core plugin, answers `addNewTaskPanelItem` after loading a
   script; an immediate answer from SplatMe arrives first and Lightning's cost estimate is dropped (tried in
   a browser on the dev stack: with a second plugin answering, the panel has that plugin's item and Lightning
-  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 2).
+  never asks `is_lightning_node`). Held until the dispatcher is fixed in WebODM (phase 3).
 
 ### SplatMe's panel (built)
 
@@ -491,7 +499,7 @@ button beside "Select Images and GCP", as the DJI Thermal Task button of webodm-
 - **webodm-dji-thermal is not touched.** WebODM 4.0.0 keeps only the first plugin's answer to
   `addNewTaskButton` unless all answer at once: SplatMe answers at once, DJI Thermal after loading its script,
   so with both installed the DJI Thermal Task button does not show. Known and accepted; the dispatcher's fix
-  is in phase 2. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
+  is in phase 3. (Fixed since, in "Less fragile page parts": SplatMe places its button itself and no longer
   answers that hook.)
 
 Built (the last two points are Claude's reading of the decisions, to be corrected if wrong):
@@ -1222,14 +1230,61 @@ Asked by the user (2026-11-15), built on branch `defaults-full-size`:
   a part per pixel and a part per gaussian (1.8, 3.5 and 6.8 GB at 1,000, 1,600 and 2,400 px, 7,000 steps),
   so a percentage would be an estimate, unmeasured beyond 4.3 megapixels, and would hide whether it fits.
 
-### 1. Docs and first release
+### 1. Install, upgrade and uninstall
 
-README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`.
+From `new.md` (2026-11-15): install, upgrade and uninstall are automated as far as is sensible and helpful, for
+both the plugin and the splat node. The user (2026-11-15): automate the install before the docs, which then
+describe it.
 
-From `new.md` (2026-11-15): **install, upgrade and uninstall are automated** as far as is sensible and helpful,
-for both the plugin and the splat node. To plan with the user: what each path does (an upgrade keeps the
-plugin's data store and the node's jobs; an uninstall says what it leaves, such as the trained models in tasks),
-and what can be scripted given that WebODM installs a plugin from a zip uploaded in Administration > Plugins.
+Found in WebODM 4.0.0:
+
+- **Administration → Plugins has an Install Plugins browser** (`PluginBrowser.jsx`): it reads
+  `https://plugins.webodm.org/index.json`, built from WebODM-Plugins' `directory.json` on each merge there,
+  and installs or updates a listed plugin in one click (an Update button when the listed version differs from
+  the installed one). An external plugin is listed by a pull request adding its release zip's URL and SHA-256
+  to `directory.json`; each release changes both. The directory also builds a `-prebuilt` zip for WebODMs that
+  cannot build page scripts.
+- **Upload Plugin** (`admin.py`'s `plugin_upload`) installs a zip with a single root folder, and with
+  `upgrade` replaces an installed one ("restart WebODM to apply the changes"). **Delete** removes the plugin's
+  folder and its row (`delete_plugin`), calling nothing in the plugin: its data store rows stay.
+- **A Docker install builds a plugin's page scripts itself**: the webapp image has `webpack` (`can_build`), so
+  the zip need not ship `public/build`. (The native Windows app cannot, and is not supported.)
+
+Decided with the user (2026-11-15):
+
+- **The plugin**: listed in WebODM's plugin directory (one-click Install and Update), and the zip attached to
+  each GitHub release for Upload Plugin. Each release's directory entry is a pull request to WebODM-Plugins,
+  opened only with the user's approval of that change.
+- **The splat node**: a one-command script with install, upgrade and uninstall. Install checks Docker,
+  Compose and the GPU runtime, generates the token, writes the compose file and its `.env` (token readable by
+  its owner only), pulls the published image and starts it, and prints the address and token. Upgrade pulls the
+  new image and restarts, keeping the jobs. Uninstall stops and removes it, and asks before deleting its data.
+  The plain `docker compose` commands stay documented.
+- **Connecting**: when the node is installed on WebODM's machine, the script finds WebODM's webapp container,
+  puts the node on WebODM's Docker network and saves the address and token in SplatMe's settings (its own data
+  store, through WebODM's `manage.py`), then says to restart WebODM once if the plugin is new. On another
+  machine it prints the address and token to enter on SplatMe's page in Administration.
+- **The repository is made public now**, after a check of its files and history for anything private, so the
+  published image and the script are tested end to end as an administrator would use them (and Actions
+  minutes are free). The user makes it public.
+
+Build order (to confirm step by step):
+
+1. The privacy check; the user makes the repository public.
+2. Something that builds `splatme.zip` (the `splatme/` folder as its single root, without `public/build`,
+   `__pycache__` or tests' caches) and its SHA-256.
+3. The release workflow, run by a pushed `v*` tag or by hand, never by an ordinary push: the zip and its SHA-256
+   attached to the GitHub release, the node's image built and pushed to ghcr.io (versioned and `latest`). The
+   package's visibility is set to public once, by the user.
+4. The node's script (install, upgrade, uninstall, status), tested on the dev machine with a locally built image
+   first, then with a published one (which needs a tag the user pushes).
+5. The directory entry, at the release (phase 2).
+
+### 2. Docs and first release
+
+README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`. The docs describe
+the install, upgrade and uninstall that phase 1 automates, and what an uninstall leaves (the plugin's data store
+rows, the trained models in tasks).
 
 Decided with the user (2026-11-14):
 
@@ -1245,7 +1300,7 @@ To do, besides the image: something that builds `splatme.zip` (the `splatme/` fo
 check that a production WebODM builds the page scripts of an uploaded plugin (only the dev stack with the
 folder mounted has run it), or else the zip ships them built; whether the manifest stays experimental.
 
-### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1266,7 +1321,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 3. Steps for an Image Size (proposed)
+### 4. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
