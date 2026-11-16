@@ -26,8 +26,12 @@ shared (the admin page) the administrators', for users who saved none, which onl
                 the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.</span>
             <table class="table table-bordered table-condensed" id="splatme-auto-stages" style="table-layout: fixed; width: 100%; margin-top: 5px; margin-bottom: 5px;">
                 <caption style="padding-top: 0;">Of these steps:</caption>
-                <thead><tr><th style="text-align: center;">Warm-up</th><th style="text-align: center;">Growing</th>
-                    <th style="text-align: center;">Refining</th><th style="text-align: center;">Polishing</th></tr></thead>
+                <thead><tr><!-- the hover tips as public/trainingView.js's STAGE_TIPS -->
+                    <th style="text-align: center;"><abbr title="The trainer adjusts the position, size, colour and opacity of the starting points from the task&#x27;s point cloud, without adding any.">Warm-up</abbr></th>
+                    <th style="text-align: center;"><abbr title="Every 500 steps, the trainer adds gaussians where the photos show detail the model lacks, and removes useless ones.">Growing</abbr></th>
+                    <th style="text-align: center;"><abbr title="The model no longer grows; the trainer adjusts it once every 32 photos and removes faint or redundant gaussians every 3,000 steps.">Refining</abbr></th>
+                    <th style="text-align: center;"><abbr title="The same as refining, but adjusting once every 64 photos, for the finest and most stable changes.">Polishing</abbr></th>
+                </tr></thead>
                 <tbody><tr><td style="text-align: center;"></td><td style="text-align: center;"><span></span><br><small></small></td>
                     <td style="text-align: center;"></td><td style="text-align: center;"></td></tr></tbody>
             </table>

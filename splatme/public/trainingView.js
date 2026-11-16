@@ -36,6 +36,14 @@ export function stepsNote(steps){
 export const STEPS_HINT = "How long the trainer works on the model. It grows the model in the first half of the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.";
 const GROW_FROM = 500, GROW_EVERY = 500, GROW_UNTIL = 15000, POLISH_FROM = 20000;
 
+// What each stage does: the hover tip of its column's heading
+export const STAGE_TIPS = {
+    "Warm-up": "The trainer adjusts the position, size, colour and opacity of the starting points from the task's point cloud, without adding any.",
+    "Growing": "Every 500 steps, the trainer adds gaussians where the photos show detail the model lacks, and removes useless ones.",
+    "Refining": "The model no longer grows; the trainer adjusts it once every 32 photos and removes faint or redundant gaussians every 3,000 steps.",
+    "Polishing": "The same as refining, but adjusting once every 64 photos, for the finest and most stable changes."
+};
+
 // The steps from+1 to total in the trainer's stages, all four in order: {stages: [{key, label, steps, percent}],
 // rounds}, rounds being how many times it grows the model in them, or null for a number that is not a training's.
 // from: the steps a continued model already has. Steps before the growing ends in which it grows the model no more

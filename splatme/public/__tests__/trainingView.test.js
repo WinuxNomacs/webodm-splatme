@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -320,6 +320,13 @@ describe("the trainer's stages under Steps", () => {
         // 7,000 more on a 7,000-step model: the growing ends at 7,000, so nothing is grown
         expect(shares(14000, 7000)).toEqual([0, 0, 33, 67]);
         expect([shares(30000, 3000), trainingStages(30000, 3000).rounds]).toEqual([[0, 44, 19, 37], 23]);
+    });
+
+    test("each stage's heading says what the trainer does in it, the same on Settings", () => {
+        expect(Object.keys(STAGE_TIPS)).toEqual(stagesCells(30000).map(c => c.label));
+        const html = require("fs").readFileSync(__dirname + "/../../templates/options.html", "utf8");
+        const settings = [...html.matchAll(/<abbr title="([^"]*)">([^<]*)<\/abbr>/g)].map(m => [m[2], m[1].replace(/&#x27;/g, "'")]);
+        expect(settings).toEqual(Object.entries(STAGE_TIPS));
     });
 
     test("a number that is not a training's shows a dash in every cell, so the table keeps its size", () => {
