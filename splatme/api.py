@@ -102,7 +102,9 @@ class Status(TaskView):
         task = self.get_and_check_task(request, pk)
         out = describe(request, task, training.follow(task))
         if is_true(request.query_params.get("listed")):
-            out["listed"] = training.compatible(task)  # whether SplatMe → Tasks lists it (its folder is read)
+            # Whether SplatMe → Tasks lists it, and why not (its folder is read)
+            out["unlisted"] = training.unlisted(task)
+            out["listed"] = out["unlisted"] is None
         return Response(out)
 
 

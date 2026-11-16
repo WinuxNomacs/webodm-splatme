@@ -273,11 +273,9 @@ def problem(task):
     """Why this task cannot be trained, or None."""
     if task.status != status_codes.COMPLETED:
         return "The task has not completed processing."
-    for asset in REQUIRED_ASSETS:
-        if asset not in task.available_assets:
-            return f"The task has no {asset}. Process it again with a point cloud."
-    if task.compacted:
-        return "The task was compacted: its images are gone, and training needs them."
+    reason = results_problem(task)
+    if reason:
+        return reason
     try:
         shots = splats.load_scene(task, 0)[1]
     except (ValueError, OSError, KeyError) as e:
@@ -296,22 +294,37 @@ def problem(task):
 OTHER_IMAGES = (".tif", ".tiff", ".png", ".dng", ".nef", ".raw", ".webp", ".bmp", ".gif")
 
 
-def compatible(task):
+def results_problem(task):
+    """Why a completed task's results cannot be trained on (its assets, its images kept), or None."""
+    for asset in REQUIRED_ASSETS:
+        if asset not in task.available_assets:
+            return f"The task has no {asset}. Process it again with a point cloud."
+    if task.compacted:
+        return "The task was compacted: its images are gone, and training needs them."
+    return None
+
+
+def unlisted(task):
     """
-    Whether SplatMe's Tasks page lists the task: it has splats, or its photos are JPEG (or DJI Thermal Analyzer's
-    TIFFs) and, once completed, it can train. Cheaper than problem() (its files and assets, not its cameras), for
-    every task of a list.
+    Why SplatMe's Tasks page does not list the task, or None when it does: it has splats, or its photos are JPEG (or
+    DJI Thermal Analyzer's TIFFs) and, once completed, it can train. Cheaper than problem() (its files and assets,
+    not its cameras), for every task of a list.
     """
     if "splats.rad" in task.available_assets:
-        return True
+        return None
     images = thermal.photo_names(task.scan_images())
     names = [os.path.splitext(name)[1].lower() for name in images]
     jpeg = any(ext in (".jpg", ".jpeg") for ext in names) and not any(ext in OTHER_IMAGES for ext in names)
     if not jpeg and not thermal.is_thermal(task, images):
-        return False
+        return "SplatMe trains tasks whose photos are JPEG (or DJI Thermal Analyzer's TIFFs)."
     if task.status != status_codes.COMPLETED:
-        return True
-    return not task.compacted and all(asset in task.available_assets for asset in REQUIRED_ASSETS)
+        return None
+    return results_problem(task)
+
+
+def compatible(task):
+    """Whether SplatMe's Tasks page lists the task."""
+    return unlisted(task) is None
 
 
 def trained_model(task):

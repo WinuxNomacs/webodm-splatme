@@ -1418,3 +1418,14 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(self.client.get(f"{API}/task/{jpeg.id}/status?listed=1").data["listed"])
         png = make_task(self.user, images=["a.png"])
         self.assertFalse(self.client.get(f"{API}/task/{png.id}/status?listed=1").data["listed"])
+
+    def test_the_status_of_a_task_splatme_does_not_list_says_why(self):
+        png = make_task(self.user, images=["a.png"])
+        self.assertIn("photos are JPEG", self.client.get(f"{API}/task/{png.id}/status?listed=1").data["unlisted"])
+        compacted = make_task(self.user)
+        Task.objects.filter(pk=compacted.pk).update(compacted=True)
+        status = self.client.get(f"{API}/task/{compacted.id}/status?listed=1").data
+        self.assertFalse(status["listed"])
+        self.assertIn("compacted", status["unlisted"])
+        jpeg = make_task(self.user)
+        self.assertIsNone(self.client.get(f"{API}/task/{jpeg.id}/status?listed=1").data["unlisted"])

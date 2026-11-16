@@ -46,7 +46,7 @@ export default class Tasks extends React.Component {
         this.listed = Date.now();
         request("GET", "tasks").then(data => {
             if (!this._mounted) return;
-            if (actions !== this.actions) return this.schedule(this.state.projects);  // the action's answer is newer
+            if (actions !== this.actions) return this.load();  // a row's action answered meanwhile: asked again, with it
             const first = this.state.projects === null || this.focusNext;
             this.focusNext = false;
             this.settle(this.state.projects, data.projects);
@@ -58,8 +58,8 @@ export default class Tasks extends React.Component {
         }).catch(e => {
             if (!this._mounted) return;
             this.setState({error: e.message});
-            // The server may be restarting: ask again while there was something to follow
-            if (nextRefresh(this.state.projects)) this.timer = setTimeout(this.load, 15000);
+            // The server may be restarting: asked again while nothing was shown yet, or there is something to follow
+            if (this.state.projects === null || nextRefresh(this.state.projects)) this.timer = setTimeout(this.load, 15000);
         });
     };
 
@@ -265,7 +265,7 @@ export default class Tasks extends React.Component {
                         </button> : ""}
                 </div>
                 {!projects.length ?
-                    <p className="text-muted splatme-none">{_("No task here can be trained by SplatMe yet: it trains tasks whose photos are JPEG.")}
+                    <p className="text-muted splatme-none">{_("No task here can be trained by SplatMe yet: it trains tasks whose photos are JPEG (or DJI Thermal Analyzer's TIFFs).")}
                         {" "}{addable.length ? _("Create one with New Task With Splats.") : _("Create a project on the Dashboard first.")}</p> : ""}
                 {shown.map(p =>
                     <div key={p.id} className="splatme-project">
