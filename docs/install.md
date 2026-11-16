@@ -12,23 +12,19 @@ By a WebODM administrator, in this order:
     Plugin (.zip)** on the same page.
 2. **Restart WebODM once**, with the options it was started with: `./webodm.sh restart` in WebODM's folder,
     plus any options given to `./webodm.sh start` (`--port`, `--hostname`, `--media-dir`, `--ssl`…), which
-    `webodm.sh` does not remember. WebODM's web server runs several
-    processes and only the one that received the plugin loads it, so until the restart SplatMe's pages, scripts
-    and API fail now and then; and WebODM's worker, which tells SplatMe a task has completed, loads plugins only
-    when it starts. Until then SplatMe → Settings, SplatMe's panel and a task set to train say that tasks are
-    not trained by themselves yet.
+    `webodm.sh` does not remember. Until then SplatMe's pages fail now and then, and tasks are not trained by
+    themselves (SplatMe → Settings, SplatMe's panel and a task set to train say so).
 3. **The splat node**, on the machine with the GPU:
 
     ```
     curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
     ```
 
-    It downloads the node's image (6.6 GB; deleted again when a container cannot use the GPU), checks the GPU and
+    It downloads the node's image (4 GB; 6.6 GB once unpacked; deleted again when a container cannot use the GPU), checks the GPU and
     starts the node; a failed install is undone, so it can be run again. **On WebODM's machine** the node joins
-    the Docker network of WebODM's worker (which runs the trainings; behind a reverse proxy WebODM's web server is
-    on the proxy's network too), listens on that machine only, and SplatMe's settings get
-    its address and token: there is nothing to enter. (With several WebODMs on the machine, it names them and
-    asks for one: `--webodm <its webapp container>`. A node installed before the plugin is connected afterwards
+    the Docker network of WebODM's worker, listens on that machine only, and SplatMe's settings get
+    its address and token: there is nothing to enter. (With several WebODMs on the machine, it stops and names
+    them: run it again with `--webodm <its webapp container>`. A node installed before the plugin is connected afterwards
     with `connect`, which also moves the node to a reinstalled WebODM's network.) **On another machine**, or with `--standalone`, it listens on port 3100 (`--port`) and
     prints its address and token: enter them on **Administration → SplatMe** in WebODM's side menu, where **Test
     Connection** says what is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved.
@@ -52,15 +48,15 @@ Between trainings: a training running during an upgrade picks up again or fails 
     kept (they are in WebODM's database, not in the plugin's folder). **Restart WebODM once** afterwards. The
     sky model is downloaded again by the next training with Ignore Sky, as an update replaces the plugin's folder.
 - **The splat node**: `curl -fsSL …/splatnode.sh | bash -s upgrade` (the same address as above) downloads the
-    newest image, restarts the node with the script's current compose file, keeping its jobs, token and port, and
+    newest image, restarts the node keeping its jobs, token and port, and
     deletes the previous image. SplatMe needs a node of version 0.2.0 or
     later, and **Test Connection** says when the node is older.
 
 ## Uninstall
 
 - **The splat node**: `curl -fsSL …/splatnode.sh | bash -s uninstall` stops and removes the node and its folder
-    (`~/splatnode`), and asks before deleting its jobs' data and its image, and before removing it from
-    SplatMe's settings (`--yes` answers yes to all).
+    (`~/splatnode`), and asks before deleting its jobs' data and its image, and, for a node on WebODM's machine,
+    before removing it from SplatMe's settings (`--yes` answers yes to all).
 - **The plugin**: its row's bin on Administration → Plugins removes the plugin's folder, with the sky model it
     downloaded. It leaves:
     - **The trained models**: each task keeps its model in its 3D view, as a model uploaded by hand, and the

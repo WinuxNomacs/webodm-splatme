@@ -7,14 +7,14 @@ node then joins; `connect --webodm <container>` connects a node installed `--sta
 machine). The node's settings are read from that `.env` only, not from variables of the same names in the shell. Without the
 script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d`, from a checkout (add `--build` to
 compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
-v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series, and takes a while). The image is
+v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series; the build needs about 27 GB of disk). The image is
 `ghcr.io/winuxnomacs/splatme-node`, tagged with the node's version and `latest`.
 
 The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
 (`SPLATNODE_KEEP_HOURS`). A training whose trainer prints nothing for 30 minutes is stopped and fails with that
-reason (`SPLATNODE_STALL_MINUTES`). Both are set in `~/splatnode/.env`, then `splatnode.sh upgrade`. If the node's
-own worker stops, the node exits and Docker starts it again; the training it was running fails with a message.
-Every request but `GET /health` needs the token.
+reason (`SPLATNODE_STALL_MINUTES`). Both are set in `~/splatnode/.env`, then `splatnode.sh upgrade`; a value that is not
+a number, or is below 1, is logged and the default used. If the node's own worker stops, the node exits and Docker
+starts it again; the training it was running fails with a message.
 
 Its API ([node/splatnode.py](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/splatnode.py)), with `Authorization: Bearer <token>`:
 

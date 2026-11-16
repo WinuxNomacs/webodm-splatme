@@ -84,7 +84,7 @@ export default class TrainDialog extends React.Component {
                 {((check || {}).warnings || []).map((warning, i) =>
                     <div key={i} className="alert alert-warning"><i className="fa fa-exclamation-triangle"></i> {warning}</div>)}
                 {check && check.has_splats && !blocked && !resume ?
-                    <div className="alert alert-info">{_("This task already has a splats model. The new one replaces it when the training succeeds.")}</div> : ""}
+                    <div className="alert alert-info">{_("This task already has a splat model. The new one replaces it when the training succeeds.")}</div> : ""}
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleStart(); }}>
                     {trained > 0 && !blocked ?

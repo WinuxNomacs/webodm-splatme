@@ -36,6 +36,7 @@ it short; edit in place.
 - **The plugin's code**: `training.py` (a task's job and its record, automatic training and its settings),
   `sky.py` (Ignore Sky: masks of the sky in a training's photos, made with ODX's sky model),
   `crop.py` (Crop To Boundary: the trained model cut to the task's boundary GeoJSON),
+  `thermal.py` (DJI Thermal Analyzer's TIFFs drawn in a palette, one range for the task),
   `node.py` (the splat node's API as the plugin uses it), `api.py` (the views), `plugin.py` (the mount points,
   the menu item, the scripts, the signal receivers). State is
   kept only in the plugin's global data store: an update of an uploaded plugin replaces its folder,
@@ -43,7 +44,7 @@ it short; edit in place.
 - **The plugin's pages**: `templates/tasks.html` (SplatMe → Tasks, which starts `public/Tasks.jsx`: the tasks
   SplatMe can train that the user may see (`training.compatible`), from api.py's `tasks`, each row a
   `TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`
-  (Change), `OptionsFields.jsx`, `LogDialog.jsx`, `Dialog.jsx` and `api.js`; and `NewTask.jsx`, New Task With
+  (Change), `OptionsFields.jsx` (with `StagesTable.jsx` and `ImageSizeTable.jsx`), `LogDialog.jsx`, `Dialog.jsx` and `api.js`; and `NewTask.jsx`, New Task With
   Splats: `SplatMePanel.jsx` above WebODM's own `NewTaskPanel` (imported from WebODM, as webodm-dji-thermal
   does), then `newTask.js`, the upload through WebODM's task API), `templates/settings.html`
   (SplatMe → Settings) and `templates/admin.html` (its page under Administration, whose item `main.js` adds),
@@ -53,8 +54,8 @@ it short; edit in place.
   WebODM's page names) and `TaskLine.jsx` (the task panel's Splats line, found by its
   Task ID). SplatMe answers none of WebODM's task panel hooks: WebODM keeps the first answer and drops the
   other plugins'. The `.jsx` are built by WebODM's webpack into `public/build`, which git ignores, as it does
-  the generated `webpack.config.js`. `public/trainingView.js` (what they show, as plain functions) and
-  `newTask.js` are what Jest tests.
+  the generated `webpack.config.js`. `restartText.js` holds the restart notice's words.
+  `public/trainingView.js` (what they show, as plain functions), `api.js` and `newTask.js` are what Jest tests.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
   runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum), `splatnode.sh` (install,

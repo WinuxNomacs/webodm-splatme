@@ -16,7 +16,3 @@ requirements-dev.txt`):
 - `.venv/bin/zensical build` builds it into `site/`. The build is strict: a broken link or anchor fails it.
 
 The site is published with each release, by the release workflow, so it always describes the released version.
-
-## Licence
-
-AGPL-3.0, see [LICENSE](https://github.com/WinuxNomacs/webodm-splatme/blob/main/LICENSE).
