@@ -20,6 +20,7 @@ from app.models import Plugin, Project, Task
 from app.plugins import get_plugin_by_name, signals
 from app.tests.classes import BootTestCase
 from django.contrib.auth.models import User
+from django.db import InterfaceError, OperationalError
 from guardian.shortcuts import assign_perm
 from nodeodm import status_codes
 from PIL import Image
@@ -115,9 +116,10 @@ class TestSplatMe(BootTestCase):
         self.node = FakeNode()
         self.addCleanup(self.node.close)
         training.set_node(self.node.url, self.node.token)
-        patcher = mock.patch.object(training, "POLL", 0)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name in ("POLL", "REVIVE_EVERY"):
+            patcher = mock.patch.object(training, name, 0)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         # WebODM's converter does not take the stand-in node's model
         self.converted = []
         patcher = mock.patch.object(training, "convert", self.convert)
@@ -1211,6 +1213,82 @@ class TestSplatMe(BootTestCase):
             training.ensure_follower()
             self.assertEqual(started, ["run_follower", "run_follower"])
 
+    # Unattended trainings: a lost follower, a node that answers errors (found by the review of 0.2.0)
+
+    def test_the_follower_keeps_following_after_an_error_of_its_own(self):
+        started = []
+        task = make_task(self.user)
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append((f.__name__, a))):
+            self.train(task, steps=10)
+            training.run(*started[0][1][1:])
+            real, failures = training.handed_jobs, [OperationalError("server closed the connection unexpectedly")]
+
+            def flaky():
+                if failures:
+                    raise failures.pop()
+                return real()
+
+            with mock.patch.object(training, "handed_jobs", flaky), \
+                    mock.patch.object(training, "BEAT", 0), mock.patch.object(training, "connection"):
+                training.follow_node(started[1][1][1])
+        self.assertEqual([name for name, _a in started], ["run_job", "run_follower", "run_job"])  # the import
+
+    def test_a_follower_whose_errors_go_on_ends_for_another_to_start(self):
+        failing = mock.Mock(side_effect=OperationalError("the database is gone"))
+        with mock.patch.object(training, "follow_all", failing), mock.patch.object(training, "BEAT", 0), \
+                mock.patch.object(training, "connection"):
+            training.follow_node("run")
+        self.assertEqual(failing.call_count, training.FOLLOWER_ERRORS)
+
+    def test_a_training_whose_follower_was_lost_is_followed_again_when_any_task_completes(self):
+        task = make_task(self.user)
+        self.lost_job(task, self.node.add_job())
+        self.complete(make_task(self.user))  # a task not set to train
+        self.assertEqual(training.get_job(task.id)["state"], "completed")
+        self.assertEqual(self.model(task), MODEL)
+
+    def test_a_training_whose_follower_was_lost_is_followed_again_when_any_task_fails(self):
+        task = make_task(self.user)
+        self.lost_job(task, self.node.add_job())
+        for _receiver, answer in signals.task_failed.send_robust(sender=Task, task_id=make_task(self.user).id):
+            self.assertIsNone(answer)
+        self.assertEqual(training.get_job(task.id)["state"], "completed")
+
+    def test_a_training_whose_follower_was_lost_is_followed_again_from_any_page_of_webodm(self):
+        task = make_task(self.user)
+        self.lost_job(task, self.node.add_job())
+        self.assertEqual(APIClient().get(f"{API}/revive").status_code, 403)
+        self.assertEqual(training.get_job(task.id)["state"], "training")
+        self.assertEqual(self.client.get(f"{API}/revive").status_code, 204)
+        self.assertEqual(training.get_job(task.id)["state"], "completed")
+
+    def test_a_node_that_answers_errors_for_a_while_is_waited_for(self):
+        task = make_task(self.user)
+        self.lost_job(task, self.node.add_job())
+        self.node.failures = [502, 503, 401, 500]  # a proxy while the node restarts, a token being changed
+        self.status(task)
+        self.assertEqual(training.get_job(task.id)["state"], "completed")
+        self.assertEqual(self.model(task), MODEL)
+
+    def test_a_node_that_answers_errors_past_the_patience_fails_the_training_and_its_job_is_deleted(self):
+        task = make_task(self.user)
+        node_job = self.lost_job(task, self.node.add_job()) or "job-known"
+        self.node.failures = [502]
+        with mock.patch.object(training, "NODE_PATIENCE", -1):
+            self.status(task)
+        job = training.get_job(task.id)
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("502", job["error"])
+        self.assertTrue(self.node.jobs[node_job]["deleted"])
+
+    def test_the_heartbeat_reconnects_after_an_error_of_the_database(self):
+        connection = mock.Mock()
+        with mock.patch.object(training, "connection", connection), mock.patch.object(training, "BEAT", 0.01), \
+                mock.patch.object(training, "update", side_effect=[InterfaceError("connection already closed"),
+                                                                   training.Superseded()]):
+            training.Heartbeat("task", "run").beat()
+        self.assertEqual(connection.close.call_count, 2)  # after the error, and when it ends
+
     def test_a_download_that_stops_is_tried_again(self):
         task = make_task(self.user)
         real, calls = training.Node.result, []
@@ -1299,6 +1377,18 @@ class TestSplatMe(BootTestCase):
         self.assertFalse(res.data["can_train"])
         self.assertEqual(APIClient().get(f"{API}/task/{task.id}/auto").status_code, 200)
 
+    def test_the_log_of_a_public_task_tells_only_an_administrator_what_is_wrong_with_the_node(self):
+        task = make_task(self.user)
+        Task.objects.filter(pk=task.pk).update(public=True)
+        self.lost_job(task, self.node.add_job())
+        training.set_node("http://127.0.0.1:9")  # nothing answers there
+        res = APIClient().get(f"{API}/task/{task.id}/log")
+        self.assertEqual(res.status_code, 502)
+        self.assertNotIn("127.0.0.1", res.data["error"])
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        self.assertIn("127.0.0.1", admin.get(f"{API}/task/{task.id}/log").data["error"])
+
     def test_a_boundary_with_a_hole_leaves_out_what_is_in_the_hole(self):
         task = make_task(self.user)
         outline = [[-3, -3], [3, -3], [3, 3], [-3, 3], [-3, -3]]
@@ -1328,3 +1418,14 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(self.client.get(f"{API}/task/{jpeg.id}/status?listed=1").data["listed"])
         png = make_task(self.user, images=["a.png"])
         self.assertFalse(self.client.get(f"{API}/task/{png.id}/status?listed=1").data["listed"])
+
+    def test_the_status_of_a_task_splatme_does_not_list_says_why(self):
+        png = make_task(self.user, images=["a.png"])
+        self.assertIn("photos are JPEG", self.client.get(f"{API}/task/{png.id}/status?listed=1").data["unlisted"])
+        compacted = make_task(self.user)
+        Task.objects.filter(pk=compacted.pk).update(compacted=True)
+        status = self.client.get(f"{API}/task/{compacted.id}/status?listed=1").data
+        self.assertFalse(status["listed"])
+        self.assertIn("compacted", status["unlisted"])
+        jpeg = make_task(self.user)
+        self.assertIsNone(self.client.get(f"{API}/task/{jpeg.id}/status?listed=1").data["unlisted"])

@@ -102,7 +102,9 @@ class Status(TaskView):
         task = self.get_and_check_task(request, pk)
         out = describe(request, task, training.follow(task))
         if is_true(request.query_params.get("listed")):
-            out["listed"] = training.compatible(task)  # whether SplatMe → Tasks lists it (its folder is read)
+            # Whether SplatMe → Tasks lists it, and why not (its folder is read)
+            out["unlisted"] = training.unlisted(task)
+            out["listed"] = out["unlisted"] is None
         return Response(out)
 
 
@@ -147,7 +149,8 @@ class Log(TaskView):
                 text, offset = training.get_node().log(job["node_job"], offset)
             except NodeError as e:
                 if e.status != 404:  # the node deletes a finished job, and its log, after a while
-                    return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+                    error = str(e) if request.user.is_superuser else UNAVAILABLE  # as Check
+                    return Response({"error": error}, status=status.HTTP_502_BAD_GATEWAY)
         res = HttpResponse(text, content_type="text/plain; charset=utf-8")
         res["X-Log-Offset"] = str(offset)
         return res
@@ -248,6 +251,16 @@ class Tasks(APIView):
             if tasks:
                 out.append({"id": project.id, "name": project.name, "can_train": may_train, "tasks": tasks})
         return Response({"projects": out, "addable": addable})
+
+
+class Revive(APIView):
+    """GET from any WebODM page (main.js): trainings that lost their worker are taken over (training.revive)."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        training.revive()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class NodeSettings(APIView):

@@ -32,7 +32,14 @@
         item.appendChild(link);
         list.appendChild(item);
     }
+    // WebODM gives a plugin no timer: a page of a signed-in user (it has the side menu) has SplatMe take over the
+    // trainings that lost their worker (WebODM's worker restarted), at most every 30 s (training.revive)
+    function revive(){
+        if (!document.getElementById("side-menu") || !window.fetch) return;
+        fetch("/api/plugins/splatme/revive", {credentials: "same-origin"})["catch"](function(){});
+    }
     // Plugins' scripts load in the page's head, before the side menu
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", addAdminItem);
-    else addAdminItem();
+    function ready(){ addAdminItem(); revive(); }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ready);
+    else ready();
 })();

@@ -26,6 +26,7 @@ class FakeNode:
         self.token = token
         self.version = "0.2.0"
         self.script = [("queued", {"position": 1}), ("running", {"progress": 50, "step": 5}), ("completed", {})]
+        self.failures = []  # statuses its next job status requests answer (a proxy's 502 while the node restarts)
         self.jobs = {}  # id -> {"options", "names" (the zip's files), "resume" (the model it continues), "asked" (status requests), "deleted"}
         node = self
 
@@ -68,6 +69,9 @@ class FakeNode:
                 if len(parts) == 2 and self.command == "DELETE":
                     job["deleted"] = True
                     return self.send(200, {})
+                if len(parts) == 2 and node.failures:
+                    status = node.failures.pop(0)
+                    return self.send(status, b"<html>Bad Gateway</html>")
                 if len(parts) == 2:
                     job["asked"] += 1
                     return self.send(200, node.describe(parts[1]))

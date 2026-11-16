@@ -25,7 +25,10 @@ function sendTo(url, method, body){
             init.body = JSON.stringify(body || {});
         }
     }
-    return fetch(url, init);
+    // A server that never answered (the network off, WebODM restarting) rejects with no status, in words
+    return fetch(url, init).catch(() => {
+        throw new Error("WebODM did not answer. Check the connection, then try again.");
+    });
 }
 
 function send(method, path, body){
@@ -43,17 +46,15 @@ function answer(res){
     });
 }
 
-// The answer's JSON; a refusal rejects with the server's reason as the error's message and its status
+// The answer's JSON; a refusal rejects with the server's reason as the error's message and its status, a server
+// that never answered with no status
 export function request(method, path, body){
     return send(method, path, body).then(answer);
 }
 
-// The same for a URL of WebODM's own API (/api/projects/...), or SplatMe's given whole; a server that never
-// answered rejects with no status
+// The same for a URL of WebODM's own API (/api/projects/...), or SplatMe's given whole
 export function webodm(method, url, body){
-    return sendTo(url, method, body).catch(() => {
-        throw new Error("WebODM did not answer. Check the connection, then try again.");
-    }).then(answer);
+    return sendTo(url, method, body).then(answer);
 }
 
 // The trainer's output from a byte on: {text, offset}, the offset being where to read on

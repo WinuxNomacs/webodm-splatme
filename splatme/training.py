@@ -47,6 +47,8 @@ BEAT = 10  # seconds between the signs
 POLL = 2  # seconds between questions to the node
 NODE_PATIENCE = 3600  # seconds a node may not answer mid-training (updated, the network down) before the job fails
 RESULT_TRIES = 5  # downloads of a trained model before the training fails (the node keeps it for days)
+FOLLOWER_ERRORS = 30  # errors of its own in a row (BEAT seconds apart) before the follower ends, for revive to start anew
+REVIVE_EVERY = 30  # seconds between looks for jobs that lost their worker, from WebODM's events and pages
 TAKEOVERS = 3  # times a job's export or import may lose its worker (killed: memory) before the job fails
 # The states in which the node has a job, followed by the follower rather than by the job's own worker job
 HANDED = ("queued", "training")
@@ -271,11 +273,9 @@ def problem(task):
     """Why this task cannot be trained, or None."""
     if task.status != status_codes.COMPLETED:
         return "The task has not completed processing."
-    for asset in REQUIRED_ASSETS:
-        if asset not in task.available_assets:
-            return f"The task has no {asset}. Process it again with a point cloud."
-    if task.compacted:
-        return "The task was compacted: its images are gone, and training needs them."
+    reason = results_problem(task)
+    if reason:
+        return reason
     try:
         shots = splats.load_scene(task, 0)[1]
     except (ValueError, OSError, KeyError) as e:
@@ -294,22 +294,37 @@ def problem(task):
 OTHER_IMAGES = (".tif", ".tiff", ".png", ".dng", ".nef", ".raw", ".webp", ".bmp", ".gif")
 
 
-def compatible(task):
+def results_problem(task):
+    """Why a completed task's results cannot be trained on (its assets, its images kept), or None."""
+    for asset in REQUIRED_ASSETS:
+        if asset not in task.available_assets:
+            return f"The task has no {asset}. Process it again with a point cloud."
+    if task.compacted:
+        return "The task was compacted: its images are gone, and training needs them."
+    return None
+
+
+def unlisted(task):
     """
-    Whether SplatMe's Tasks page lists the task: it has splats, or its photos are JPEG (or DJI Thermal Analyzer's
-    TIFFs) and, once completed, it can train. Cheaper than problem() (its files and assets, not its cameras), for
-    every task of a list.
+    Why SplatMe's Tasks page does not list the task, or None when it does: it has splats, or its photos are JPEG (or
+    DJI Thermal Analyzer's TIFFs) and, once completed, it can train. Cheaper than problem() (its files and assets,
+    not its cameras), for every task of a list.
     """
     if "splats.rad" in task.available_assets:
-        return True
+        return None
     images = thermal.photo_names(task.scan_images())
     names = [os.path.splitext(name)[1].lower() for name in images]
     jpeg = any(ext in (".jpg", ".jpeg") for ext in names) and not any(ext in OTHER_IMAGES for ext in names)
     if not jpeg and not thermal.is_thermal(task, images):
-        return False
+        return "SplatMe trains tasks whose photos are JPEG (or DJI Thermal Analyzer's TIFFs)."
     if task.status != status_codes.COMPLETED:
-        return True
-    return not task.compacted and all(asset in task.available_assets for asset in REQUIRED_ASSETS)
+        return None
+    return results_problem(task)
+
+
+def compatible(task):
+    """Whether SplatMe's Tasks page lists the task."""
+    return unlisted(task) is None
 
 
 def trained_model(task):
@@ -589,6 +604,41 @@ def follow(task):
     return job
 
 
+def revive():
+    """
+    Takes over every job that lost its worker or its follower (WebODM's worker restarted, or killed a job). WebODM
+    gives a plugin no timer of its own, so this runs when any task completes or fails and from WebODM's pages (main.js),
+    at most once every REVIVE_EVERY seconds in a process. Never raises: its callers are WebODM's.
+    """
+    global revived
+    if time.time() - revived < REVIVE_EVERY:
+        return
+    revived = time.time()
+    try:
+        prefix = store().db_key(job_key(""))
+        records = PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", "json_value")
+        stale = [key[len(prefix) :] for key, job in records if isinstance(job, dict) and job.get("state") and is_stale(job)]
+    except Exception:
+        logger.exception("SplatMe: looking for trainings that lost their worker failed")
+        return
+    for task_id in stale:
+        try:
+            task = Task.objects.filter(pk=task_id).first()
+            if task is not None:
+                follow(task)
+        except Exception:
+            logger.exception(f"SplatMe: taking over the training of task {task_id} failed")
+
+
+revived = 0.0  # when this process last looked (revive)
+
+
+def task_ended():
+    """A task completed or failed processing (WebODM's signals, in the worker): a moment to look for lost trainings."""
+    if Plugin.objects.filter(name=NAME, enabled=True).exists():
+        revive()
+
+
 def removed(task_id):
     """The task is being deleted: its job stops and its record goes."""
     job = get_job(task_id)
@@ -651,6 +701,7 @@ class Heartbeat:
                     return
                 except Exception as e:  # noqa: BLE001 (Django's InterfaceError is no DatabaseError: keep beating)
                     logger.warning(f"SplatMe: heartbeat: {e}")
+                    connection.close()  # Django opens a new one at the next query
         finally:
             connection.close()
 
@@ -901,33 +952,54 @@ def follower_done(frun):
 def follow_node(frun):
     """The follower: follows every training the node has, and starts each trained one's import."""
     seen = {}  # task id: what follow_job keeps between looks (the time left's samples, since when the node is silent)
-    while follower_beat(frun):
-        jobs = handed_jobs()
-        if not jobs and follower_done(frun):
-            return
-        node = get_node()
-        for task_id, job in jobs:
-            try:
-                follow_job(task_id, job["run"], node, job["node_job"], seen.setdefault(task_id, {}))
-            except Superseded:
-                seen.pop(task_id, None)
-            except Canceled:
-                seen.pop(task_id, None)
-                drop_node_job(job)
-                finish(task_id, job["run"], "canceled")
-                if not Task.objects.filter(pk=task_id).exists():
-                    forget(task_id)
-            except (TrainingError, NodeError) as e:
-                seen.pop(task_id, None)
-                logger.warning(f"SplatMe: training task {task_id} failed: {e}")
-                if isinstance(e, NodeError) and e.status is None:
-                    drop_node_job(job)  # a node silent this long may still train it once it answers again
-                finish(task_id, job["run"], "failed", str(e))
-            except Exception as e:
-                seen.pop(task_id, None)
-                logger.exception(f"SplatMe: following task {task_id}'s training failed")
-                finish(task_id, job["run"], "failed", f"Unexpected error: {e}")
+    errors = 0
+    while True:
+        try:
+            if not follow_all(frun, seen):
+                return
+            errors = 0
+        except Exception:
+            # Its own error (the database restarting): the follower goes on for a while; past that it ends, and the next
+            # look for lost trainings (revive) starts another
+            errors += 1
+            logger.exception(f"SplatMe: the follower's look at the node failed ({errors} in a row)")
+            if errors >= FOLLOWER_ERRORS:
+                return
+            connection.close()
+            time.sleep(BEAT)
         time.sleep(POLL)
+
+
+def follow_all(frun, seen):
+    """One look at every training the node has; False once the follower should end."""
+    if not follower_beat(frun):
+        return False
+    jobs = handed_jobs()
+    if not jobs and follower_done(frun):
+        return False
+    node = get_node()
+    for task_id, job in jobs:
+        try:
+            follow_job(task_id, job["run"], node, job["node_job"], seen.setdefault(task_id, {}))
+        except Superseded:
+            seen.pop(task_id, None)
+        except Canceled:
+            seen.pop(task_id, None)
+            drop_node_job(job)
+            finish(task_id, job["run"], "canceled")
+            if not Task.objects.filter(pk=task_id).exists():
+                forget(task_id)
+        except (TrainingError, NodeError) as e:
+            seen.pop(task_id, None)
+            logger.warning(f"SplatMe: training task {task_id} failed: {e}")
+            if isinstance(e, NodeError):
+                drop_node_job(job)  # a node unwell this long may still train it once it is well again
+            finish(task_id, job["run"], "failed", str(e))
+        except Exception as e:
+            seen.pop(task_id, None)
+            logger.exception(f"SplatMe: following task {task_id}'s training failed")
+            finish(task_id, job["run"], "failed", f"Unexpected error: {e}")
+    return True
 
 
 def follow_job(task_id, run, node, node_job, memory):
@@ -942,12 +1014,12 @@ def follow_job(task_id, run, node, node_job, memory):
                 "The splat node no longer has this job (the node lost its data, or the job expired). "
                 "Start the training again."
             ) from e
-        if e.status is not None:
-            raise
+        # Not answering, or answering an error (a proxy's 502 while the node restarts, a token being changed): the
+        # node keeps training meanwhile
         memory.setdefault("silent", time.time())
         if time.time() - memory["silent"] > NODE_PATIENCE:
             raise
-        update(task_id, run, status="Waiting for the splat node to answer")
+        update(task_id, run, status="Waiting for the splat node to answer" + (f" (it answered {e.status})" if e.status else ""))
         return
 
     state = remote["state"]
