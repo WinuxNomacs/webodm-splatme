@@ -12,8 +12,12 @@
 #   node joins WebODM's Docker network, listens on this machine only, and SplatMe's settings get its address and
 #   token; otherwise (or with --standalone) it listens on every address, and the address and token are printed to
 #   enter on SplatMe's page in WebODM's Administration.
-# upgrade: pulls the newest image and restarts the node; its jobs and token stay.
-# connect: gives SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM).
+#   A failed install is undone, so it can be run again.
+# upgrade: pulls the newest image, writes the compose file again and restarts the node, then deletes the previous
+#   image; its jobs, token and port stay.
+# connect: gives SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM);
+#   when WebODM's webapp is on another network than the node (--webodm, or a reinstalled WebODM), the node moves
+#   to it.
 # uninstall: stops and removes the node and its folder; asks before deleting its jobs' data and the image, and
 #   before removing the node from SplatMe's settings (--yes says yes to all).
 #
@@ -30,6 +34,8 @@ ALIAS="splat-node"  # the node's name on WebODM's network
 SELF="$0"
 [ -f "$SELF" ] || SELF="curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s --"
 INNER_PORT=3100
+INSTALLING=0  # 1 while an install can still be undone
+KEPT_JOBS=0  # 1 when the jobs' volume was there before the install (an uninstall kept it)
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'splatnode: %s\n' "$*" >&2; exit 1; }
@@ -43,9 +49,24 @@ yes_to() {
     fi
     case "$answer" in y|Y|yes|Yes) return 0 ;; *) return 1 ;; esac
 }
-compose() { docker compose -p "$PROJECT" --project-directory "$DIR" -f "$DIR/compose.yml" "$@"; }
-env_value() { sed -n "s/^$1=//p" "$DIR/.env" 2>/dev/null | head -n 1; }
-local_image() { case "$IMAGE" in */*) [ -n "$(docker image ls -q "$IMAGE")" ] && ! docker manifest inspect "$IMAGE" >/dev/null 2>&1 ;; *) true ;; esac; }
+# Compose reads the node's settings from .env only: the same names exported in the shell would win over it
+compose() {
+    env -u SPLATNODE_IMAGE -u SPLATNODE_CONTAINER -u SPLATNODE_TOKEN -u SPLATNODE_PORT -u SPLATNODE_BIND \
+        -u SPLATNODE_KEEP_HOURS -u SPLATNODE_WEBODM_NETWORK \
+        docker compose -p "$PROJECT" --project-directory "$DIR" -f "$DIR/compose.yml" "$@"
+}
+env_value() { sed -n "s/^$1=//p" "$DIR/.env" 2>/dev/null | head -n 1 || true; }  # nothing when there is no .env
+# A local image is one built here: a name without a registry, or one no registry has. The published image is always
+# pulled, so a registry that does not answer is an error rather than an upgrade that did nothing.
+local_image() {
+    case "$IMAGE" in
+        ghcr.io/winuxnomacs/*) false ;;
+        */*) [ -n "$(docker image ls -q "$IMAGE")" ] && ! docker manifest inspect "$IMAGE" >/dev/null 2>&1 ;;
+        *) true ;;
+    esac
+}
+image_id() { docker image inspect -f '{{.Id}}' "$1" 2>/dev/null || true; }
+PULLED=0  # 1 when this run downloaded the image, which a failed GPU check then deletes
 
 check_docker() {
     command -v docker >/dev/null || fail "Docker is not installed: https://docs.docker.com/engine/install/"
@@ -58,6 +79,7 @@ check_gpu() {
     local gpus
     if ! gpus="$(docker run --rm --gpus all --entrypoint nvidia-smi "$IMAGE" -L 2>&1)"; then
         say "$gpus" >&2
+        if [ "$PULLED" = 1 ]; then docker image rm "$IMAGE" >/dev/null 2>&1 && say "The image just downloaded was deleted." >&2 || true; fi
         fail "A container cannot use the GPU. The node needs an NVIDIA GPU, its driver, and the NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
     fi
     say "$gpus"
@@ -68,7 +90,8 @@ pull_image() {
         say "Using the local image $IMAGE"
     else
         say "Downloading $IMAGE (several GB the first time)"
-        docker pull "$IMAGE"
+        [ -n "$(image_id "$IMAGE")" ] || PULLED=1
+        docker pull "$IMAGE" || fail "Could not download $IMAGE."
     fi
 }
 
@@ -100,12 +123,45 @@ find_webodm() {
     esac
 }
 
+networks_of() { docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$1"; }
+
+# The network to join: one WebODM's worker shares with its webapp (the worker runs the trainings; a webapp behind a
+# reverse proxy is on the proxy's network too), WebODM's Compose default first
 webodm_network() {
-    docker inspect -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$1" | awk '{print $1}'
+    local nets project worker net
+    nets="$(networks_of "$1")"
+    project="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$1")"
+    worker="$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=worker" | head -n 1)"
+    if [ -n "$project" ] && [ -n "$worker" ]; then
+        local shared=""
+        for net in $(networks_of "$worker"); do
+            case " $nets " in *" $net "*) shared="$shared $net" ;; esac
+        done
+        [ -z "$shared" ] || nets="$shared"
+    fi
+    for net in $nets; do
+        if [ "$net" = "${project}_default" ]; then say "$net"; return; fi
+    done
+    for net in $nets; do say "$net"; return; done
+}
+
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+# A failed install leaves nothing that would stop it from being run again
+undo_install() {
+    local code=$?
+    if [ "$code" != 0 ] && [ "$INSTALLING" = 1 ]; then
+        say "The install did not finish: it was undone." >&2
+        # The jobs' volume too, unless an earlier uninstall kept it
+        if [ "$KEPT_JOBS" = 1 ]; then compose down >/dev/null 2>&1 || true; else compose down -v >/dev/null 2>&1 || true; fi
+        rm -f -- "${DIR:?}/compose.yml" "${DIR:?}/.env"
+        rmdir -- "$DIR" 2>/dev/null || true
+    fi
 }
 
 write_files() {
-    local network="$1" port="$2" token="$3" bind
+    local network="$1" port="$2" token="$3" bind keep
+    keep="$(env_value SPLATNODE_KEEP_HOURS)"
     mkdir -p "$DIR"
     if [ -n "$network" ]; then bind="127.0.0.1:"; else bind=""; fi
     umask 077
@@ -116,7 +172,7 @@ SPLATNODE_CONTAINER=$PROJECT
 SPLATNODE_TOKEN=$token
 SPLATNODE_PORT=$port
 SPLATNODE_BIND=$bind
-SPLATNODE_KEEP_HOURS=48
+SPLATNODE_KEEP_HOURS=${keep:-48}
 SPLATNODE_WEBODM_NETWORK=$network
 EOF
     umask 022
@@ -175,7 +231,7 @@ wait_healthy() {
 
 node_version() {
     curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
-        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p'
+        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' || true  # nothing when the node does not answer
 }
 
 # SplatMe's settings in WebODM get the node's address and token, through WebODM's own manage.py (the token passed
@@ -190,13 +246,15 @@ plugin = get_plugin_by_name("splatme", only_active=False)
 if plugin is None:
     sys.exit(3)
 training = importlib.import_module(plugin.__module__.rsplit(".", 1)[0] + ".training")
-training.set_node(os.environ["SPLATNODE_URL"], os.environ["SPLATNODE_TOKEN"] or None)
+training.set_node(os.environ["SPLATNODE_URL"], os.environ["SPLATNODE_TOKEN"])
 ' >/dev/null 2>&1
 }
 
 print_settings() {
     local host
-    host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    # The address this machine reaches others from (hostname -I can list Docker's bridges first)
+    host="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p')"
+    [ -n "$host" ] || host="$(hostname -I 2>/dev/null | awk '{print $1}')"
     [ -n "$host" ] || host="<this machine's address>"
     say ""
     say "Enter these on SplatMe's page in WebODM (Administration > SplatMe), then press Test Connection:"
@@ -205,16 +263,29 @@ print_settings() {
 }
 
 connect() {
-    local webapp="$1" network
+    local webapp="$1" network wanted
     network="$(env_value SPLATNODE_WEBODM_NETWORK)"
-    if [ -z "$network" ]; then
-        say "This node is not on a WebODM's network (installed --standalone, or no WebODM was found)."
-        print_settings; return
-    fi
     if [ -z "$webapp" ]; then
+        if [ -z "$network" ]; then
+            say "This node is not on a WebODM's network (installed --standalone, or no WebODM was found)."
+            say "To connect it to a WebODM on this machine: $SELF connect --webodm <its webapp container>"
+            print_settings; return
+        fi
         webapp="$(webapp_on "$network")"
+        # WebODM reinstalled under another name: the one running now
+        [ -n "$webapp" ] || webapp="$(find_webodm "")"
+        [ -n "$webapp" ] || fail "WebODM's webapp container is not running: start WebODM, then run: $SELF connect"
     fi
-    [ -n "$webapp" ] || fail "WebODM's webapp container on the network $network is not running: start WebODM, then run: $SELF connect"
+    # The node moves to the network of the WebODM it serves, or the worker could not reach it
+    wanted="$(webodm_network "$webapp")"
+    [ -n "$wanted" ] || fail "$webapp is on no Docker network."
+    if [ "$wanted" != "$network" ]; then
+        say "Moving the node to $webapp's network $wanted"
+        IMAGE="$(env_value SPLATNODE_IMAGE)"
+        write_files "$wanted" "$(env_value SPLATNODE_PORT)" "$(env_value SPLATNODE_TOKEN)"
+        compose up -d
+        wait_healthy "$(env_value SPLATNODE_PORT)"
+    fi
     if save_in_splatme "$webapp" "http://$ALIAS:$INNER_PORT" "$(env_value SPLATNODE_TOKEN)"; then
         say "SplatMe in WebODM ($webapp) now trains on this node: http://$ALIAS:$INNER_PORT"
     else
@@ -238,6 +309,8 @@ cmd_install() {
         esac
     done
     [ -f "$DIR/compose.yml" ] && fail "A splat node is already installed in $DIR: use upgrade, or uninstall first."
+    case "$port" in ''|*[!0-9]*) fail "--port needs a number." ;; esac
+    port_in_use "$port" && fail "Port $port is already in use on this machine: choose another with --port."
     check_docker
     pull_image
     check_gpu
@@ -254,9 +327,13 @@ cmd_install() {
     fi
     local token
     token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    if docker volume inspect "${PROJECT}_jobs" >/dev/null 2>&1; then KEPT_JOBS=1; fi
+    INSTALLING=1
+    trap undo_install EXIT
     write_files "$network" "$port" "$token"
     compose up -d
     wait_healthy "$port"
+    INSTALLING=0
     say "The splat node $(node_version) runs (folder $DIR)."
     if [ -n "$webapp" ]; then connect "$webapp"; else print_settings; fi
     say ""
@@ -266,13 +343,19 @@ cmd_install() {
 cmd_upgrade() {
     [ -f "$DIR/compose.yml" ] || fail "No splat node is installed in $DIR."
     check_docker
-    local before
+    local before old
     before="$(node_version)"
     IMAGE="$(env_value SPLATNODE_IMAGE)"
-    if local_image; then say "Using the local image $IMAGE"; else compose pull; fi
-    compose up -d
+    old="$(image_id "$IMAGE")"
+    if local_image; then say "Using the local image $IMAGE"; else compose pull || fail "Could not download $IMAGE."; fi
+    # This script's compose file, with the node's settings as they are
+    write_files "$(env_value SPLATNODE_WEBODM_NETWORK)" "$(env_value SPLATNODE_PORT)" "$(env_value SPLATNODE_TOKEN)"
+    compose up -d || fail "The node did not start. If WebODM was reinstalled, run: $SELF connect"
     wait_healthy "$(env_value SPLATNODE_PORT)"
     say "The splat node runs version $(node_version) (it was ${before:-not answering}). Its jobs and token are kept."
+    if [ -n "$old" ] && [ "$old" != "$(image_id "$IMAGE")" ]; then
+        if docker image rm "$old" >/dev/null 2>&1; then say "The previous image was deleted."; else say "The previous image is still used (by a container or another tag): kept."; fi
+    fi
 }
 
 cmd_status() {

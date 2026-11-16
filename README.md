@@ -16,7 +16,9 @@ puts the model in the task's 3D view.
 ## Requirements
 
 - WebODM 4.0.0 or later, installed with Docker. WebODM's native Windows app is not supported: it has no
-  `splat-tools` to convert a trained model, and cannot build a plugin's page scripts.
+  `splat-tools` to convert a trained model, and cannot build a plugin's page scripts. On an older WebODM,
+  **Load Plugin (.zip)** says SplatMe was installed but WebODM then does not show it (and refuses it as already
+  there): update WebODM first.
 - An NVIDIA GPU that Docker can use, for the training container (the "splat node"), on WebODM's machine or
   another one: Docker, Docker Compose and the
   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
@@ -29,7 +31,9 @@ By a WebODM administrator, in this order:
    Experimental) and press **Install**. Or download `splatme-<version>.zip` from the
    [latest release](https://github.com/WinuxNomacs/webodm-splatme/releases/latest) and send it with **Load
    Plugin (.zip)** on the same page.
-2. **Restart WebODM once** (`./webodm.sh restart` in WebODM's folder). WebODM's web server runs several
+2. **Restart WebODM once**, with the options it was started with: `./webodm.sh restart` in WebODM's folder,
+   plus any options given to `./webodm.sh start` (`--port`, `--hostname`, `--media-dir`, `--ssl`…), which
+   `webodm.sh` does not remember. WebODM's web server runs several
    processes and only the one that received the plugin loads it, so until the restart SplatMe's pages, scripts
    and API fail now and then; and WebODM's worker, which tells SplatMe a task has completed, loads plugins only
    when it starts. Until then SplatMe → Settings, SplatMe's panel and a task set to train say that tasks are
@@ -40,11 +44,13 @@ By a WebODM administrator, in this order:
    curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
    ```
 
-   It checks that a container can use the GPU, downloads the node's image (6.6 GB) and starts it. **On WebODM's
-   machine** the node joins WebODM's Docker network, listens on that machine only, and SplatMe's settings get
+   It downloads the node's image (6.6 GB; deleted again when a container cannot use the GPU), checks the GPU and
+   starts the node; a failed install is undone, so it can be run again. **On WebODM's machine** the node joins
+   the Docker network of WebODM's worker (which runs the trainings; behind a reverse proxy WebODM's web server is
+   on the proxy's network too), listens on that machine only, and SplatMe's settings get
    its address and token: there is nothing to enter. (With several WebODMs on the machine, it names them and
    asks for one: `--webodm <its webapp container>`. A node installed before the plugin is connected afterwards
-   with `connect`.) **On another machine**, or with `--standalone`, it listens on port 3100 (`--port`) and
+   with `connect`, which also moves the node to a reinstalled WebODM's network.) **On another machine**, or with `--standalone`, it listens on port 3100 (`--port`) and
    prints its address and token: enter them on **Administration → SplatMe** in WebODM's side menu, where **Test
    Connection** says what is wrong (no answer, wrong token, no GPU, a node too old) before anything is saved.
    Every request to the node needs its token, but the connection is plain HTTP: let only WebODM's machine reach
@@ -64,7 +70,8 @@ Between trainings: a training running during an upgrade picks up again or fails 
   kept (they are in WebODM's database, not in the plugin's folder). **Restart WebODM once** afterwards. The
   sky model is downloaded again by the next training with Ignore Sky, as an update replaces the plugin's folder.
 - **The splat node**: `curl -fsSL …/splatnode.sh | bash -s upgrade` (the same address as above) downloads the
-  newest image and restarts the node, keeping its jobs and token. SplatMe needs a node of version 0.2.0 or
+  newest image, restarts the node with the script's current compose file, keeping its jobs, token and port, and
+  deletes the previous image. SplatMe needs a node of version 0.2.0 or
   later, and **Test Connection** says when the node is older.
 
 ## Uninstall
@@ -196,7 +203,9 @@ task's size.
 
 [node/splatnode.sh](node/splatnode.sh) writes a compose file and its `.env` (with the token, readable by its
 owner only) to `~/splatnode` (`SPLATNODE_DIR`); `status` says whether the node answers, and `connect` gives
-SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM). Without the
+SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM, whose network the
+node then joins; `connect --webodm <container>` connects a node installed `--standalone` to a WebODM on the same
+machine). The node's settings are read from that `.env` only, not from variables of the same names in the shell. Without the
 script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d`, from a checkout (add `--build` to
 compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
 v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series, and takes a while). The image is
