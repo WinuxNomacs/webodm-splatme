@@ -103,7 +103,7 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    memory, whatever the number of photos. The dialog says first if the task cannot be trained, and warns when
    nearly all photos point straight down.
 
-   <img src="screenshots/train.png" alt="The Train Splats dialog with Advanced open" width="400" align="right">
+   <img src="screenshots/train.png" alt="The Train Splats dialog with Advanced open" width="400">
 
    **Advanced** has the steps, the image size and the most gaussians as numbers:
    - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
