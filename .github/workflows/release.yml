@@ -1,8 +1,8 @@
-# The release: the plugin's zip and the splat node's script on a GitHub release, and the splat node's image on
-# ghcr.io.
+# The release: the plugin's zip and the splat node's script on a GitHub release, the splat node's image on
+# ghcr.io, and the documentation site on GitHub Pages.
 # Runs only for a pushed tag v<the plugin's version> (as in splatme/manifest.json), or by hand (Actions > Release >
-# Run workflow), never for an ordinary push or a pull request. By hand it builds both and publishes nothing,
-# unless "Push the splat node's image" is ticked.
+# Run workflow), never for an ordinary push or a pull request. By hand it builds all three and publishes nothing,
+# unless "Push the splat node's image" or "Publish the documentation" is ticked.
 name: Release
 
 on:
@@ -12,6 +12,10 @@ on:
     inputs:
       publish_image:
         description: "Push the splat node's image to ghcr.io (its version and latest)"
+        type: boolean
+        default: false
+      publish_docs:
+        description: "Publish the documentation site to GitHub Pages"
         type: boolean
         default: false
 
@@ -123,3 +127,35 @@ jobs:
           docker push "${{ steps.image.outputs.name }}:latest"
           echo "### The splat node" >> "$GITHUB_STEP_SUMMARY"
           echo "\`${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}\` and \`latest\`" >> "$GITHUB_STEP_SUMMARY"
+
+  docs:
+    name: The documentation site
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build the site
+        run: |
+          # The runner's own Python (3.12); Zensical and what it pulls in, as locked with hashes
+          python3 -m venv /tmp/docs
+          /tmp/docs/bin/pip install --require-hashes --no-deps -r docs/requirements.txt
+          # Strict (zensical.toml): a broken link or anchor fails the build
+          /tmp/docs/bin/zensical build --clean
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: site
+
+  docs-deploy:
+    name: Publish the documentation
+    # With the release: once its files are up, so the docs' commands fetch what they describe
+    needs: [docs, plugin]
+    if: github.ref_type == 'tag' || inputs.publish_docs
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write     # to deploy to Pages
+      id-token: write  # to verify the deployment's origin
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1
+        id: deployment

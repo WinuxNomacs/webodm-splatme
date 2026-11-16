@@ -1,0 +1,77 @@
+# SplatMe's documentation site (https://winuxnomacs.github.io/webodm-splatme/), built with Zensical (pinned in
+# requirements-dev.txt and in .github/workflows/release.yml): .venv/bin/zensical serve (preview) or
+# .venv/bin/zensical build (into site/, which git ignores). Published by the release workflow, with each release.
+[project]
+site_name = "SplatMe"
+site_url = "https://winuxnomacs.github.io/webodm-splatme/"
+site_description = "A WebODM plugin that trains a task's Gaussian splats automatically."
+repo_url = "https://github.com/WinuxNomacs/webodm-splatme"
+repo_name = "WinuxNomacs/webodm-splatme"
+copyright = "SplatMe is licensed under AGPL-3.0."
+# A broken link or anchor fails the build
+strict = true
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = "getting-started.md" },
+  { "Install, Upgrade, Uninstall" = "install.md" },
+  { "Using SplatMe" = "using.md" },
+  { "The Splat Node" = "splat-node.md" },
+  { "The Plugin's API" = "api.md" },
+  { "Development" = "development.md" },
+  { "Changelog" = "changelog.md" },
+]
+
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true
+
+[project.theme]
+language = "en"
+# No Google Fonts: the system's fonts, and no request to an outside service
+font = false
+features = [
+  "content.code.copy",
+  "navigation.footer",
+  "navigation.instant",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[project.theme.icon]
+logo = "lucide/sparkles"
+repo = "fontawesome/brands/github"
+
+# Light and dark follow the system, with a toggle
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.superfences = {}
+pymdownx.tabbed.alternate_style = true
+# The changelog page includes CHANGELOG.md from the repository's root
+pymdownx.snippets.base_path = ["."]
+pymdownx.snippets.check_paths = true
