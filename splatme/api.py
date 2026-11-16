@@ -147,7 +147,8 @@ class Log(TaskView):
                 text, offset = training.get_node().log(job["node_job"], offset)
             except NodeError as e:
                 if e.status != 404:  # the node deletes a finished job, and its log, after a while
-                    return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+                    error = str(e) if request.user.is_superuser else UNAVAILABLE  # as Check
+                    return Response({"error": error}, status=status.HTTP_502_BAD_GATEWAY)
         res = HttpResponse(text, content_type="text/plain; charset=utf-8")
         res["X-Log-Offset"] = str(offset)
         return res

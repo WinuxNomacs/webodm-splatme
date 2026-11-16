@@ -1377,6 +1377,18 @@ class TestSplatMe(BootTestCase):
         self.assertFalse(res.data["can_train"])
         self.assertEqual(APIClient().get(f"{API}/task/{task.id}/auto").status_code, 200)
 
+    def test_the_log_of_a_public_task_tells_only_an_administrator_what_is_wrong_with_the_node(self):
+        task = make_task(self.user)
+        Task.objects.filter(pk=task.pk).update(public=True)
+        self.lost_job(task, self.node.add_job())
+        training.set_node("http://127.0.0.1:9")  # nothing answers there
+        res = APIClient().get(f"{API}/task/{task.id}/log")
+        self.assertEqual(res.status_code, 502)
+        self.assertNotIn("127.0.0.1", res.data["error"])
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        self.assertIn("127.0.0.1", admin.get(f"{API}/task/{task.id}/log").data["error"])
+
     def test_a_boundary_with_a_hole_leaves_out_what_is_in_the_hole(self):
         task = make_task(self.user)
         outline = [[-3, -3], [3, -3], [3, 3], [-3, 3], [-3, -3]]
