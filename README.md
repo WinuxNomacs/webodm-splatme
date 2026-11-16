@@ -183,7 +183,7 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    To Boundary and Advanced. While Train Splats When Completed is ticked, photos SplatMe cannot train (not JPEG,
    nor all DJI Thermal Analyzer's TIFFs) are named there and hold up Start Processing. On **Start Processing**,
    SplatMe creates the task through WebODM's API, saves its training setting, uploads the files (a large file
-   in parts, each sent again if the connection drops) and starts its processing; the row then follows the
+   in parts; a file whose part is lost is sent again from its first part, as WebODM appends parts) and starts its processing; the row then follows the
    processing (its progress, and WebODM's error if it fails) and the training. If some files still fail,
    **Try Again** sends them, or **Cancel** removes the task. Leaving the page during the upload stops it, and
    another New Task With Splats waits until it is done.

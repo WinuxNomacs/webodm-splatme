@@ -15,7 +15,7 @@ function server(failures = {}){
         const name = body instanceof FormData ? body.get("images").name : null;
         const index = body instanceof FormData ? body.get("dzchunkindex") : null;
         calls.push({method, url, name, index, body});
-        const failure = failures[name || url];
+        const failure = failures[name + "#" + index] || failures[name || url];
         if (failure && failure.times > 0){
             failure.times -= 1;
             const error = new Error(failure.message || "Refused");
@@ -125,6 +125,14 @@ describe("a new task's upload", () => {
         expect(parts[2].body.get("dzchunkbyteoffset")).toBe(String(CHUNK * 2));
         expect(parts[0].body.get("dzuuid")).toBe(parts[2].body.get("dzuuid"));
         expect(parts[2].body.get("images").size).toBe(1);
+    });
+
+    it("sends a large file again from its first part when a part's answer is lost, never that part alone", async () => {
+        const { calls, send } = server({"big.jpg#1": {times: 1, status: 504}});
+        const progress = [];
+        await new Upload({projectId: 7, files: [file("big.jpg", CHUNK * 2 + 1)], send, wait: 0, onProgress: p => progress.push(p)}).start(info, null);
+        expect(calls.filter(c => c.name === "big.jpg").map(c => c.index)).toEqual(["0", "1", "0", "1", "2"]);
+        expect(progress[progress.length - 1].sent).toBe(CHUNK * 2 + 1);
     });
 
     it("does not commit while a file failed, and sends only that file again when retried", async () => {
