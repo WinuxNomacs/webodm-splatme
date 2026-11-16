@@ -1496,14 +1496,13 @@ compared with `splatnode.sh` and WebODM's labels, the admin page's links; after 
 
 Decided with the user (2026-11-16):
 
-- **Reopened (2026-11-16, the user): the site's tool.** Zensical was chosen on a recommendation made without
-  checking its own maintenance and maturity. Before building, each candidate (our own small generator in the
-  repo included) is assessed from current primary sources, the evidence dated here, and the user chooses again.
-  What was chosen: **the site is built with Zensical** (pinned exactly in `requirements-dev.txt`; its config in `docs/`'s
-  `zensical.toml` or `mkdocs.yml`, whichever its pinned version documents). MkDocs 1.x is unmaintained and
-  Material for MkDocs is in maintenance mode (9.7.0 its last feature release, fixes until 2027-05-05); Zensical
-  is its team's successor, reads MkDocs' layout and Markdown, and these docs need none of the MkDocs plugins it
-  lacks. Its theme's search, navigation, Copy buttons on code blocks and light/dark are used.
+- **The site is built by our own script on Python-Markdown** (decided again after the assessment below; Zensical
+  had first been chosen on a recommendation made without checking its own maintenance and maturity):
+  `dev/build-docs.py`, Python-Markdown pinned exactly in `requirements-dev.txt` and in the release job, the
+  pages in `docs/*.md` with a page list, HTML with navigation, GitHub-style heading anchors, tables, code blocks
+  with a Copy button, light and dark following the system, every internal link and anchor checked while
+  building (a broken one fails the build). No search at first. WebODM's look where it fits (no external fonts or
+  scripts).
 - **The site is published with each release tag**, and by hand: a job in `release.yml` (no push trigger), so
   the docs describe the released version, whose commands fetch `releases/latest`.
 - **Pages is switched on by Claude** (Settings → Pages → Source: GitHub Actions, with `gh api`) just before the
@@ -1545,6 +1544,7 @@ Reading:
   script and its look ourselves, and the docs stay plain Markdown that any later tool reads.
 
 Recommendation: our own on Python-Markdown. Zensical is the one to look at again once it is past 0.x.
+The user chose our own on Python-Markdown (2026-11-16).
 
 ### Guided splat node setup (built)
 
