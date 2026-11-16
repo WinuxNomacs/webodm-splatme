@@ -1,7 +1,7 @@
 # The splat node: OpenSplat built for CUDA 12.8 (RTX 20 to RTX 50 series, GTX 16) and the job service around it.
 # The first stage compiles; the second holds only what runs. Everything fetched is pinned: the base images by
 # digest, OpenSplat by commit, libtorch by checksum. Upgrading one is a change to this file, rebuilt and tested.
-FROM nvidia/cuda:12.8.1-devel-ubuntu24.04@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66 AS build
+FROM nvidia/cuda:12.8.2-devel-ubuntu24.04@sha256:7fc48a36965c6d0e5c9717dd899b2851cabb2dfef43d95dd12046a2d40bdc90f AS build
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake git ninja-build libopencv-dev unzip wget ca-certificates \
@@ -29,9 +29,10 @@ RUN mkdir -p /out/libtorch/lib /out/opensplat \
     && cp -a libtorch/lib/*.so* /out/libtorch/lib/ && rm -f /out/libtorch/lib/libtorch_python.so \
     && cp build/opensplat /out/opensplat/ && cp src/LICENSE.txt /out/opensplat/
 
-FROM nvidia/cuda:12.8.1-base-ubuntu24.04@sha256:133c78a0575303be34164d0b90137a042172bdf60696af01a3c424ab402d86e2
+FROM nvidia/cuda:12.8.2-base-ubuntu24.04@sha256:b382332b575435b081b805b15b3aa1779a350a4e513f4d0449b4d7ad098e94ff
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The base image's packages brought up to date (its security fixes), then only what runs
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
         python3 libopencv-core406t64 libopencv-imgproc406t64 libopencv-imgcodecs406t64 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ /opt/

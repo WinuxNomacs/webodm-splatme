@@ -63,6 +63,15 @@ jobs:
       packages: write  # to push the image
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: A tag's version must be the plugin's
+        if: github.ref_type == 'tag'
+        run: |
+          # Before anything is pushed: a mistyped tag must not move the node's latest with no release behind it
+          manifest="$(python3 -c 'import json; print(json.load(open("splatme/manifest.json"))["version"])')"
+          if [ "${GITHUB_REF_NAME#v}" != "$manifest" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME is not v$manifest, the version in splatme/manifest.json."
+            exit 1
+          fi
       - name: The image's name and version
         id: image
         run: |

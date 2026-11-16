@@ -31,13 +31,15 @@ How it stays up (each has a test in tests/test_splatnode.py that makes the failu
   goes silent is stopped; a client's socket times out after SOCKET_TIMEOUT.
 - A job's state is changed only by Node.transition, under the lock, which refuses a change that is not allowed.
   Files are never deleted under the lock: they are moved to trash/ (a rename) and deleted by the worker.
-- A job's saved file that doesn't read is moved to broken/ at start; the node starts all the same.
+- A job's saved file that doesn't read is moved to broken/ at start; the node starts all the same. A setting that
+  is not a number, or is too small, is logged and its default used.
 - Every request is answered, an unexpected error included (500, or 507 for a full disk).
 """
 
 import errno
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -779,13 +781,28 @@ def make_server(host, port, data_dir, trainer, token="", keep_hours=48, stall_mi
     return server
 
 
+def setting(env, name, default, minimum):
+    """A number from the environment: empty or unset is the default, and so is a wrong value, which is logged."""
+    text = env.get(name, "").strip()
+    if not text:
+        return default
+    try:
+        value = float(text)
+    except ValueError:
+        value = None
+    if value is None or not math.isfinite(value) or value < minimum:
+        log(f"{name}={text!r} is not a number of at least {minimum}: {default} is used")
+        return default
+    return value
+
+
 def main():
     env = os.environ
     token = env.get("SPLATNODE_TOKEN", "")
     server = make_server(
         "0.0.0.0", int(env.get("SPLATNODE_PORT", "3100")), env.get("SPLATNODE_DATA", "/var/splatnode"),
-        env.get("SPLATNODE_TRAINER", "/opt/opensplat/opensplat"), token, float(env.get("SPLATNODE_KEEP_HOURS", "48")),
-        float(env.get("SPLATNODE_STALL_MINUTES") or STALL_MINUTES),
+        env.get("SPLATNODE_TRAINER", "/opt/opensplat/opensplat"), token,
+        setting(env, "SPLATNODE_KEEP_HOURS", 48, 1), setting(env, "SPLATNODE_STALL_MINUTES", STALL_MINUTES, 1),
     )
     if not token:
         log("SPLATNODE_TOKEN is not set: anyone who can reach this port can use the GPU")
