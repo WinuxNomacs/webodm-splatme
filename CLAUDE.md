@@ -62,7 +62,11 @@ it short; edit in place.
   network and saves the address and token in SplatMe's settings through `manage.py` when WebODM runs on the same
   machine; test it with `SPLATNODE_DIR`, `SPLATNODE_PROJECT` and `SPLATNODE_IMAGE=splatme-node:dev`, against a
   throwaway WebODM, never the user's stacks) and `compose.yml` (running it without the script). It is not part of
-  the plugin's zip.
+  the plugin's zip. The service is built to fail safely (its docstring lists how): its job state changes only in
+  `Node.transition`, files are deleted outside the lock, every wait has a deadline, and a failure its worker
+  can't survive exits the process for Docker to restart. Keep it so: a change to it adds a test in `node/tests`
+  that makes its failure happen. OpenSplat's output is parsed against `node/tests/opensplat-output.txt` (a real
+  run) and `opensplat-out-of-memory.txt` (from the pinned libtorch): capture both again when the pin changes.
 - **Every release is reviewed first, unless the user says otherwise for that release**: the code for bugs and
   weak areas to harden, and the documentation for accuracy and for saying only what helps its reader. The
   `release-review` skill in `.claude/skills` has the procedure; its findings go to the user, who decides which
@@ -70,8 +74,8 @@ it short; edit in place.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
   `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
-  is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation"). A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there (the release fails
-  otherwise: a version's image is built once). Never add a
+  is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation"). A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there: a version's image is built
+  once, and carries a hash of those two files, so a release whose node changed under a published version fails. Never add a
   push or pull-request trigger.
 - **The documentation is the site in `docs/`** (https://winuxnomacs.github.io/webodm-splatme/), built with
   Zensical (`zensical.toml`; pinned in `requirements-dev.txt` and, with hashes, in `docs/requirements.txt`, which
