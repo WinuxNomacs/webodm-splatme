@@ -79,8 +79,8 @@ it short; edit in place.
   push or pull-request trigger.
 - **The documentation is the site in `docs/`** (https://winuxnomacs.github.io/webodm-splatme/), built with
   Zensical (`zensical.toml`; pinned in `requirements-dev.txt` and, with hashes, in `docs/requirements.txt`, which
-  the release builds from: upgrade both together). The README only introduces SplatMe and links to Getting
-  Started and the docs. "Keep the README current" means these pages here: Getting Started, the reference pages,
+  the release builds from: upgrade both together). The README only introduces SplatMe (its splash image and
+  thanks included) and links to Getting Started and the docs. "Keep the README current" means these pages here: Getting Started, the reference pages,
   and the admin page's links into them (`templates/node.html`). `.venv/bin/zensical build` is strict (a broken
   link or anchor fails it); `.venv/bin/zensical serve` previews on http://localhost:8000. The site is published
   with each release, so it describes the released version.

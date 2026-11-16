@@ -1,5 +1,7 @@
 # SplatMe
 
+[![SplatMe: a drone's photos becoming a trained splat model, with WebODM's logo](assets/splash/splash-medium.jpg)](assets/splash/splash.jpg)
+
 A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically.
 
 WebODM can export a task's training data and display a trained splat model, but the training itself is done by
@@ -30,3 +32,16 @@ and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-
 - [The Splat Node](splat-node.md): the GPU container, its settings and API, and HTTPS to a node on another
   machine.
 - [The Plugin's API](api.md) and [Development](development.md).
+
+## Thanks
+
+SplatMe is built on these projects:
+
+- **[WebODM](https://github.com/WebODM/WebODM)** and its creator, **[Piero Toffanin](https://piero.dev/)**:
+  SplatMe is a WebODM plugin, and reuses WebODM's export of a task's training data, its splat conversion and
+  its 3D view.
+- **[OpenSplat](https://github.com/WebODM/OpenSplat)**: the trainer in the splat node.
+- **[ODX](https://github.com/WebODM/ODX)**: the sky model Ignore Sky uses.
+- **[Splat-Tools](https://github.com/uav4geo/Splat-Tools)**: the conversion WebODM runs on a trained model for its
+  3D view.
+- **[PyTorch](https://pytorch.org)**: libtorch, which OpenSplat trains with.
