@@ -19,7 +19,8 @@ fi
 zip="splatme-$version.zip"
 mkdir -p dist
 rm -f "dist/$zip" "dist/$zip.sha256"
-# git archive: only committed files, each with the commit's time, so the same commit gives the same zip
-git archive --format=zip -o "dist/$zip" "$ref" -- splatme ':!splatme/tests' ':!splatme/public/__tests__'
+# git archive: only committed files, each with the commit's time, so the same commit gives the same zip (in UTC:
+# a zip's times are local, and the release workflow runs in UTC)
+TZ=UTC git archive --format=zip -o "dist/$zip" "$ref" -- splatme ':!splatme/tests' ':!splatme/public/__tests__'
 (cd dist && sha256sum "$zip" > "$zip.sha256")
 echo "dist/$zip: SplatMe $version from $(git rev-parse --short "$ref"), sha256 $(cut -d' ' -f1 "dist/$zip.sha256")"
