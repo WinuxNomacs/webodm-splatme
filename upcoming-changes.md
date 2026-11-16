@@ -14,11 +14,14 @@ other software. The plugin does that step.
 
 **Later**
 
-2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy go into 0.2.0 with phase 1). See "2. HTTPS to the splat node
+   (proposed)".
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "3. Steps for an Image Size (proposed)".
+   "4. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -34,6 +37,10 @@ other software. The plugin does that step.
 
 **Done**
 
+- Guided splat node setup (2026-11-16), in 0.2.0: the install steps on Administration → SplatMe
+  (`templates/node.html`: `#splatme-guide`, `#splatme-guide-toggle`, `placeGuide`, `copy`), the README's
+  "HTTPS to a node on another machine", `splatnode.sh upgrade` keeping `SPLATNODE_BIND`. See "Guided splat node
+  setup (built)".
 - Fixes from the release review (2026-11-16), released as 0.2.0 with splat node 0.2.1: every finding of the
   review of 0.1.1, in three merged branches (`install-fixes`, `training-fixes`, `page-fixes`) and
   `release/0.2.0`; tests in `node/tests`, `splatme/tests/test_splatme.py` (88) and `splatme/public/__tests__`
@@ -1435,6 +1442,98 @@ Build order (as planned):
    first, then with a published one (which needs a tag the user pushes).
 5. The directory entry, at the release (phase 1, Docs and first release).
 
+### Guided splat node setup (built)
+
+Asked by the user (2026-11-16, before 0.2.0's tag): on Administration → SplatMe, under Splat Node, concise
+copy-paste steps to install a splat node. With no node set they stand where the node's health box is; with a
+node set they are behind a collapsible link under that box.
+
+What is there now: `templates/node.html` (shared by Administration → SplatMe and SplatMe → Settings) shows the
+health box (`#splatme-state`: ready, or the error with "Node Address: not set"), then the Node Address and Token
+form for superusers on the admin page. The steps are in the README's Install (step 3) only.
+
+Design:
+
+- **Administration → SplatMe only** (the `editable` page, for superusers). SplatMe → Settings is unchanged: its
+  readers cannot install anything.
+- **No node set** (`url` empty): a panel **Set Up a Splat Node** in place of the red box. **A node set**: the
+  health box as now, then a link **How to Install a Splat Node** that opens the same panel below it.
+- **The panel**, in the README's words, shortened:
+  1. What the machine needs: an NVIDIA GPU (GTX 16 or RTX 20 to RTX 50 series), its driver, Docker with
+     Compose v2, and the NVIDIA Container Toolkit (linked).
+  2. **On WebODM's machine**: the `curl … | bash -s install` command in a box with a **Copy** button; the node
+     joins WebODM's network and fills this form itself; reload the page. With several WebODMs:
+     `--webodm <webapp container>`.
+  3. **On another machine**: the same command with `--standalone` (port 3100, `--port`); it prints the address
+     and token to enter below, then Test Connection and Save; only WebODM's machine should reach that port
+     (plain HTTP, see phase 3).
+  4. A node installed before SplatMe: `… | bash -s connect`.
+- **Copy** uses `navigator.clipboard` where the page is a secure context, else a selected text area and
+  `document.execCommand("copy")` (a WebODM on plain HTTP by its IP is not a secure context); the command stays
+  selectable either way.
+- Plain script in `node.html`, as the page is now; WebODM's theme classes (`panel`, `well`/`pre`), no colours;
+  works at phone width (the command box scrolls sideways, not the page). Title Case for its name and buttons.
+- README: a line under Install that the steps are also on Administration → SplatMe; the admin screenshot
+  retaken only if the user wants it.
+- 0.2.0 is not tagged yet: the panel goes into 0.2.0 (CHANGELOG, the zip rebuilt). The node is unchanged, so no
+  new node VERSION.
+
+Checks planned: headless on the dev stack, reading only (GET): with the node set (link closed, opens, Copy
+fills the clipboard), and with no node set; phone width (320 px), no sideways scroll.
+
+Decided with the user (2026-11-16):
+
+- **With a node set but not answering**, the link stays closed (as with any node set): the node is usually
+  down or its token wrong, not missing.
+- **The README's admin screenshot is kept**; the README says the steps are also on Administration → SplatMe.
+- **HTTPS goes into 0.2.0 as docs only** (option A of phase 3): a README section on a TLS proxy in front of a
+  standalone node, built on this phase's branch.
+
+Built (2026-11-16) as designed, on branch `node-setup`. Checked headless on the dev stack, reading only: with
+the node set, the state then the closed link, which opens and closes the steps (`aria-expanded` follows); Copy
+put the command in the clipboard, through the Clipboard API on localhost and through the fallback with
+`isSecureContext` forced false (no text area left behind); with no node set (the page's GET answered with no
+address by the browser, not by clearing the dev stack's setting, so no throwaway WebODM was needed), the steps
+in the state's place, no link, the form below them; SplatMe → Settings has none of it; 320 px, no sideways
+scroll. The first screenshots showed each command cut off before its end, the part that differs: the commands
+now wrap. `splatnode.sh`'s `write_files` checked in a scratch folder: a hand-set `SPLATNODE_BIND` survives an
+upgrade, a node on WebODM's network gets `127.0.0.1:`, a fresh standalone install every address. The HTTPS
+proxy docs were not tried with a real domain and certificate. Ruff, ESLint, Jest 73, Django 88.
+
+### 2. HTTPS to the splat node (proposed)
+
+Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it
+belongs in 0.2.0.
+
+What matters: on WebODM's machine (the default install) the node is on WebODM's Docker network and bound to
+127.0.0.1, so nothing crosses a wire and TLS adds nothing. A node on another machine (`--standalone`) is
+reached over plain HTTP: the token, the task's photos (the training zip) and the trained model cross the
+network in clear. The README says to let only WebODM's machine reach the port.
+
+What already works: SplatMe takes an `https://` Node Address (`api.py` accepts it) and `node.py` uses
+`requests`, which verifies the certificate against its bundled CAs. So a node behind a TLS proxy with a
+publicly trusted certificate (Caddy, nginx, a tunnel) works today with no code change; it is just not
+documented, and a self-signed certificate is refused.
+
+Ways to add it, smallest first:
+
+- **A. Docs only** (an hour): a README section with a Caddy example in front of the node, with a real domain
+  name; bind the node to 127.0.0.1. Covers administrators with a domain.
+- **B. Self-signed TLS in the node, pinned in SplatMe** (about two days with tests): `splatnode.sh install
+  --standalone` makes a certificate (openssl, in the script or the image), `splatnode.py` serves HTTPS with
+  `ssl.SSLContext` (stdlib; a new node VERSION and image), the script prints the certificate's SHA-256
+  fingerprint beside the address and token; Administration → SplatMe gets a **Certificate Fingerprint** field,
+  and `node.py` checks the server's certificate against it instead of a CA (a `requests` adapter). Works without
+  a domain, no CA to trust in WebODM's containers (which SplatMe must not change). Upgrade: existing standalone
+  nodes stay HTTP until reinstalled or upgraded with a flag.
+- **C. A Caddy sidecar in the node's compose file** (`--tls <domain>`, automatic certificates): needs a domain
+  and port 80/443 reachable from the internet for the certificate; more moving parts than B.
+
+Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (phase 2), a
+phase of its own after the directory entry if the user wants it. The recommendation it was decided on: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
+existing nodes: a new node release and its own testing on two machines, which would hold 0.2.0's fixes back.
+0.2.0 can carry A (docs) at no risk; B is a phase of its own after the directory entry.
+
 ### 1. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`. The docs describe
@@ -1497,7 +1596,7 @@ Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
-### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1518,7 +1617,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 3. Steps for an Image Size (proposed)
+### 4. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
