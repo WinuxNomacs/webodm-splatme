@@ -11,6 +11,7 @@ import threading
 import time
 import unittest
 import zipfile
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import splatnode
@@ -477,6 +478,30 @@ class TestTrainerOutput(unittest.TestCase):
     def test_running_out_of_gpu_memory_is_named(self):
         tail = b"".join(self.lines("opensplat-out-of-memory.txt")).decode()
         self.assertIn("ran out of memory", splatnode.explain(-6, tail))
+
+
+
+class TestSettings(unittest.TestCase):
+    def setUp(self):
+        self.logged = []
+        patcher = mock.patch.object(splatnode, "log", self.logged.append)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_setting_left_empty_or_unset_is_its_default(self):
+        self.assertEqual(splatnode.setting({}, "SPLATNODE_STALL_MINUTES", 30, 1), 30)
+        self.assertEqual(splatnode.setting({"SPLATNODE_STALL_MINUTES": ""}, "SPLATNODE_STALL_MINUTES", 30, 1), 30)
+        self.assertEqual(splatnode.setting({"SPLATNODE_STALL_MINUTES": "45"}, "SPLATNODE_STALL_MINUTES", 30, 1), 45)
+        self.assertEqual(self.logged, [])
+
+    def test_a_setting_that_is_not_a_number_or_too_small_is_named_in_the_log_and_its_default_used(self):
+        for value in ("abc", "0", "-5", "nan", "inf"):
+            self.logged.clear()
+            env = {"SPLATNODE_KEEP_HOURS": value}
+            self.assertEqual(splatnode.setting(env, "SPLATNODE_KEEP_HOURS", 48, 1), 48, value)
+            self.assertEqual(len(self.logged), 1)
+            self.assertIn("SPLATNODE_KEEP_HOURS", self.logged[0])
+            self.assertIn(repr(value), self.logged[0])
 
 
 if __name__ == "__main__":

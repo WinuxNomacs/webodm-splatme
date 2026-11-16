@@ -40,7 +40,8 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 c
   stopped (`SPLATNODE_STALL_MINUTES`); a damaged job file is set aside instead of keeping the node from starting;
   every error is answered with its message; deleting a job answers at once. If its worker stops anyway, the node
   exits and Docker starts it again. `/info` no longer holds up the jobs while it asks the GPU; finished jobs expire
-  while the queue is busy too.
+  while the queue is busy too. A setting that is not a number, or is too small, is logged and its default used.
+  Built on CUDA 12.8.2, with the base image's packages brought up to date.
 - **The documentation moved to its own site**, https://winuxnomacs.github.io/webodm-splatme/, published with each
   release, with a new **Getting Started**: a fresh install from start to a first trained model, and an upgrade,
   each step with what to expect. The README introduces SplatMe and links to it.
