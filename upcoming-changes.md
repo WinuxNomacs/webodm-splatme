@@ -9,10 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Fixes from the review of 0.2.0 (chosen 2026-11-16): A, B, C, I, J, K, L, M in the plugin; P and Q in the
-   node (still 0.2.2, unpublished); T in the release; the documentation's corrections and removals (shown to the
-   user first). On branches with tests, then the release check on a throwaway WebODM (0.1.1 upgraded to 0.2.0).
-   The findings are in "Release review of 0.2.0 (done)".
+1. The release check of 0.2.0: a throwaway WebODM with 0.1.1 installed, upgraded to 0.2.0 (the plugin and the
+   node), its data kept, then a training. The fixes it follows are built ("Fixes from the review of 0.2.0").
 
 **Then**
 
@@ -47,6 +45,8 @@ other software. The plugin does that step.
 
 **Done**
 
+- Fixes from the review of 0.2.0 (2026-11-16), in 0.2.0 with splat node 0.2.2: A, B, C, I, J, K, L, M (the plugin),
+  P, Q (the node), T (the release) and the documentation. See "Fixes from the review of 0.2.0 (built)".
 - Release review of 0.2.0 (2026-11-16): findings A–U, the documentation's corrections and removals, the live
   sweep. See "Release review of 0.2.0 (done)".
 - Splash image and thanks (2026-11-16), in 0.2.0: `docs/assets/splash/`, the top and the Thanks section of
@@ -533,6 +533,34 @@ and the same line in the `release-review` skill gain "with its splash image and 
 linked to the full one; the 3D view screenshot stays below the opening paragraphs; "Thanks" ends both (before
 the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
 headless at 1,280 and 320 px: no console errors, no sideways scroll.
+
+### Fixes from the review of 0.2.0 (built)
+
+Each with a test seen failing first, then passing (Django 99, Jest 75 with `__tests__/api.test.js`, the node's 40):
+
+- **A**: `training.revive()` takes over every stale job when any task completes or fails (`task_completed`, and a
+  new `task_failed` receiver, after the task's own handling) and from any signed-in WebODM page (`main.js` asks
+  `GET revive`, 204), at most every 30 s a process (`REVIVE_EVERY`). The follower (`follow_node`, its pass now
+  `follow_all`) survives its own errors, closing the database connection; 30 in a row (`FOLLOWER_ERRORS`) end it
+  for the next revive to start another. Live: every signed-in page asks it, the login page does not.
+- **B**: an HTTP error from the node gets the hour of patience a silent node gets ("Waiting for the splat node to
+  answer (it answered 502)"); a training that fails for the node is dropped there. The fake node answers errors on
+  request (`failures`).
+- **C**: the heartbeat closes a broken database connection.
+- **I**: Show Log gives a non-administrator `UNAVAILABLE` rather than the node's error.
+- **J, K, L, M**: the Tasks page retries a failed first load and asks again for a list that crossed a row's
+  action; the Splats line says why it has nothing ("Sign in again…" for a 403); a request with no answer says
+  "WebODM did not answer…" (`api.js`'s `sendTo`); `training.unlisted()` gives the reason a task is not listed
+  (the status' `unlisted` with `?listed=1`), shown on the Splats line. Live: a 502 on the first list, then the
+  rows 15 s later; a 403 on the line, then its message.
+- **P**: CUDA 12.8.2 base images (devel `sha256:7fc48a36…`, base `sha256:b382332b…`, from Docker Hub 2026-11-16),
+  `apt-get upgrade` in the final stage. Built and a 3,000-step training of a 217-photo task completed (90 s) on a
+  throwaway node; the dev node rebuilt on it.
+- **Q**: `splatnode.setting()`: a value that is not a number of at least 1 is logged and its default used (checked
+  in the throwaway node's log with `SPLATNODE_STALL_MINUTES=abc`).
+- **T**: the node job checks the tag against the manifest before anything is pushed (its script run for v0.2.0
+  and v0.2.1).
+- **The documentation**: the corrections and removals listed in the review, and `admin.png` retaken (node 0.2.2).
 
 ### Release review of 0.2.0 (done)
 
