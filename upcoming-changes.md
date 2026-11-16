@@ -1268,6 +1268,19 @@ Decided with the user (2026-11-15):
   published image and the script are tested end to end as an administrator would use them (and Actions
   minutes are free). The user makes it public.
 
+Checked on a throwaway production WebODM 4.0.0 (2026-11-15; the pinned images without the dev files, port
+8018, its own volumes, removed after):
+
+- **`dev/build-zip.sh`'s zip installs with Upload Plugin** in 8 s, enabled, and WebODM builds its page scripts
+  itself (`public/build` appears). SplatMe's pages, menu and API answer, without console errors.
+- **Until WebODM restarts, SplatMe works only in part**: gunicorn's other processes have not loaded it, so its
+  scripts and API answer 404 now and then (2 of 10 requests for `Dashboard.js`); after the restart all answer
+  and the worker listens. The README said Train Splats works without a restart: corrected.
+- **Upload Plugin refuses a plugin that is installed** ("Please remove it before uploading one with the same
+  name"): only the Install Plugins browser sends `upgrade`. Upgrading by zip is Delete, Upload, restart, and
+  keeps SplatMe's settings (its data store rows are keyed by name, not tied to the plugin's row): a saved node
+  address survived an upgrade to a 0.1.1 zip.
+
 Build order (to confirm step by step):
 
 1. The privacy check; the user makes the repository public.

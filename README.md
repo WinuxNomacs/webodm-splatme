@@ -141,10 +141,11 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    a WebODM version draws its page differently, they are not there, and the Tasks page still creates, trains
    and sets the training.
 
-   **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`): WebODM's worker
-   loads plugins only when it starts, and it is the worker that tells SplatMe a task has completed. Until
-   then SplatMe → Settings, SplatMe's panel and a task set to train say that tasks are not trained by
-   themselves yet; **Train Splats** works without a restart.
+   **Restart WebODM once after installing or updating the plugin** (`./webodm.sh restart`). WebODM's web
+   server runs several processes and only the one that received the plugin loads it, so until the restart
+   SplatMe's pages, scripts and API fail now and then; and WebODM's worker, which tells SplatMe a task has
+   completed, loads plugins only when it starts. Until then SplatMe → Settings, SplatMe's panel and a task set
+   to train also say that tasks are not trained by themselves yet.
 
 Training needs the right to change the task's project. The task must have completed with a point cloud and
 still have its photos (JPEG, or DJI Thermal Analyzer's TIFFs). The trained model replaces the task's splat model only when training succeeds,
