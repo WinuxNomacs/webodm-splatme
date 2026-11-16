@@ -65,10 +65,17 @@ it short; edit in place.
   the plugin's zip.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
-  `node/splatnode.sh` (which the README fetches from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
-  is created. A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there (the release fails
+  `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
+  is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation"). A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there (the release fails
   otherwise: a version's image is built once). Never add a
   push or pull-request trigger.
+- **The documentation is the site in `docs/`** (https://winuxnomacs.github.io/webodm-splatme/), built with
+  Zensical (`zensical.toml`; pinned in `requirements-dev.txt` and, with hashes, in `docs/requirements.txt`, which
+  the release builds from: upgrade both together). The README only introduces SplatMe and links to Getting
+  Started and the docs. "Keep the README current" means these pages here: Getting Started, the reference pages,
+  and the admin page's links into them (`templates/node.html`). `.venv/bin/zensical build` is strict (a broken
+  link or anchor fails it); `.venv/bin/zensical serve` previews on http://localhost:8000. The site is published
+  with each release, so it describes the released version.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
   descriptions and messages are sentences.
 - Planned in `upcoming-changes.md` (with what the design must respect); new requests arrive in `new.md`

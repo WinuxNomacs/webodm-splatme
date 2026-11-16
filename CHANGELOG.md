@@ -34,9 +34,12 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.1 c
   install is undone; a port in use is refused first; uninstall clears the token too.
 - **Splat node 0.2.1**: `/info` no longer holds up the jobs while it asks the GPU; finished jobs expire while the
   queue is busy too.
+- **The documentation moved to its own site**, https://winuxnomacs.github.io/webodm-splatme/, published with each
+  release, with a new **Getting Started**: a fresh install from start to a first trained model, and an upgrade,
+  each step with what to expect. The README introduces SplatMe and links to it.
 - **Administration → SplatMe** has the splat node's install steps, each command with a Copy button: in place
   of the node's state while no node is set, and behind How to Install a Splat Node under it once one is.
-- The README says to restart WebODM with the options it was started with, and how to reach a node on another
+- The docs say to restart WebODM with the options it was started with, and how to reach a node on another
   machine over HTTPS (a TLS proxy in front of it); `splatnode.sh upgrade` keeps a node's `SPLATNODE_BIND`, so a
   node bound to its own machine behind that proxy stays so.
 
