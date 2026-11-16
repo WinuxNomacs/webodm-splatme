@@ -80,7 +80,9 @@ Its API ([node/splatnode.py](node/splatnode.py)), with `Authorization: Bearer <t
    out), so a surface has the same colour in every photo. **Thermal Colours** in the dialog, which takes the
    place of Ignore Sky, chooses the palette: Grayscale (white is hot, the default), Black Hot, Iron, Magma,
    Inferno, Plasma, Viridis, Cividis or Jet (all but Iron are WebODM's own colour maps). The task's line then
-   names the palette and the temperatures it spans, in WebODM's unit system. DJI Thermal Analyzer itself need
+   names the palette and the temperatures it spans, in WebODM's unit system. Thermal photos are small (640 × 512
+   on DJI's M4T): training takes about a quarter of the times above and about 1 GB of GPU memory, and Fine is
+   much sharper than Standard. DJI Thermal Analyzer itself need
    not be installed for this; TIFFs from other software, whose temperatures may be in another unit, are not
    listed.
 
