@@ -163,7 +163,8 @@ write_files() {
     local network="$1" port="$2" token="$3" bind keep
     keep="$(env_value SPLATNODE_KEEP_HOURS)"
     mkdir -p "$DIR"
-    if [ -n "$network" ]; then bind="127.0.0.1:"; else bind=""; fi
+    # On WebODM's network: this machine only. Otherwise every address, or what .env says (127.0.0.1: behind a proxy)
+    if [ -n "$network" ]; then bind="127.0.0.1:"; else bind="$(env_value SPLATNODE_BIND)"; fi
     umask 077
     cat > "$DIR/.env" <<EOF
 # The splat node's settings, read by compose.yml. The token is a secret: anyone who has it can use the GPU.
