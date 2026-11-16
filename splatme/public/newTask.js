@@ -43,11 +43,11 @@ export function partsOf(size, chunk = CHUNK){
 }
 
 // send() again when the server never answered it, or its proxy answered for it, up to RETRIES times. Safe: a file
-// is kept by its name, and a file sent again from its first part starts over.
+// is kept by its name, and a file sent again from its first part starts over. A cancel is not sent again.
 export function retried(send, wait = RETRY_WAIT_MS, attempt = 0){
     return send().catch(e => {
         const gateway = GATEWAY_STATUSES.indexOf(e.status) >= 0;
-        if ((e.status && !gateway) || attempt >= RETRIES) throw e;
+        if (e.canceled || (e.status && !gateway) || attempt >= RETRIES) throw e;
         return new Promise(resolve => setTimeout(resolve, wait * (attempt + 1))).then(() => retried(send, wait, attempt + 1));
     });
 }
@@ -119,7 +119,7 @@ export class Upload {
     }
 
     check(){
-        if (this.canceled) throw new Error("Canceled.");
+        if (this.canceled) throw Object.assign(new Error("Canceled."), {canceled: true});
     }
 
     sendFiles(files){
@@ -148,7 +148,9 @@ export class Upload {
         });
     }
 
-    // A file in its parts, one after the other (WebODM appends each to the file's upload)
+    // A file in its parts, one after the other. WebODM appends each part to the file's upload, so a part whose answer
+    // was lost may have been appended already: the file is sent again from its first part, which WebODM starts
+    // afresh, never from the part that failed.
     sendFile(file){
         const url = tasksUrl(this.projectId) + this.task.id + "/upload/";
         const parts = partsOf(file.size);
@@ -162,19 +164,17 @@ export class Upload {
                 return Promise.resolve();
             }
             const part = parts[i];
-            return retried(() => {
-                const form = new FormData();
-                if (parts.length > 1){
-                    form.append("dzuuid", uuid);
-                    form.append("dzchunkindex", String(part.index));
-                    form.append("dztotalfilesize", String(file.size));
-                    form.append("dzchunksize", String(CHUNK));
-                    form.append("dztotalchunkcount", String(parts.length));
-                    form.append("dzchunkbyteoffset", String(part.offset));
-                }
-                form.append("images", parts.length > 1 ? file.slice(part.offset, part.end) : file, file.name);
-                return this.send("POST", url, form);
-            }, this.wait).then(() => {
+            const form = new FormData();
+            if (parts.length > 1){
+                form.append("dzuuid", uuid);
+                form.append("dzchunkindex", String(part.index));
+                form.append("dztotalfilesize", String(file.size));
+                form.append("dzchunksize", String(CHUNK));
+                form.append("dztotalchunkcount", String(parts.length));
+                form.append("dzchunkbyteoffset", String(part.offset));
+            }
+            form.append("images", parts.length > 1 ? file.slice(part.offset, part.end) : file, file.name);
+            return this.send("POST", url, form).then(() => {
                 const size = part.end - part.offset;
                 sentOfFile += size;
                 this.sent += size;
@@ -182,10 +182,14 @@ export class Upload {
                 return next(i + 1);
             });
         };
-        return next(0).catch(e => {
-            // A file sent again starts over: what it had sent no longer counts
+        // A file sent again starts over: what it had sent no longer counts
+        const forget = () => {
             this.sent -= sentOfFile;
+            sentOfFile = 0;
             this.report();
+        };
+        return retried(() => { forget(); return next(0); }, this.wait).catch(e => {
+            forget();
             throw e;
         });
     }
@@ -193,4 +197,17 @@ export class Upload {
     report(){
         this.onProgress({sent: this.sent, total: this.total, files: this.files.length, done: this.done});
     }
+}
+
+// Why SplatMe could not train a task of these files, or null: its photos must be JPEG, or all TIFFs (DJI Thermal
+// Analyzer's); text files (GCP, geo, image groups) and other files WebODM takes are not photos
+const PHOTO = /\.(jpe?g|tiff?|png|dng|nef|raw|webp|bmp|gif|heic)$/i;
+export function photoProblem(files){
+    const photos = files.map(f => f.name).filter(name => PHOTO.test(name));
+    const other = photos.find(name => !/\.(jpe?g|tiff?)$/i.test(name));
+    if (other) return "SplatMe trains tasks whose photos are JPEG (or DJI Thermal Analyzer's TIFFs), and " + other + " is neither.";
+    if (photos.some(n => /\.jpe?g$/i.test(n)) && photos.some(n => /\.tiff?$/i.test(n))){
+        return "SplatMe trains tasks whose photos are all JPEG or all DJI Thermal Analyzer's TIFFs, not both.";
+    }
+    return null;
 }

@@ -331,3 +331,21 @@ export function splatsLine(status){
     }
     return "None";
 }
+
+// How long refreshes go on after a task set to train is seen completing, until its training shows: WebODM's worker
+// starts it moments after the task completes
+export const SETTLE = 60000;
+
+// Whether a task set to train went from processing to completed between two of its statuses, with no training yet
+export function justCompleted(before, after){
+    const processing = s => s.task_status == null || s.task_status === TASK_QUEUED || s.task_status === TASK_RUNNING;
+    return !!before && !!after && processing(before) && after.task_status === TASK_COMPLETED && !after.active &&
+        !!(after.auto && after.auto.enabled);
+}
+
+// The Dashboard with the task's panel open, showing only its project (WebODM's project list takes ?id=), wherever
+// that project is in the Dashboard's pages
+export function dashboardLink(projectId, taskId){
+    return "/dashboard/?id=" + encodeURIComponent(projectId) + "&project_task_open=" + encodeURIComponent(projectId) +
+        "&project_task_expanded=" + encodeURIComponent(taskId);
+}
