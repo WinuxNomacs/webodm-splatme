@@ -1494,7 +1494,17 @@ Checks: the site built locally and read headless (every page, the navigation, th
 phone width, dark mode if it has one), every internal link and anchor followed, the commands in Getting Started
 compared with `splatnode.sh` and WebODM's labels, the admin page's links; after the release, the live site.
 
-Open decisions for the user: below, asked before building.
+Decided with the user (2026-11-16):
+
+- **The site is built with Zensical** (pinned exactly in `requirements-dev.txt`; its config in `docs/`'s
+  `zensical.toml` or `mkdocs.yml`, whichever its pinned version documents). MkDocs 1.x is unmaintained and
+  Material for MkDocs is in maintenance mode (9.7.0 its last feature release, fixes until 2027-05-05); Zensical
+  is its team's successor, reads MkDocs' layout and Markdown, and these docs need none of the MkDocs plugins it
+  lacks. Its theme's search, navigation, Copy buttons on code blocks and light/dark are used.
+- **The site is published with each release tag**, and by hand: a job in `release.yml` (no push trigger), so
+  the docs describe the released version, whose commands fetch `releases/latest`.
+- **Pages is switched on by Claude** (Settings → Pages → Source: GitHub Actions, with `gh api`) just before the
+  0.2.0 tag, after the user confirms at that moment.
 
 ### Guided splat node setup (built)
 
