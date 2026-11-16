@@ -25,15 +25,14 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 c
   thousands of photos finds its range in bounded memory.
 - **SplatMe → Tasks**: New Task With Splats no longer replaces a task whose files are being sent; it names photos
   SplatMe cannot train. Closing Train Splats or Change while it is answered no longer loses the training or the
-  setting. A task set to train is followed when it completes, until its training shows; while only trainings are
-  followed, only their rows are asked for. A task's name opens the Dashboard at its project, wherever it is in
+  setting. A task set to train is followed when it completes, until its training shows. A task's name opens the Dashboard at its project, wherever it is in
   the pages. The dialogs keep the keyboard's focus.
 - **Dashboard**: the Splats line keeps following after a failed request, and leaves out Open in SplatMe for a
   task SplatMe cannot train. SplatMe's button stays last among the project's buttons.
 - **New task upload**: a file whose part is lost is sent again from its first part (WebODM appends parts).
 - **node/splatnode.sh**: upgrade and status work when the node does not answer; install joins the network
   WebODM's worker uses (behind a reverse proxy it joined the proxy's); connect moves the node to a reinstalled
-  WebODM's network; upgrade rewrites the compose file and deletes the previous image (6.6 GB each); a failed
+  WebODM's network; upgrade rewrites the compose file and deletes the previous image (6.6 GB each, unpacked); a failed
   install is undone; a port in use is refused first; uninstall clears the token too.
 - **Splat node 0.2.2**: a failure inside the node no longer leaves it stuck or silent. A full disk fails the job it
   hit and the next one trains; a trainer that won't stop is killed, and one that prints nothing for a long time is
@@ -46,9 +45,8 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 c
   each step with what to expect. The README introduces SplatMe and links to it.
 - **Administration → SplatMe** has the splat node's install steps, each command with a Copy button: in place
   of the node's state while no node is set, and behind How to Install a Splat Node under it once one is.
-- The docs say to restart WebODM with the options it was started with, and how to reach a node on another
-  machine over HTTPS (a TLS proxy in front of it); `splatnode.sh upgrade` keeps a node's `SPLATNODE_BIND`, so a
-  node bound to its own machine behind that proxy stays so.
+- `splatnode.sh upgrade` keeps a node's `SPLATNODE_BIND`, so a node bound to its own machine behind an HTTPS
+  proxy stays so.
 
 ## 0.1.1 (2026-11-16)
 

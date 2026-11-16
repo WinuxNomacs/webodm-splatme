@@ -1,7 +1,6 @@
 # Getting Started
 
-This page walks through a fresh install, from nothing to a first trained model, then an upgrade. Each step says
-what you should see, so you know it worked before going on. It is done by a WebODM administrator (a superuser)
+This page walks through a fresh install, from nothing to a first trained model, then an upgrade. It is done by a WebODM administrator (a superuser)
 with a terminal on WebODM's machine, and on the GPU machine if that is another one. The
 [reference](install.md) has every option.
 
@@ -43,9 +42,7 @@ In WebODM's folder, restart it with the options it was started with (`webodm.sh`
 
 Add any options you gave `./webodm.sh start`, such as `--port`, `--hostname`, `--media-dir` or `--ssl`.
 
-Until this restart, SplatMe's pages fail now and then and tasks are not trained by themselves: WebODM's web server
-runs several processes and only the one that received the plugin loads it, and WebODM's worker loads plugins only
-when it starts.
+Until this restart, SplatMe's pages fail now and then and tasks are not trained by themselves.
 
 **You should see**, after the restart: **SplatMe** in WebODM's side menu (with **Tasks** and **Settings**), and
 **SplatMe** under **Administration**.
@@ -63,8 +60,8 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
     ```
 
-    It downloads the node's image (6.6 GB the first time), checks the GPU, and starts the node on WebODM's Docker
-    network. It ends with lines like:
+    It downloads the node's image (4 GB the first time; 6.6 GB once unpacked), checks the GPU, and starts the node
+    on WebODM's Docker network. Its last lines include:
 
     ```
     WebODM found: webapp (network webodm_default)
@@ -73,7 +70,7 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     ```
 
     There is nothing to enter: **reload Administration → SplatMe**. With several WebODMs on the machine, the
-    install names them and asks for one: add `--webodm <its webapp container>`.
+    install stops and names them: run it again with `--webodm <its webapp container>`.
 
 === "On Another Machine"
 
@@ -83,7 +80,7 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install --standalone
     ```
 
-    It downloads the node's image (6.6 GB the first time), checks the GPU, starts the node on port 3100
+    It downloads the node's image (4 GB the first time; 6.6 GB once unpacked), checks the GPU, starts the node on port 3100
     (`--port` for another), and prints its address and token:
 
     ```
@@ -97,7 +94,7 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     machine reach that port, or put an [HTTPS proxy](splat-node.md#https-to-a-node-on-another-machine) in front
     of it.
 
-A failed install is undone, so it can simply be run again once the problem it names is fixed.
+A failed install is undone, so it can be run again once the problem it names is fixed.
 
 **You should see**, on **Administration → SplatMe**, a green box: "The splat node is ready.", its address, your
 GPU and its memory, the trainer and the node's version, and "Idle".
@@ -106,8 +103,8 @@ GPU and its memory, the trainer and the node's version, and "Idle".
 
 ### 5. Train a First Task
 
-1. Open **SplatMe → Tasks** in the side menu. It lists the tasks SplatMe can train: completed tasks whose photos
-   are JPEG (or DJI Thermal Analyzer's TIFFs).
+1. Open **SplatMe → Tasks** in the side menu. It lists the tasks SplatMe can train: tasks whose photos are JPEG
+   (or DJI Thermal Analyzer's TIFFs).
 2. Press **Train Splats** on a task. For a quick first check choose the **Draft** quality (3,000 steps, about 2
    minutes on an 8 GB GPU), then **Start Training**.
 3. The task's row shows the stage, then the step with the time left, a progress bar, **Cancel** and **Show Log**.

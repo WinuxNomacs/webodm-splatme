@@ -411,7 +411,7 @@ cmd_uninstall() {
         compose down
         say "The jobs are kept in the Docker volume ${PROJECT}_jobs."
     fi
-    if yes_to "Delete the image $image (about 10 GB)?"; then
+    if yes_to "Delete the image $image (6.6 GB or more on disk)?"; then
         if docker image rm "$image" >/dev/null 2>&1; then say "Image deleted."; else say "The image is in use by another container: kept."; fi
     fi
     rm -f -- "${DIR:?}/compose.yml" "${DIR:?}/.env"

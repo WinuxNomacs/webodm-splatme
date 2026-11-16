@@ -49,7 +49,7 @@ export default class TrainSplats extends React.Component {
     };
 
     handleCancel = () => {
-        if (!window.confirm(_("Stop this training? The task keeps the splats model it has."))) return;
+        if (!window.confirm(_("Stop this training? The task keeps the splat model it has."))) return;
         this.setState({canceling: true, error: null});
         request("POST", "task/" + this.props.taskId + "/cancel").then(status => {
             if (this._mounted) this.setStatus(status);
