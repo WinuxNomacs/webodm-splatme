@@ -522,7 +522,7 @@ and the same line in the `release-review` skill gain "with its splash image and 
 
 **Decided with the user** (2026-11-16):
 
-1. The splash is kept as it is, WebODM's logo and name included.
+1. The splash is kept as it is, WebODM's logo and name included. Replaced the same day by the user's new images, without WebODM's logo.
 2. The splash goes at the top; the 3D view screenshot moves below the first paragraph.
 3. The thanks list above, with Piero Toffanin on WebODM's line, linked to https://piero.dev/.
 
