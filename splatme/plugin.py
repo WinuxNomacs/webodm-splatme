@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, SharedAutomation, Status, Tasks, Train
+from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, Revive, SharedAutomation, Status, Tasks, Train
 
 
 class Plugin(PluginBase):
@@ -56,6 +56,7 @@ class Plugin(PluginBase):
             MountPoint("automation$", Automation.as_view()),
             MountPoint("automation/shared$", SharedAutomation.as_view()),
             MountPoint("tasks$", Tasks.as_view()),
+            MountPoint("revive$", Revive.as_view()),
         ]
 
 
@@ -65,7 +66,15 @@ class Plugin(PluginBase):
 
 @receiver(signals.task_completed, dispatch_uid="splatme_task_completed")
 def train_completed_task(sender, task_id, **kwargs):
-    training.completed(task_id)
+    try:
+        training.completed(task_id)
+    finally:
+        training.task_ended()
+
+
+@receiver(signals.task_failed, dispatch_uid="splatme_task_failed")
+def look_for_lost_trainings(sender, task_id, **kwargs):
+    training.task_ended()
 
 
 @receiver(signals.task_removing, dispatch_uid="splatme_task_removing")

@@ -250,6 +250,16 @@ class Tasks(APIView):
         return Response({"projects": out, "addable": addable})
 
 
+class Revive(APIView):
+    """GET from any WebODM page (main.js): trainings that lost their worker are taken over (training.revive)."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        training.revive()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class NodeSettings(APIView):
     permission_classes = (IsAuthenticated,)
 

@@ -14,8 +14,11 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 c
   results), and is trained again when set to Train Splats When Completed.
 - **Continue** trains with the options the model was trained with, not those of the task's last training (a
   canceled one, say). A model trained by 0.1 continues only while its training is the task's last.
-- A download of the model that drops is tried again; a node that stops answering is waited for up to an hour,
-  then asked to drop the job. A cancel during the import keeps the task's model. A job whose worker keeps dying
+- **Trainings left unattended** are picked up again after WebODM's worker restarts: when any task completes or
+  fails, or any WebODM page opens, not only SplatMe's. The job that follows the node's trainings outlives a
+  database error.
+- A download of the model that drops is tried again; a node that stops answering, or answers an error (a proxy
+  while the node restarts), is waited for up to an hour, then asked to drop the job. A cancel during the import keeps the task's model. A job whose worker keeps dying
   (memory) fails with the reason.
 - GCP, geo and image group files, alignment files and ODM's masks no longer hide a task from SplatMe → Tasks, nor
   make a thermal task not thermal. Crop To Boundary leaves out what is in a boundary's holes. A thermal task of
