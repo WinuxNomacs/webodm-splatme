@@ -1496,13 +1496,12 @@ compared with `splatnode.sh` and WebODM's labels, the admin page's links; after 
 
 Decided with the user (2026-11-16):
 
-- **The site is built by our own script on Python-Markdown** (decided again after the assessment below; Zensical
-  had first been chosen on a recommendation made without checking its own maintenance and maturity):
-  `dev/build-docs.py`, Python-Markdown pinned exactly in `requirements-dev.txt` and in the release job, the
-  pages in `docs/*.md` with a page list, HTML with navigation, GitHub-style heading anchors, tables, code blocks
-  with a Copy button, light and dark following the system, every internal link and anchor checked while
-  building (a broken one fails the build). No search at first. WebODM's look where it fits (no external fonts or
-  scripts).
+- **The site is built with Zensical** (the user's choice, 2026-11-16, after the assessment below and a second
+  look at its risks): pinned exactly in `requirements-dev.txt` and in the release job, upgraded only on purpose;
+  `font = false` (no Google Fonts: system fonts, no outside service); link and anchor validation on, in strict
+  mode, so a broken link fails the build; the theme's search, navigation, Copy buttons on code blocks, and light
+  and dark following the system. The pages stay plain Markdown in `docs/`, so leaving Zensical later costs
+  little.
 - **The site is published with each release tag**, and by hand: a job in `release.yml` (no push trigger), so
   the docs describe the released version, whose commands fetch `releases/latest`.
 - **Pages is switched on by Claude** (Settings → Pages → Source: GitHub Actions, with `gh api`) just before the
@@ -1544,7 +1543,15 @@ Reading:
   script and its look ourselves, and the docs stay plain Markdown that any later tool reads.
 
 Recommendation: our own on Python-Markdown. Zensical is the one to look at again once it is past 0.x.
-The user chose our own on Python-Markdown (2026-11-16).
+The user first chose our own on Python-Markdown, then Zensical (2026-11-16), on a second look: the parts that
+render the content are mature (Python-Markdown and pymdown-extensions, as Material for MkDocs used, and
+Material's theme by the same team); issues get answered within a day (median of the last 100 closed: 0 days);
+leaving costs little, as the docs stay plain Markdown. The risks taken on, with what answers them: weekly 0.x
+releases (one breaking change in the last 20: two musl builds dropped; Python 3.10 dropped), answered by an
+exact pin and deliberate upgrades; Google Fonts by default, answered by `font = false`; its validation settings
+"deprecated in their current form" (to move to a new parser), checked at each upgrade; two main maintainers and
+a commercial side (Zensical Studio), answered by the low cost of leaving; a compiled wheel (Linux, macOS,
+Windows), which we cannot patch.
 
 ### Guided splat node setup (built)
 
