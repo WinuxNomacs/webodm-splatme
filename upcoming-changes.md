@@ -9,20 +9,21 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Release review of 0.2.0 (asked 2026-11-16, before the tag): the code for bugs and weak areas to harden, the
-   documentation for accuracy and for saying only what helps. Reading only; the findings go to the user. See
-   "1. Release review of 0.2.0 (done, waiting for the user's choice)".
+1. Fixes from the review of 0.2.0 (chosen 2026-11-16): A, B, C, I, J, K, L, M in the plugin; P and Q in the
+   node (still 0.2.2, unpublished); T in the release; the documentation's corrections and removals (shown to the
+   user first). On branches with tests, then the release check on a throwaway WebODM (0.1.1 upgraded to 0.2.0).
+   The findings are in "Release review of 0.2.0 (done)".
 
 **Then**
 
-2. Fixes from the review of 0.2.0: the findings the user chooses, on branches with tests, then the release check
-   on a throwaway WebODM (0.1.1 upgraded to 0.2.0).
-3. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
    0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
    confirmation; the entry waits for the user's approval).
 
 **Later**
 
+3. The rest of the review of 0.2.0's findings (D–G, H, N, O, R, S, U), to review with the user before a release
+   (the user's decision, 2026-11-16). See "Release review of 0.2.0 (done)".
 4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
@@ -46,6 +47,8 @@ other software. The plugin does that step.
 
 **Done**
 
+- Release review of 0.2.0 (2026-11-16): findings A–U, the documentation's corrections and removals, the live
+  sweep. See "Release review of 0.2.0 (done)".
 - Splash image and thanks (2026-11-16), in 0.2.0: `docs/assets/splash/`, the top and the Thanks section of
   `README.md` and `docs/index.md`. See "Splash image and thanks (built)".
 - The splat node made robust (2026-11-16), splat node 0.2.2 in SplatMe 0.2.0: `node/splatnode.py` (the store and
@@ -531,7 +534,7 @@ linked to the full one; the 3D view screenshot stays below the opening paragraph
 the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
 headless at 1,280 and 320 px: no console errors, no sideways scroll.
 
-### 1. Release review of 0.2.0 (done, waiting for the user's choice)
+### Release review of 0.2.0 (done)
 
 Asked 2026-11-16, before 0.2.0's tag: a review for bugs and weak areas to harden before SplatMe is published in
 WebODM's plugin directory, and of the documentation for accuracy and for saying only as much as it should (a
@@ -562,7 +565,8 @@ Then a live sweep of the pages on the dev stack (reading only, 320 and 1,280 px,
 **What comes out:** the findings here, lettered, each with a concrete failure, its weight and whether it was
 checked; what was found sound. No change is made during the review.
 
-**Open decisions (after the findings):** which go into 0.2.0 and which wait; for the documentation, the list of
+**Decided with the user (2026-11-16):** the recommendation: A, B, C, I, J, K, L, M, P, Q, T and the documentation go
+into 0.2.0; the rest waits, to be reviewed with the user before a release. **Was open:** which go into 0.2.0 and which wait; for the documentation, the list of
 removals and corrections is shown before it is applied.
 
 **Found (2026-11-16).** Four parts read in parallel (the plugin's Python, its pages, the node and the release, the
