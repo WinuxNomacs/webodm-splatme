@@ -31,8 +31,8 @@ export default class OptionsFields extends React.Component {
                 <div className="col-sm-8">
                     <input type="number" min="0" className="form-control" value={this.props.form[name]} placeholder={placeholder || ""}
                            onChange={e => this.props.onChange(name, e.target.value)} />
-                    <span className="help-block">{help}</span>
                     {more || ""}
+                    <span className="help-block">{help}</span>
                 </div>
             </div>
         );

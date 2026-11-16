@@ -22,8 +22,6 @@ shared (the admin page) the administrators', for users who saved none, which onl
         <label class="col-sm-3 control-label" for="splatme-auto-steps">Steps</label>
         <div class="col-sm-9">
             <input type="number" min="1" class="form-control" id="splatme-auto-steps">
-            <span class="help-block">How long the trainer works on the model. It grows the model in the first half of
-                the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.</span>
             <table class="table table-bordered table-condensed" id="splatme-auto-stages" style="table-layout: fixed; width: 100%; margin-top: 5px; margin-bottom: 5px;">
                 <caption style="padding-top: 0;">Of these steps:</caption>
                 <thead><tr><!-- the hover tips as public/trainingView.js's STAGE_TIPS -->
@@ -35,6 +33,8 @@ shared (the admin page) the administrators', for users who saved none, which onl
                 <tbody><tr><td style="text-align: center;"></td><td style="text-align: center;"><span></span><br><small></small></td>
                     <td style="text-align: center;"></td><td style="text-align: center;"></td></tr></tbody>
             </table>
+            <span class="help-block">How long the trainer works on the model. It grows the model in the first half of
+                the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.</span>
         </div>
     </div>
     <div class="form-group">

@@ -101,10 +101,10 @@ export default class TrainDialog extends React.Component {
                             <div className="col-sm-8">
                                 <input type="number" min="1" className="form-control splatme-more-steps" value={more}
                                        onChange={e => this.setState({more: e.target.value, error: null})} />
+                                <StagesTable total={total} from={trained} />
                                 <span className="help-block">
                                     {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
                                 </span>
-                                <StagesTable total={total} from={trained} />
                             </div>
                         </div> :
                         <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} photoSizes={(check || {}).photo_sizes} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
