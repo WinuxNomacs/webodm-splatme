@@ -1305,7 +1305,7 @@ with SplatMe installed from the zip:
   in 4 minutes, connected to a throwaway WebODM whose SplatMe then reached it (0.2.0, OpenSplat 1.2.2 at
   e33f9dd, the GPU and its memory); status, upgrade and uninstall `--yes` (the image deleted) worked. The image
   is 6.6 GB; the runner had 86 GB free after the build, so the clean-up step is a margin.
-- Not yet tried: the script fetched with `curl` from `main` (it needs the merge pushed).
+- The script fetched with `curl` from `main` and piped to `bash` runs (2026-11-16, its usage message).
 
 Build order (as planned):
 
