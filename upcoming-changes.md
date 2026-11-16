@@ -9,13 +9,15 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Docs and first release, with SplatMe's entry in WebODM's plugin directory.
+1. Fixes from the release review, released as 0.2.0. See "1. Fixes from the release review (proposed)".
+2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+   0.1.1 are released; the entry waits for the user's approval).
 
 **Later**
 
-2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "3. Steps for an Image Size (proposed)".
 
@@ -332,6 +334,82 @@ Found on the way:
   timeout (800x520, four minutes).
 
 ## Phase details
+
+### 1. Fixes from the release review (proposed)
+
+A review of 0.1.1 before SplatMe goes into WebODM's plugin directory (2026-11-16): the plugin's Python, its pages,
+and the install and upgrade path, each read against WebODM 4.0.0's code, then a sweep of the live pages (the
+Dashboard, SplatMe → Tasks, SplatMe → Settings, Administration → SplatMe; 375 and 1,280 px wide, as an
+administrator and as a plain user). The sweep found no layout breakdown and no script error. The top finding of each
+part was checked again in the code ("checked"); the rest are as the review read them. Nothing here is a data loss or
+a security hole; the tokens, permissions, CSRF and file handling were found sound.
+
+**Install and upgrade (node/splatnode.sh, the release workflow, the README)**
+
+- A. `upgrade` and `status` stop silently when the node does not answer (checked: `node_version`'s failing curl
+  ends the script under `set -euo pipefail`, exit 7, no message), so the command for a broken node does nothing.
+- B. `install` joins the WebODM webapp's alphabetically first network: behind a reverse proxy (`proxy`,
+  `traefik`…) Test Connection passes from the webapp while the worker, which runs the trainings, cannot reach the
+  node.
+- C. `connect --webodm` saves `http://splat-node:3100` in a WebODM that is not on the node's network, and says it
+  worked.
+- D. Each node upgrade leaves the previous image (6.6 GB) behind; uninstall removes only the current one.
+- E. The release workflow builds the node's image only when its version is new: a node change without a version
+  bump never ships, a failed `latest` push is never repaired, and the release (with `releases/latest`'s
+  `splatnode.sh`) goes live before the image is built.
+- F. The README's `./webodm.sh restart` restarts WebODM without the options it was started with (`--port`,
+  `--media-dir`, `--ssl`…): its projects can seem gone.
+- G. A failed install (port taken, health wait over) leaves `compose.yml`, and `install` then refuses to run
+  again; the port is not checked first.
+- H. The 6.6 GB image is downloaded before the GPU check (which needs it), and kept when the check fails.
+- Lower: `upgrade` reports success when the registry is unreachable (it takes the image as a local one); `upgrade`
+  never rewrites `compose.yml`; the printed address (`hostname -I`) can be a Docker or WSL one; exported
+  `SPLATNODE_*` variables override `.env`; uninstall clears SplatMe's address but keeps the token; `GET /info` runs
+  `opensplat --version` and `nvidia-smi` under the node's lock; finished jobs are not expired while the queue is busy;
+  on WebODM older than 4.0.0, Load Plugin (.zip) says it installed SplatMe, which then does not show (WebODM's).
+
+**Trainings (splatme/training.py, node.py, thermal.py, crop.py)**
+
+- I. A task processed again while its splats train gets the old model (checked: the import looks only at the
+  status and `georeferenced_model.laz`), and its automatic training is skipped as "already being trained".
+- J. Every training holds one of WebODM's worker slots until it ends, even while it only waits in the node's queue:
+  many automatic trainings at once can starve WebODM's own processing for hours.
+- K. A dropped connection while the model downloads fails a training that finished (the node keeps the model 48
+  hours, nothing fetches it again); a node unreachable for 5 minutes fails the job without cancelling it there.
+- L. Continue uses the options of the task's last training, not of the one that made the model (checked): after a
+  canceled or failed training with other options, Continue sends a model with the wrong SH degree and image size.
+- M. Any `.png` or `.tif` in a task's folder hides a JPEG task from SplatMe → Tasks (ODM's `_mask.png` masks,
+  `align.tif`), and a GCP or `geo.txt` file makes a thermal task "not thermal" (checked for the first).
+- Lower: a job whose worker is killed (memory) is started again every minute while a page is open; the heartbeat
+  thread stops on Django's `InterfaceError`; Cancel is ignored once the import starts; a slow node answer after a big
+  upload leaves a job nobody follows (15 s timeout); Crop To Boundary keeps what is in a boundary's holes; the
+  thermal range holds every photo's sample in memory (about 1.2 GB for 5,000 photos); the status 500s for an
+  anonymous viewer of a public task; `onnxruntime` (Ignore Sky) comes with WebODM's `geodeep`, not its own
+  requirements.
+
+**The pages (splatme/public)**
+
+- N. On SplatMe → Tasks, another project's New Task With Splats replaces a box that is still uploading (checked):
+  the upload goes on unseen, without its warning on leaving the page or its Try Again.
+- O. Closing Train Splats (or Change) while Start Training (or Save) is answering loses the answer (checked): the
+  training runs, the row shows no progress and stops refreshing.
+- P. A refresh that lands between a task completing and its automatic training starting stops the refreshing for
+  good, on the Tasks page and in the Dashboard's Splats line.
+- Q. The Dashboard's Splats line stops following after one failed request (WebODM restarting, a network blip).
+- R. While anything trains, the Tasks page asks for every task (each listing its images folder) every 3 s.
+- Lower: the task links miss projects after the Dashboard's first page; a task SplatMe cannot train still gets
+  Open in SplatMe, and New Task With Splats accepts non-JPEG photos; SplatMe's click guard in the New Task panel
+  also blocks WebODM's other primary buttons there; Enter in More Steps can send Start Training twice; an older
+  refresh can overwrite an action's answer; the dialogs do not hold the keyboard's focus; the progress row is too
+  wide below 340 px; another plugin's button can land after SplatMe's in the project's button group.
+
+**Proposed for 0.2.0:** A–I, K–Q and the lower items that are a line or two each (the heartbeat, Cancel during
+the import, the anonymous status, the upload's timeout, the click guard, Enter, the progress row's width, the
+registry check). Then a release, checked on a throwaway WebODM as 0.1.0 was, and the directory entry with
+0.2.0. Left for later unless the user wants them now: J (a design change: waiting in the node's queue would move
+out of WebODM's worker), R, focus in the dialogs, and the rest.
+
+Open decisions: see the phase list (asked 2026-11-16).
 
 ### The splat node's API (built)
 
