@@ -9,19 +9,23 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
-   0.1.1 are released; 0.2.0 is merged and waits for its tag; the entry waits for the user's approval).
+1. The documentation on GitHub Pages, with a Getting Started guide, before 0.2.0's tag (asked 2026-11-16): the
+   README's reference moves to a docs site; the README keeps the introduction and links to Getting Started
+   under its description and banner image. See "1. Documentation on GitHub Pages (planned)".
+2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+   0.1.1 are released; 0.2.0 is merged and waits for its tag, now after phase 1; the entry waits for the user's
+   approval).
 
 **Later**
 
-2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
-   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "2. HTTPS to the splat node
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "3. HTTPS to the splat node
    (proposed)".
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "4. Steps for an Image Size (proposed)".
+   "5. Steps for an Image Size (proposed)".
 
 **Dropped**
 
@@ -1442,6 +1446,106 @@ Build order (as planned):
    first, then with a published one (which needs a tag the user pushes).
 5. The directory entry, at the release (phase 1, Docs and first release).
 
+### 1. Documentation on GitHub Pages (planned)
+
+Asked by the user (2026-11-16), before 0.2.0's tag: the documentation moves to GitHub Pages (the repository is
+public); the README still introduces the plugin and links to the documentation. A **Getting Started** section
+walks through a fresh install and an upgrade, linked from the README directly under its first section (the
+description and the banner image).
+
+This changes an earlier decision: "The docs are the README (no `docs/` folder)" (2026-11-16, in "2. Docs and
+first release"). It is kept there as history.
+
+What there is now: the README (293 lines) holds everything: Requirements, Install, Upgrade, Uninstall, Using it,
+The splat node (and HTTPS to a node on another machine), The plugin's API, Development, Licence; four
+screenshots in `screenshots/`. Links into it: Administration → SplatMe's Set Up a Splat Node
+(`templates/node.html`: `#install`, `#https-to-a-node-on-another-machine`); the manifest's `homepage` is the
+repository.
+
+Design:
+
+- **A `docs/` folder of Markdown pages**, built into a site at `https://winuxnomacs.github.io/webodm-splatme/`:
+  - **Home**: what SplatMe does, the banner image, the requirements, where to go next.
+  - **Getting Started**: a walk-through in order, each step with what to expect and how to check it worked.
+    *Fresh install*: check the requirements (the GPU in a container: one `docker run --gpus all … nvidia-smi`),
+    the plugin (Install Plugins, or Load Plugin (.zip)), restart WebODM with its options, the splat node
+    (Administration → SplatMe's Set Up a Splat Node: the tab for WebODM's machine or another), the node shown
+    ready, a first training on SplatMe → Tasks, the model in the task's 3D view. *Upgrade*: from 0.1.x to 0.2.0
+    (delete and Load Plugin (.zip), or Update in Install Plugins; restart; `splatnode.sh upgrade`; what is kept;
+    check the node's version on Administration → SplatMe), then any later version the same way.
+  - **Install, Upgrade, Uninstall** (the reference, as the README has it now), **Using SplatMe** (the README's
+    "Using it"), **The Splat Node** (with HTTPS to a node on another machine), **The Plugin's API**,
+    **Development**, **Changelog** (from `CHANGELOG.md`).
+  - The screenshots move to `docs/`, used by the pages; Getting Started may want one new one of Set Up a Splat
+    Node (shown to the user before it is committed, as before).
+- **The README**: the title, the description, the banner image, then right under them **Getting Started** and
+  **Documentation** links, then the status line (releases, issues, the plan) and the licence. Its other
+  sections move to the docs, nothing dropped.
+- **Links**: Set Up a Splat Node's links go to the docs pages; the plugin's other pages have none. The
+  manifest's `homepage` stays the repository (the directory and WebODM's plugin list point there, and the README
+  links on to the docs).
+- **Publishing**: a workflow builds the site and deploys it with GitHub's Pages actions. Pages is turned on in
+  the repository's settings (Source: GitHub Actions) once, by the user or with their approval.
+- **0.2.0**: the docs site goes up with the 0.2.0 release; the zip is rebuilt (the admin page's links); the
+  CHANGELOG says where the docs are. Repo `CLAUDE.md`: "keep the README current" becomes the docs, and where
+  they live.
+
+Checks: the site built locally and read headless (every page, the navigation, the search if the tool has one,
+phone width, dark mode if it has one), every internal link and anchor followed, the commands in Getting Started
+compared with `splatnode.sh` and WebODM's labels, the admin page's links; after the release, the live site.
+
+Decided with the user (2026-11-16):
+
+- **The site is built by our own script on Python-Markdown** (decided again after the assessment below; Zensical
+  had first been chosen on a recommendation made without checking its own maintenance and maturity):
+  `dev/build-docs.py`, Python-Markdown pinned exactly in `requirements-dev.txt` and in the release job, the
+  pages in `docs/*.md` with a page list, HTML with navigation, GitHub-style heading anchors, tables, code blocks
+  with a Copy button, light and dark following the system, every internal link and anchor checked while
+  building (a broken one fails the build). No search at first. WebODM's look where it fits (no external fonts or
+  scripts).
+- **The site is published with each release tag**, and by hand: a job in `release.yml` (no push trigger), so
+  the docs describe the released version, whose commands fetch `releases/latest`.
+- **Pages is switched on by Claude** (Settings → Pages → Source: GitHub Actions, with `gh api`) just before the
+  0.2.0 tag, after the user confirms at that moment.
+
+#### The docs site's tool: assessment (2026-11-16)
+
+Checked on 2026-11-16 from GitHub's API (each repository, its releases, contributors and the last 3 months of
+commits) and PyPI's JSON. Our need is small: about eight Markdown pages, navigation, heading anchors, tables,
+code blocks with a Copy button, light and dark, built in a release job.
+
+| Candidate | Last release | Releases, 12 months | Commits, 3 months | Status | What it pulls in |
+|---|---|---|---|---|---|
+| MkDocs (`mkdocs/mkdocs`) | 1.6.1, 2024-08-30 | 0 | 0 | unmaintained: 183 open issues and PRs | — |
+| Material for MkDocs | 9.8.1, 2026-11-07 | 9 | 29, 3 authors | PyPI "7 - Inactive": maintenance mode, fixes until 2027-05-05 | MkDocs <2 and 10 more |
+| Zensical (`zensical/zensical`) | 0.1.1, 2026-11-10 (0.1.0 on 11-05) | 67 (about weekly) | 100, 3 authors: squidfunk 56, pawamoy 43, one other 1 | PyPI "4 - Beta", 0.x; 4 open issues and PRs; MIT | 9 packages (click, jinja2, markdown, pathspec, pygments, pymdown-extensions, pyyaml, tomli, zensical-ui pinned exactly) |
+| Jekyll (`jekyll/jekyll`) | 4.4.1, 2025-01-29 | 0 | 7 | slow: 267 open issues and PRs | Ruby, Bundler, gems |
+| GitHub's own builder (`pages-gem`, `jekyll-build-pages`) | pages-gem v233, 2026-11-03; the action 1.0.13, 2024-08-06 | 1; 0 | 7; 1 | still runs Jekyll 3.10.0 and its old Sass converter | Ruby, inside GitHub's action |
+| Just the Docs (theme) | 0.12.0, 2026-01-23 | 5 | 35, 3 authors | active, small team; 99 open issues and PRs | Jekyll |
+| Python-Markdown (for our own) | 3.11.3, 2026-11-05 | 7 | 51, 17 authors | PyPI "5 - Production/Stable", since 2008; BSD-3 | nothing |
+| markdown-it-py (for our own) | 4.3.0, 2026-11-10 | 3 | 42, 24 authors | PyPI "5 - Production/Stable"; MIT | mdurl |
+
+Every option deploys with GitHub's Pages actions (`actions/configure-pages` 6.0.0, 2026-03;
+`upload-pages-artifact` 5.0.0, 2026-04; `deploy-pages` 5.0.1, 2026-09), GitHub's own and the supported way.
+
+Reading:
+
+- **MkDocs and Material for MkDocs**: out. One is unmaintained, the other inactive with an end date.
+- **Zensical**: active and well run, but young: 0.1.0 came out 11 days ago, releases come weekly in 0.x (so
+  changes that break a site are to be expected), nearly all work is two people's, and it brings nine packages
+  and a binary UI package pinned exactly. We would inherit its churn while it settles.
+- **Jekyll**: slow, and GitHub's own builder is stuck on Jekyll 3.10; Just the Docs is active but small. It
+  adds Ruby to a Python and JavaScript repository.
+- **Our own**: a short Python script in `dev/` (about 200 to 300 lines with its template and CSS) on
+  Python-Markdown, which is stable, depends on nothing, and has many maintainers. It reads `docs/*.md` and a
+  page list, writes HTML pages with navigation, GitHub-style heading anchors, tables, code blocks with a Copy
+  button, light and dark following the system, and checks every internal link and anchor while building. No
+  search at first: eight pages and a side menu do without it (a small index later if wanted). We maintain the
+  script and its look ourselves, and the docs stay plain Markdown that any later tool reads.
+
+Recommendation: our own on Python-Markdown. Zensical is the one to look at again once it is past 0.x.
+The user chose our own on Python-Markdown (2026-11-16).
+
 ### Guided splat node setup (built)
 
 Asked by the user (2026-11-16, before 0.2.0's tag): on Administration → SplatMe, under Splat Node, concise
@@ -1506,7 +1610,7 @@ for all three. Bootstrap's `nav-tabs` look with the page's own switching (`showT
 Checked headless: the default tab, a click, ArrowRight moving and wrapping with the focus, Copy in a tab
 (the Clipboard API and the fallback); at 320 px the tabs stack, no sideways scroll. Django 88.
 
-### 2. HTTPS to the splat node (proposed)
+### 3. HTTPS to the splat node (proposed)
 
 Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it
 belongs in 0.2.0.
@@ -1535,12 +1639,12 @@ Ways to add it, smallest first:
 - **C. A Caddy sidecar in the node's compose file** (`--tls <domain>`, automatic certificates): needs a domain
   and port 80/443 reachable from the internet for the certificate; more moving parts than B.
 
-Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (phase 2), a
+Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (phase 3), a
 phase of its own after the directory entry if the user wants it. The recommendation it was decided on: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
 existing nodes: a new node release and its own testing on two machines, which would hold 0.2.0's fixes back.
 0.2.0 can carry A (docs) at no risk; B is a phase of its own after the directory entry.
 
-### 1. Docs and first release
+### 2. Docs and first release
 
 README, docs, the zip, the splat node's image, the entry for WebODM-Plugins' `directory.json`. The docs describe
 the install, upgrade and uninstall automated in "Install, upgrade and uninstall (built)", and what an uninstall leaves (the plugin's data store
@@ -1602,7 +1706,7 @@ Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
-### 3. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
+### 4. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
 Decided (2026-11-14): the plugin ships first, as it is built on WebODM 4.0.0's own hooks, the new task's
 setting through the page's requests included. Once it is close to feature complete, the user and Claude review
@@ -1623,7 +1727,7 @@ The candidates so far, each small and separate:
 - Or, smaller: the New Task panel tells plugins of the task it created (then the page need not listen to
   WebODM's requests).
 
-### 4. Steps for an Image Size (proposed)
+### 5. Steps for an Image Size (proposed)
 
 Asked by the user (2026-11-15): recommend the steps for the Image Size entered, so they see what resolution and
 steps trade before starting. Neither OpenSplat's code nor its README recommends either value or links them, so
