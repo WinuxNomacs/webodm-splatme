@@ -1500,6 +1500,12 @@ now wrap. `splatnode.sh`'s `write_files` checked in a scratch folder: a hand-set
 upgrade, a node on WebODM's network gets `127.0.0.1:`, a fresh standalone install every address. The HTTPS
 proxy docs were not tried with a real domain and certificate. Ruff, ESLint, Jest 73, Django 88.
 
+Changed with the user (2026-11-16): the three sections are tabs (On WebODM's Machine, the default; On Another
+Machine; A Node Installed Before SplatMe), one shown at a time, with the upgrade and uninstall line under them
+for all three. Bootstrap's `nav-tabs` look with the page's own switching (`showTab`), tab roles and arrow keys.
+Checked headless: the default tab, a click, ArrowRight moving and wrapping with the focus, Copy in a tab
+(the Clipboard API and the fallback); at 320 px the tabs stack, no sideways scroll. Django 88.
+
 ### 2. HTTPS to the splat node (proposed)
 
 Asked by the user (2026-11-16): what it takes to connect to the splat node over HTTPS/TLS, and whether it

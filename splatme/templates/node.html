@@ -8,10 +8,11 @@ behind a link under it. The token is never shown.
 {% if editable %}
 <style>
     #splatme-guide { max-width: 720px; }
-    #splatme-guide .splatme-command { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 10px; }
+    #splatme-guide .splatme-command { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 10px; }
     /* The whole command shows, wrapped: its end (install, --standalone, connect) is what differs */
     #splatme-guide .splatme-command pre { flex: 1; min-width: 0; margin: 0; white-space: pre-wrap; word-break: break-all; }
-    #splatme-guide h5 { font-weight: bold; margin-top: 16px; }
+    #splatme-guide .nav-tabs { margin-top: 4px; }
+    #splatme-guide .splatme-panes { padding-top: 10px; }
     #splatme-guide-toggle { padding-left: 0; }
 </style>
 <button type="button" class="btn btn-link" id="splatme-guide-toggle" style="display: none;" aria-expanded="false" aria-controls="splatme-guide">
@@ -25,28 +26,38 @@ behind a link under it. The token is never shown.
             <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer">NVIDIA Container Toolkit</a>.
             The install downloads the node's image (6.6 GB), checks the GPU and starts the node; run it in a terminal
             on that machine.</p>
-        <h5>On WebODM's Machine</h5>
-        <div class="splatme-command">
-            <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install</pre>
-            <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+        <ul class="nav nav-tabs" role="tablist">
+            <li role="presentation" class="active"><a href="#splatme-pane-here" role="tab" id="splatme-tab-here" aria-controls="splatme-pane-here" aria-selected="true">On WebODM's Machine</a></li>
+            <li role="presentation"><a href="#splatme-pane-other" role="tab" id="splatme-tab-other" aria-controls="splatme-pane-other" aria-selected="false" tabindex="-1">On Another Machine</a></li>
+            <li role="presentation"><a href="#splatme-pane-connect" role="tab" id="splatme-tab-connect" aria-controls="splatme-pane-connect" aria-selected="false" tabindex="-1">A Node Installed Before SplatMe</a></li>
+        </ul>
+        <div class="splatme-panes">
+            <div role="tabpanel" id="splatme-pane-here" aria-labelledby="splatme-tab-here">
+                <div class="splatme-command">
+                    <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install</pre>
+                    <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+                </div>
+                <p>The node joins WebODM's network and saves its address and token here: reload this page when it is done.
+                    With several WebODMs on the machine it names them; add <code>--webodm &lt;its webapp container&gt;</code>.</p>
+            </div>
+            <div role="tabpanel" id="splatme-pane-other" aria-labelledby="splatme-tab-other" style="display: none;">
+                <div class="splatme-command">
+                    <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install --standalone</pre>
+                    <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+                </div>
+                <p>It prints the node's address and token: enter them below, press Test Connection, then Save. The node
+                    listens on port 3100 (<code>--port</code> for another) over plain HTTP: let only WebODM's machine reach
+                    that port, or put an <a href="https://github.com/WinuxNomacs/webodm-splatme#https-to-a-node-on-another-machine" target="_blank" rel="noopener noreferrer">HTTPS proxy</a> in front of it.</p>
+            </div>
+            <div role="tabpanel" id="splatme-pane-connect" aria-labelledby="splatme-tab-connect" style="display: none;">
+                <div class="splatme-command">
+                    <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s connect</pre>
+                    <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
+                </div>
+                <p>On WebODM's machine, after SplatMe is installed and WebODM restarted.</p>
+            </div>
         </div>
-        <p>The node joins WebODM's network and saves its address and token here: reload this page when it is done.
-            With several WebODMs on the machine it names them; add <code>--webodm &lt;its webapp container&gt;</code>.</p>
-        <h5>On Another Machine</h5>
-        <div class="splatme-command">
-            <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install --standalone</pre>
-            <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
-        </div>
-        <p>It prints the node's address and token: enter them below, press Test Connection, then Save. The node
-            listens on port 3100 (<code>--port</code> for another) over plain HTTP: let only WebODM's machine reach
-            that port, or put an <a href="https://github.com/WinuxNomacs/webodm-splatme#https-to-a-node-on-another-machine" target="_blank" rel="noopener noreferrer">HTTPS proxy</a> in front of it.</p>
-        <h5>A Node Installed Before SplatMe</h5>
-        <div class="splatme-command">
-            <pre>curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s connect</pre>
-            <button type="button" class="btn btn-default btn-sm splatme-copy"><i class="fa fa-copy fa-fw"></i> Copy</button>
-        </div>
-        <p>On WebODM's machine, after SplatMe is installed and WebODM restarted. Upgrade and uninstall are the same
-            command with <code>upgrade</code> or <code>uninstall</code>; more in
+        <p>Upgrade and uninstall are the same command with <code>upgrade</code> or <code>uninstall</code>; more in
             <a href="https://github.com/WinuxNomacs/webodm-splatme#install" target="_blank" rel="noopener noreferrer">SplatMe's README</a>.</p>
     </div>
 </div>
@@ -111,6 +122,18 @@ behind a link under it. The token is never shown.
         state.style.display = unset ? "none" : "";
         if (unset) setGuide(true);
         else if (toggle.getAttribute("aria-expanded") !== "true") setGuide(false);
+    }
+
+    // One tab's steps at a time; the arrow keys move between the tabs, as in any tab list
+    function showTab(tab, focus){
+        Array.prototype.forEach.call(guide.querySelectorAll("[role=tab]"), function(other){
+            var on = other === tab;
+            other.parentNode.className = on ? "active" : "";
+            other.setAttribute("aria-selected", on ? "true" : "false");
+            if (on) other.removeAttribute("tabindex"); else other.setAttribute("tabindex", "-1");
+            document.getElementById(other.getAttribute("aria-controls")).style.display = on ? "" : "none";
+        });
+        if (focus) tab.focus();
     }
 
     // A command into the clipboard: the Clipboard API where the page is a secure context, else a selected text area
@@ -203,6 +226,19 @@ behind a link under it. The token is never shown.
     if (EDITABLE){
         toggle.addEventListener("click", function(){
             setGuide(toggle.getAttribute("aria-expanded") !== "true");
+        });
+        var tabs = guide.querySelectorAll("[role=tab]");
+        Array.prototype.forEach.call(tabs, function(tab, i){
+            tab.addEventListener("click", function(e){
+                e.preventDefault();
+                showTab(tab, false);
+            });
+            tab.addEventListener("keydown", function(e){
+                var step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+                if (!step) return;
+                e.preventDefault();
+                showTab(tabs[(i + step + tabs.length) % tabs.length], true);
+            });
         });
         Array.prototype.forEach.call(guide.querySelectorAll(".splatme-copy"), function(button){
             button.addEventListener("click", function(){
