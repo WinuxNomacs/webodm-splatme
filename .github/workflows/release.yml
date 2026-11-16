@@ -1,0 +1,99 @@
+# The release: the plugin's zip on a GitHub release, and the splat node's image on ghcr.io.
+# Runs only for a pushed tag v<the plugin's version> (as in splatme/manifest.json), or by hand (Actions > Release >
+# Run workflow), never for an ordinary push or a pull request. By hand it builds both and publishes nothing,
+# unless "Push the splat node's image" is ticked.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_image:
+        description: "Push the splat node's image to ghcr.io (its version and latest)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    name: The plugin's zip
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # to create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build splatme.zip
+        run: |
+          # A tag's version must be the manifest's
+          version=""
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version="${GITHUB_REF_NAME#v}"; fi
+          dev/build-zip.sh HEAD "$version"
+          echo "### splatme.zip" >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256 \`$(cut -d' ' -f1 dist/splatme.zip.sha256)\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Create the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/splatme.zip dist/splatme.zip.sha256 \
+            --verify-tag --title "SplatMe ${GITHUB_REF_NAME#v}" --generate-notes
+
+  node:
+    name: The splat node's image
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write  # to push the image
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: The image's name and version
+        id: image
+        run: |
+          # ghcr.io names are lower case; the node's version is its own (node/splatnode.py's VERSION)
+          name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/splatme-node"
+          version="$(python3 -c 'import re; print(re.search(r"^VERSION = \"(.+)\"", open("node/splatnode.py").read(), re.M).group(1))')"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          publish=false
+          if [ "$GITHUB_REF_TYPE" = tag ] || [ "${{ inputs.publish_image }}" = true ]; then publish=true; fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Log in to ghcr.io
+        if: steps.image.outputs.publish == 'true'
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Skip a version already published
+        id: published
+        if: steps.image.outputs.publish == 'true'
+        run: |
+          # A plugin-only release leaves the node's version as it was: its image is not built again
+          if docker manifest inspect "${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "The splat node ${{ steps.image.outputs.version }} is already published: not built again." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Make room on the runner
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          # The build stage (CUDA's devel image, libtorch) needs more disk than the runner has free
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker image prune -af >/dev/null
+          df -h /
+      - name: Build the image
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          docker build node \
+            -t "${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}" \
+            -t "${{ steps.image.outputs.name }}:latest" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.description=SplatMe's splat node: OpenSplat on an NVIDIA GPU, for WebODM" \
+            --label "org.opencontainers.image.licenses=AGPL-3.0" \
+            --label "org.opencontainers.image.version=${{ steps.image.outputs.version }}"
+          docker image ls "${{ steps.image.outputs.name }}"
+      - name: Push the image
+        if: steps.image.outputs.publish == 'true' && steps.published.outputs.skip != 'true'
+        run: |
+          docker push "${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}"
+          docker push "${{ steps.image.outputs.name }}:latest"
+          echo "### The splat node" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}\` and \`latest\`" >> "$GITHUB_STEP_SUMMARY"
