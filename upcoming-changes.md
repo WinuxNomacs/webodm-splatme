@@ -1509,6 +1509,43 @@ Decided with the user (2026-11-16):
 - **Pages is switched on by Claude** (Settings → Pages → Source: GitHub Actions, with `gh api`) just before the
   0.2.0 tag, after the user confirms at that moment.
 
+#### The docs site's tool: assessment (2026-11-16)
+
+Checked on 2026-11-16 from GitHub's API (each repository, its releases, contributors and the last 3 months of
+commits) and PyPI's JSON. Our need is small: about eight Markdown pages, navigation, heading anchors, tables,
+code blocks with a Copy button, light and dark, built in a release job.
+
+| Candidate | Last release | Releases, 12 months | Commits, 3 months | Status | What it pulls in |
+|---|---|---|---|---|---|
+| MkDocs (`mkdocs/mkdocs`) | 1.6.1, 2024-08-30 | 0 | 0 | unmaintained: 183 open issues and PRs | — |
+| Material for MkDocs | 9.8.1, 2026-11-07 | 9 | 29, 3 authors | PyPI "7 - Inactive": maintenance mode, fixes until 2027-05-05 | MkDocs <2 and 10 more |
+| Zensical (`zensical/zensical`) | 0.1.1, 2026-11-10 (0.1.0 on 11-05) | 67 (about weekly) | 100, 3 authors: squidfunk 56, pawamoy 43, one other 1 | PyPI "4 - Beta", 0.x; 4 open issues and PRs; MIT | 9 packages (click, jinja2, markdown, pathspec, pygments, pymdown-extensions, pyyaml, tomli, zensical-ui pinned exactly) |
+| Jekyll (`jekyll/jekyll`) | 4.4.1, 2025-01-29 | 0 | 7 | slow: 267 open issues and PRs | Ruby, Bundler, gems |
+| GitHub's own builder (`pages-gem`, `jekyll-build-pages`) | pages-gem v233, 2026-11-03; the action 1.0.13, 2024-08-06 | 1; 0 | 7; 1 | still runs Jekyll 3.10.0 and its old Sass converter | Ruby, inside GitHub's action |
+| Just the Docs (theme) | 0.12.0, 2026-01-23 | 5 | 35, 3 authors | active, small team; 99 open issues and PRs | Jekyll |
+| Python-Markdown (for our own) | 3.11.3, 2026-11-05 | 7 | 51, 17 authors | PyPI "5 - Production/Stable", since 2008; BSD-3 | nothing |
+| markdown-it-py (for our own) | 4.3.0, 2026-11-10 | 3 | 42, 24 authors | PyPI "5 - Production/Stable"; MIT | mdurl |
+
+Every option deploys with GitHub's Pages actions (`actions/configure-pages` 6.0.0, 2026-03;
+`upload-pages-artifact` 5.0.0, 2026-04; `deploy-pages` 5.0.1, 2026-09), GitHub's own and the supported way.
+
+Reading:
+
+- **MkDocs and Material for MkDocs**: out. One is unmaintained, the other inactive with an end date.
+- **Zensical**: active and well run, but young: 0.1.0 came out 11 days ago, releases come weekly in 0.x (so
+  changes that break a site are to be expected), nearly all work is two people's, and it brings nine packages
+  and a binary UI package pinned exactly. We would inherit its churn while it settles.
+- **Jekyll**: slow, and GitHub's own builder is stuck on Jekyll 3.10; Just the Docs is active but small. It
+  adds Ruby to a Python and JavaScript repository.
+- **Our own**: a short Python script in `dev/` (about 200 to 300 lines with its template and CSS) on
+  Python-Markdown, which is stable, depends on nothing, and has many maintainers. It reads `docs/*.md` and a
+  page list, writes HTML pages with navigation, GitHub-style heading anchors, tables, code blocks with a Copy
+  button, light and dark following the system, and checks every internal link and anchor while building. No
+  search at first: eight pages and a side menu do without it (a small index later if wanted). We maintain the
+  script and its look ourselves, and the docs stay plain Markdown that any later tool reads.
+
+Recommendation: our own on Python-Markdown. Zensical is the one to look at again once it is past 0.x.
+
 ### Guided splat node setup (built)
 
 Asked by the user (2026-11-16, before 0.2.0's tag): on Administration → SplatMe, under Splat Node, concise
