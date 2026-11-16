@@ -63,6 +63,10 @@ it short; edit in place.
   machine; test it with `SPLATNODE_DIR`, `SPLATNODE_PROJECT` and `SPLATNODE_IMAGE=splatme-node:dev`, against a
   throwaway WebODM, never the user's stacks) and `compose.yml` (running it without the script). It is not part of
   the plugin's zip.
+- **Every release is reviewed first, unless the user says otherwise for that release**: the code for bugs and
+  weak areas to harden, and the documentation for accuracy and for saying only what helps its reader. The
+  `release-review` skill in `.claude/skills` has the procedure; its findings go to the user, who decides which
+  are fixed before the tag.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
   `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
@@ -116,7 +120,7 @@ it short; edit in place.
 
 ## Tests and checks
 
-The `test` skill in `.claude/skills` has the steps.
+The `test` skill in `.claude/skills` has the steps; the `release-review` skill, the review before a release.
 
 - Django: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
   One run at a time: runs share the stack's test database.
