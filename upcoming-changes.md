@@ -15,7 +15,7 @@ other software. The plugin does that step.
 **Later**
 
 2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
-   (asked 2026-11-16; the docs for a TLS proxy go into 0.2.0 with phase 1). See "2. HTTPS to the splat node
+   (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "2. HTTPS to the splat node
    (proposed)".
 3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
