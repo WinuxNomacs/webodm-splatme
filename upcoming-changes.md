@@ -1373,7 +1373,13 @@ There the first Dashboard after the restart threw in `Dashboard.js` (`observe` o
 `main.js`, in the page's head, imported it at once), so that page had no SplatMe button or line; not
 reproduced in 25 more loads. Fixed in **0.1.1** (`main.js` starts the Dashboard's parts once the page is
 parsed), checked on the dev stack and by upgrading the throwaway WebODM by delete and load (10 Dashboards, the
-pages, no errors). Left: the user pushes `main` and the tag `v0.1.1`; the directory entry points at 0.1.1.
+pages, no errors). `v0.1.1` pushed with the user's approval and released (the zip's SHA-256
+`c4eb9592d5a5d05026b9078a41c314fdd4f7be0463668f35ed7454cc86981c7b`, the same as a local build of the commit;
+`releases/latest` is 0.1.1).
+
+Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `directory.json`, from the user's
+fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
+(2026-11-16), so nothing was sent. It is opened only when the user approves it.
 
 ### 2. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
