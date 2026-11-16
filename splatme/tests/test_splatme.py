@@ -8,6 +8,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -1139,3 +1140,184 @@ class TestSplatMe(BootTestCase):
         listed = {t["id"] for p in self.client.get(f"{API}/tasks").data["projects"] for t in p["tasks"]}
         self.assertIn(str(dji.id), listed)
         self.assertNotIn(str(other.id), listed)
+
+    # A task processed again, the follower, downloads, continuing (found by the review of 0.1.1)
+
+    def outdated_job(self, task):
+        """A job that lost its worker, started on a reconstruction of the task before the one it has now."""
+        node_job = self.node.add_job()
+        self.lost_job(task, node_job)
+        training.change_job(task.id, lambda job: job.update(source=training.reconstruction(task) - 100))
+        return node_job
+
+    def test_a_task_processed_again_while_training_has_that_training_canceled_and_is_trained_again(self):
+        task = make_task(self.user)
+        self.auto(task, enabled=True)
+        old = self.outdated_job(task)
+        self.complete(task)
+        self.assertTrue(self.node.jobs[old]["deleted"])
+        self.assertEqual(sorted(self.node.jobs), ["job-known", "job2"])  # trained again on the new results
+        self.assertEqual(self.status(task)["state"], "completed")
+        self.assertEqual(self.model(task), MODEL)
+
+    def test_a_task_processed_again_while_training_says_so_when_it_is_not_set_to_train(self):
+        task = make_task(self.user)
+        old = self.outdated_job(task)
+        self.complete(task)
+        status = self.status(task)
+        self.assertEqual(status["state"], "canceled")
+        self.assertIn("processed again", status["error"])
+        self.assertTrue(self.node.jobs[old]["deleted"])
+        self.assertIsNone(self.model(task))
+
+    def test_a_model_trained_on_an_earlier_reconstruction_of_the_task_is_not_imported(self):
+        task = make_task(self.user)
+        self.outdated_job(task)
+        self.status(task)
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("processed again", status["error"])
+        self.assertIsNone(self.model(task))
+
+    def test_a_trainings_worker_job_ends_once_the_node_has_it_and_one_follower_follows_them_all(self):
+        started = []
+        first, second = make_task(self.user), make_task(self.user)
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append((f.__name__, a))):
+            self.assertEqual(self.train(first, steps=10).status_code, 200)
+            self.assertEqual(self.train(second, steps=10).status_code, 200)
+            for _name, args in started[:2]:
+                training.run(*args[1:])  # each one's worker job: the export, sent to the node
+            self.assertEqual([name for name, _a in started], ["run_job", "run_job", "run_follower"])
+            self.assertEqual({training.get_job(t.id)["state"] for t in (first, second)}, {"queued"})
+
+            training.follow_node(started[-1][1][1])  # until neither waits on the node
+            imports = started[3:]
+            self.assertEqual([name for name, _a in imports], ["run_job", "run_job"])
+            self.assertIsNone(training.store().get_json(training.FOLLOWER, None))
+            for _name, args in imports:
+                training.run(*args[1:])
+        for task in (first, second):
+            self.assertEqual(self.status(task)["state"], "completed")
+            self.assertEqual(self.model(task), MODEL)
+
+    def test_a_follower_already_running_is_not_started_again(self):
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(f.__name__)):
+            training.ensure_follower()
+            training.ensure_follower()
+            self.assertEqual(started, ["run_follower"])
+            # One that stopped answering (its worker was restarted) is replaced
+            training.change_record(training.FOLLOWER, lambda f: f.update(updated=time.time() - training.STALE - 1))
+            training.ensure_follower()
+            self.assertEqual(started, ["run_follower", "run_follower"])
+
+    def test_a_download_that_stops_is_tried_again(self):
+        task = make_task(self.user)
+        real, calls = training.Node.result, []
+
+        def drops_once(node, job_id, dest):
+            calls.append(job_id)
+            if len(calls) == 1:
+                raise training.NodeError("The download of the trained model stopped")
+            return real(node, job_id, dest)
+
+        with mock.patch.object(training.Node, "result", drops_once):
+            self.assertEqual(self.train(task, steps=10).status_code, 200)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.status(task)["state"], "completed")
+
+    def test_a_node_silent_too_long_fails_the_training_and_is_asked_to_drop_the_job(self):
+        task = make_task(self.user)
+        node_job = self.node.add_job()
+        self.lost_job(task, node_job)
+        silent = training.NodeError("The splat node does not answer.")
+        with mock.patch.object(training, "NODE_PATIENCE", -1), mock.patch.object(training.Node, "job", side_effect=silent):
+            self.status(task)
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("does not answer", status["error"])
+        self.assertTrue(self.node.jobs[node_job]["deleted"])
+
+    def test_continuing_uses_the_options_the_model_was_trained_with_not_the_last_trainings(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10, image_size=16, sh_degree=3).status_code, 200)
+        # A training with other options, canceled: the task's model is still the first one's
+        canceled = {"steps": 20, "image_size": 0, "sh_degree": 1, "ignore_sky": True}
+        training.change_job(task.id, lambda job: job.update(state="canceled", options=canceled))
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        self.assertEqual(self.status(task)["options"], {"steps": 15, "image_size": 16, "sh_degree": 3})
+        self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 15, "sh_degree": 3})
+
+        # A model of SplatMe 0.1 (no options beside it) continues only with its own training's record
+        os.remove(training.trained_options_file(task))
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        os.remove(training.trained_options_file(task))
+        training.change_job(task.id, lambda job: job.update(state="canceled"))
+        res = self.train(task, resume="true", steps=5)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Start the training over", res.data["error"])
+
+    def test_files_kept_beside_a_tasks_photos_neither_hide_it_nor_stop_its_training(self):
+        jpeg = make_task(self.user)
+        for name in ("tiny_drone_image_mask.png", "gcp_list.txt", "geo.txt", "image_groups.txt", "align.tif"):
+            add_file(jpeg, name)
+        self.assertTrue(training.compatible(jpeg))
+        dji = make_thermal_task(self.user)
+        add_file(dji, "geo.txt")
+        add_file(dji, "gcp_list.txt")
+        self.assertTrue(training.compatible(dji))
+        self.assertIsNone(training.problem(dji))
+
+    def test_a_job_whose_worker_keeps_dying_while_exporting_fails_with_the_likely_reason(self):
+        task = make_task(self.user)
+        self.lost_job(task, None, state="exporting")
+        training.change_job(task.id, lambda job: job.update(takeovers=training.TAKEOVERS))
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("run out of memory", status["error"])
+        self.assertEqual(self.node.jobs, {})
+
+    def test_a_cancel_during_the_import_keeps_the_tasks_model(self):
+        task = make_task(self.user)
+        self.put_model(task, b"the model before")
+        task.update_available_assets_field(commit=True)
+
+        def convert_then_cancel(trained_file, model):
+            self.convert(trained_file, model)
+            self.assertEqual(self.client.post(f"{API}/task/{task.id}/cancel").status_code, 200)
+
+        with mock.patch.object(training, "convert", convert_then_cancel):
+            self.assertEqual(self.train(task, steps=10).status_code, 200)
+        self.assertEqual(self.status(task)["state"], "canceled")
+        self.assertEqual(self.model(task), b"the model before")
+
+    def test_anyone_may_follow_a_public_tasks_training_and_nobody_without_an_account_may_train_it(self):
+        task = make_task(self.user)
+        Task.objects.filter(pk=task.pk).update(public=True)
+        res = APIClient().get(f"{API}/task/{task.id}/status")
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["can_train"])
+        self.assertEqual(APIClient().get(f"{API}/task/{task.id}/auto").status_code, 200)
+
+    def test_a_boundary_with_a_hole_leaves_out_what_is_in_the_hole(self):
+        task = make_task(self.user)
+        outline = [[-3, -3], [3, -3], [3, 3], [-3, 3], [-3, -3]]
+        hole = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]
+        self.with_boundary(task, {"type": "Polygon", "coordinates": [outline, hole]})
+        self.node_model([(0, 0), (2, 2), (5, 5)])
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(self.status(task)["cropped"], 2)  # the one in the hole, the one outside
+
+    def test_the_thermal_range_of_a_big_task_is_found_from_a_bounded_sample(self):
+        task = make_thermal_task(self.user)
+        paths = [task.get_image_path(name) for name in THERMAL]
+        whole = thermal.task_range(paths)
+        with mock.patch.object(thermal, "SAMPLE_BUDGET", 20):
+            sampled = thermal.task_range(paths)
+        self.assertLess(abs(sampled[0] - whole[0]), 1)
+        self.assertLess(abs(sampled[1] - whole[1]), 1)
+
+    def test_ignore_sky_without_onnxruntime_says_so(self):
+        with mock.patch.dict(sys.modules, {"onnxruntime": None}), self.assertRaises(sky.SkyError) as raised:
+            sky.load()
+        self.assertIn("onnxruntime", str(raised.exception))

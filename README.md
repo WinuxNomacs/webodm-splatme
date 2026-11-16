@@ -82,9 +82,10 @@ Between trainings: a training running during an upgrade picks up again or fails 
 - **The plugin**: its row's bin on Administration → Plugins removes the plugin's folder, with the sky model it
   downloaded. It leaves:
   - **The trained models**: each task keeps its model in its 3D view, as a model uploaded by hand, and the
-    model as the trainer wrote it (`assets/splats/splatme-model.ply`, kept for continuing a training), both
-    deleted with the task. To delete only the kept ones (the tasks then cannot be continued):
-    `docker exec webapp sh -c 'rm -f /webodm/app/media/project/*/task/*/assets/splats/splatme-model.ply'`.
+    model as the trainer wrote it (`assets/splats/splatme-model.ply`, with the options it was trained with in
+    `splatme-model.json`, kept for continuing a training), all deleted with the task. To delete only the kept
+    ones (the tasks then cannot be continued):
+    `docker exec webapp sh -c 'rm -f /webodm/app/media/project/*/task/*/assets/splats/splatme-model.*'`.
   - **SplatMe's settings and records** in WebODM's database (the node's address and token, the
     administrators' defaults, users' options, each task's training), which a reinstall finds again. To delete
     them:
@@ -137,8 +138,8 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    github.com into WebODM's media folder (`plugins/splatme/models`), so WebODM must reach that address once.
 
    **Crop To Boundary** shows for a task that was processed with a boundary (a GeoJSON file in WebODM's
-   Boundary option) and is ticked: the splats outside the boundary are left out of the model the task shows,
-   as the processing leaves them out of the point cloud and the mesh. The training itself still sees the
+   Boundary option) and is ticked: the splats outside the boundary (or in one of its holes) are left out of the
+   model the task shows, as the processing leaves them out of the point cloud and the mesh. The training itself still sees the
    photos whole, and the model kept for continuing is not cropped.
 
    **Thermal tasks**: a task made by the DJI Thermal Analyzer plugin's Thermal Task button holds TIFFs of
@@ -158,11 +159,13 @@ SplatMe adds its item to the list as WebODM 4.0.0 draws it; the page itself is a
    model grows only before half the new total of steps (and before step 15,000), so continuing a model by as
    many steps again, or beyond, adds no gaussians (the steps table says so), and a model that lacks detail
    everywhere is better started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
-   be continued.
+   be continued. A task processed again while its splats train has that training canceled (its model would not
+   fit the new results), and is trained again on the new results when it is set to Train Splats When Completed.
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
    about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
    progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after
-   a reload. When it is done, **View in 3D** opens the model. A task that cannot be trained (failed or canceled
+   a reload. A download of the model that stops is tried again, and a node that stops answering (being
+   upgraded) is waited for up to an hour. When it is done, **View in 3D** opens the model. A task that cannot be trained (failed or canceled
    processing; for users who may only look at the project, any task) says why.
 
    On the Dashboard, a task's panel has a **Splats** line under its Task ID ("Trained, 7,000 steps", or the
@@ -199,6 +202,10 @@ own converter, as it does a model uploaded by hand; the model as the trainer wro
 folder (`assets/splats/splatme-model.ply`, about 250 bytes per gaussian) for continuing, and counts in the
 task's size.
 
+A training takes a place in WebODM's worker only while it exports the task and while it imports the model:
+while the node has trainings (queued or training), one place follows them all, so many trainings waiting on the
+node do not hold up WebODM's own processing.
+
 ## The splat node
 
 [node/splatnode.sh](node/splatnode.sh) writes a compose file and its `.env` (with the token, readable by its
@@ -234,7 +241,7 @@ Under `/api/plugins/splatme/`, with a WebODM login.
 | `GET node` | The node's state or that it is not available, and its `url`; for administrators also what is wrong and `token_set`. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the address and token; with `save` false only tries them |
 | `GET task/<id>/check` | Before training: why the task or the node cannot train, warnings, the options' ranges, `boundary` (whether the task was processed with one), `thermal` (whether its photos are DJI Thermal Analyzer's TIFFs), `photo_sizes` (the photos' `[width, height]`, one per camera, empty before processing) and `trained_steps`: the steps of the model a training can continue from |
-| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (30000), `image_size` (1600, the photos' longer side in pixels, larger photos scaled down whole; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out; not for a thermal task), `crop` (false keeps the splats outside the task's boundary), `palette` (a thermal task's colours: `gray`, the default, `gray_r`, `iron`, `magma`, `inferno`, `plasma`, `viridis`, `cividis`, `jet`). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the earlier training's |
+| `POST task/<id>/train` | Trains a completed task's splats. Options: `steps` (30000), `image_size` (1600, the photos' longer side in pixels, larger photos scaled down whole; 0 keeps them as they are), `max_gaussians`, `sh_degree`, `ignore_sky` (true leaves the sky out; not for a thermal task), `crop` (false keeps the splats outside the task's boundary), `palette` (a thermal task's colours: `gray`, the default, `gray_r`, `iron`, `magma`, `inferno`, `plasma`, `viridis`, `cividis`, `jet`). With `resume` true it continues the task's trained model: `steps` is then how many more, and the other options are the ones that model was trained with |
 | `GET task/<id>/status` | The job's `state`, `progress`, `status`, `error`, `sky_masks` (in how many photos sky was found, with `ignore_sky`), `cropped` (the gaussians left out for being outside the boundary), `thermal` (a thermal task's `palette` and the range it spans, `low` and `high`, in degrees Celsius), `time_left` (while training, the seconds the steps left should take, once known), whether the task has a splat model and whether the user may train it; for a task set to train, `listening` (whether WebODM's worker tells the plugin of completed tasks) |
 | `POST task/<id>/cancel` | Stops the job |
 | `GET task/<id>/log?offset=<bytes>` | The trainer's output |

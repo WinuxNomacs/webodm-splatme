@@ -35,8 +35,9 @@ def polygons(geojson):
 
 def boundary(task):
     """
-    The task's boundary as rings of (x, y) in the trained model's coordinates (the task's projection, less the
-    offset WebODM's export takes off). Empty when the task was processed without one or has no projection.
+    The task's boundary as polygons, each a list of rings of (x, y) (its outline, then its holes) in the trained
+    model's coordinates (the task's projection, less the offset WebODM's export takes off). Empty when the task
+    was processed without one or has no projection.
     """
     value = next((o.get("value") for o in task.options or [] if o.get("name") == "boundary"), None)
     if not value or (task.epsg is None and task.wkt is None):
@@ -44,33 +45,43 @@ def boundary(task):
     try:
         geojson = json.loads(value) if isinstance(value, str) else value
         offset_x, offset_y = get_rtc_offset(task)
-        rings = []
+        srs = task.epsg if task.epsg is not None else task.wkt
+        shapes = []
         for polygon in polygons(geojson):
-            ring = geom_transform(polygon, task.epsg if task.epsg is not None else task.wkt)
-            if len(ring) >= 3:
-                rings.append([(x - offset_x, y - offset_y) for x, y in ring])
-        return rings
+            rings = []
+            for ring in polygon.get("coordinates") or []:
+                points = geom_transform({"type": "Polygon", "coordinates": [ring]}, srs)
+                if len(points) < 3:
+                    if not rings:
+                        break  # no outline: nothing of this polygon
+                    continue
+                rings.append([(x - offset_x, y - offset_y) for x, y in points])
+            if rings:
+                shapes.append(rings)
+        return shapes
     except Exception:  # noqa: BLE001 (a boundary that cannot be read or projected crops nothing)
         return []
 
 
-def inside(x, y, rings):
-    """Which of the points are inside one of the rings."""
+def inside(x, y, shapes):
+    """Which of the points are inside one of the polygons (inside its outline, not in one of its holes)."""
     result = np.zeros(len(x), dtype=bool)
-    for ring in rings:
+    for rings in shapes:
+        # Crossings of all the polygon's rings: an odd number is inside the outline and outside its holes
         within = np.zeros(len(x), dtype=bool)
-        xj, yj = ring[-1]
-        for xi, yi in ring:
-            if yi != yj:
-                within ^= ((yi > y) != (yj > y)) & (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
-            xj, yj = xi, yi
+        for ring in rings:
+            xj, yj = ring[-1]
+            for xi, yi in ring:
+                if yi != yj:
+                    within ^= ((yi > y) != (yj > y)) & (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+                xj, yj = xi, yi
         result |= within
     return result
 
 
 def crop_ply(source, dest, rings):
     """
-    Writes the trainer's .ply with only the gaussians inside the rings. Answers (kept, all); nothing is written
+    Writes the trainer's .ply with only the gaussians inside the polygons (boundary's). Answers (kept, all); nothing is written
     when none or all of them are inside.
     """
     with open(source, "rb") as f:
