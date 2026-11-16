@@ -522,13 +522,11 @@ maintains each one, from its repository, not from memory).
 **Also changed:** the repo CLAUDE.md's "The README only introduces SplatMe and links to Getting Started and the docs"
 and the same line in the `release-review` skill gain "with its splash image and its thanks".
 
-**Decisions for the user** (asked before building):
+**Decided with the user** (2026-11-16):
 
-1. The splash shows WebODM's logo and name. On a third-party plugin's page that can read as an official WebODM
-   project. Keep it as it is, or ask the maintainer first?
-2. The splash replaces the 3D view screenshot at the top; the screenshot moves below the first paragraph. Or keep
-   only the splash?
-3. The thanks list above: anything to add or drop?
+1. The splash is kept as it is, WebODM's logo and name included.
+2. The splash goes at the top; the 3D view screenshot moves below the first paragraph.
+3. The thanks list above: shown to the user, waiting for their answer.
 
 ### 2. Release review of 0.2.0 (planned)
 
