@@ -4,7 +4,9 @@ metadata in their XMP) drawn as JPEGs in a palette, over one range for the whole
 same colour in every photo. WebODM's export is then given those JPEGs through a stand-in for the task.
 """
 import json
+import math
 import os
+import re
 
 import numpy as np
 from PIL import Image, TiffImagePlugin
@@ -15,6 +17,9 @@ TIFF_EXTENSIONS = (".tif", ".tiff")
 XMP_TAG = 700
 LOW, HIGH = 1, 99  # the range's percentiles of all the task's pixels: the cold sky and a few hot pixels left out
 SAMPLE = 4  # every 4th pixel across and down is enough for the range
+SAMPLE_BUDGET = 20_000_000  # temperatures kept for the range in all, so that a task of thousands of photos fits in memory
+# Files WebODM and ODM keep beside a task's photos: GCP, geo and image group lists, alignment files, image masks
+NOT_PHOTOS = re.compile(r"(?i)(\.txt$|^align\.(laz|las|tif|tiff)$|_mask\.\w+$)")
 QUALITY = 95
 
 # Iron: black, purple, red, orange, yellow, white (position 0 to 1, colour)
@@ -85,12 +90,17 @@ def is_thermal_tiff(path):
     return isinstance(xmp, bytes) and DTC_NAMESPACE in xmp
 
 
+def photo_names(names):
+    """The photos among the files of a task's folder."""
+    return [name for name in names if not NOT_PHOTOS.search(name)]
+
+
 def is_thermal(task, names=None):
     """
     Whether the task is DJI Thermal Analyzer's: its images are TIFFs, the first of which it wrote.
-    names: the task's image names, when already known
+    names: the names of the files in the task's folder, when already known
     """
-    names = sorted(task.scan_images() if names is None else names)
+    names = sorted(photo_names(task.scan_images() if names is None else names))
     if not names or any(os.path.splitext(name)[1].lower() not in TIFF_EXTENSIONS for name in names):
         return False
     return is_thermal_tiff(task.get_image_path(names[0]))
@@ -110,9 +120,11 @@ def jpeg_name(name):
 def task_range(paths, progress=None):
     """The task's range, in the file's unit (degrees Celsius): (low, high), from all the photos' pixels."""
     samples = []
+    budget = max(1, SAMPLE_BUDGET // max(1, len(paths)))
     for i, path in enumerate(paths):
         t = read_temperatures(path)[::SAMPLE, ::SAMPLE]
-        samples.append(t[np.isfinite(t)])
+        t = t[np.isfinite(t)]
+        samples.append(t[:: math.ceil(t.size / budget)] if t.size > budget else t)
         if progress:
             progress("Finding the temperature range", (i + 1) * 50 / len(paths))
     values = np.concatenate(samples) if samples else np.empty(0, dtype=np.float32)

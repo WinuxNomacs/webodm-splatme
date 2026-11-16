@@ -75,7 +75,10 @@ def download_model(progress=None):
 
 def load(progress=None):
     """A function giving the sky in a photo: an array of the model's input size, 1 where it sees sky."""
-    import onnxruntime  # here: only a training that asks for the sky loads it
+    try:
+        import onnxruntime  # here: only a training that asks for the sky loads it
+    except ImportError as e:  # it comes with WebODM's geodeep, not on WebODM's own list
+        raise SkyError("Ignore Sky needs onnxruntime, which this WebODM does not have. Train without it.") from e
 
     session = onnxruntime.InferenceSession(download_model(progress), providers=["CPUExecutionProvider"])
     name = session.get_inputs()[0].name

@@ -282,7 +282,8 @@ export function resultText(job, imperial){
             (job.cropped ? " Cropped to the task's boundary." : "") + (job.thermal ? " " + thermalText(job.thermal, imperial) : "");
     }
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
-    if (job.state === "canceled") return "Training canceled.";
+    // A training SplatMe stopped itself (the task was processed again) says why
+    if (job.state === "canceled") return job.error ? "Training canceled: " + job.error : "Training canceled.";
     return "";
 }
 

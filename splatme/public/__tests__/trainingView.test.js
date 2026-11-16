@@ -137,6 +137,8 @@ describe("a finished training", () => {
         expect(resultText({state: "completed", sky_masks: 0})).toBe("Splats trained. No photo shows the sky.");
         expect(resultText({state: "failed", error: "CUDA out of memory"})).toBe("Training failed: CUDA out of memory");
         expect(resultText({state: "canceled"})).toBe("Training canceled.");
+        expect(resultText({state: "canceled", error: "The task was processed again while its splats trained."}))
+            .toBe("Training canceled: The task was processed again while its splats trained.");
         expect(resultText({state: null})).toBe("");
     });
 });

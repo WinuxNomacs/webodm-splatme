@@ -5,6 +5,7 @@ import requests
 
 # The oldest node this plugin works with
 MIN_VERSION = (0, 2, 0)
+CREATE_TIMEOUT = 600  # seconds the node may take to answer a new job, once its zip is sent
 
 
 class NodeError(Exception):
@@ -32,8 +33,9 @@ class Node:
         if not self.url:
             raise NodeError("No splat node is set. An administrator sets its address in SplatMe's settings.")
         headers = {"Authorization": "Bearer " + self.token, **kwargs.pop("headers", {})}
+        timeout = kwargs.pop("timeout", self.timeout)
         try:
-            res = requests.request(method, self.url + path, headers=headers, timeout=self.timeout, **kwargs)
+            res = requests.request(method, self.url + path, headers=headers, timeout=timeout, **kwargs)
         except requests.RequestException as e:
             raise NodeError(
                 f"The splat node at {self.url} does not answer. Check that it is running and that its address "
@@ -75,7 +77,9 @@ class Node:
     def create_job(self, body, length, options):
         """Sends a training zip (an iterable of bytes of a known length) and answers the node's new job."""
         headers = {"Content-Length": str(length), "Content-Type": "application/zip"}
-        return self.request("POST", "/jobs", params=options, data=body, headers=headers).json()
+        # Once the zip is sent the node checks it and unpacks a model to continue (hundreds of MB) before it answers
+        timeout = (self.timeout, max(self.timeout, CREATE_TIMEOUT))
+        return self.request("POST", "/jobs", params=options, data=body, headers=headers, timeout=timeout).json()
 
     def job(self, job_id):
         return self.request("GET", f"/jobs/{job_id}").json()
@@ -86,8 +90,11 @@ class Node:
         return res.text, int(res.headers.get("X-Log-Offset", offset + len(res.content)))
 
     def result(self, job_id, dest):
-        with self.request("GET", f"/jobs/{job_id}/result", stream=True) as res, open(dest, "wb") as f:
-            f.writelines(res.iter_content(1024 * 1024))
+        try:
+            with self.request("GET", f"/jobs/{job_id}/result", stream=True) as res, open(dest, "wb") as f:
+                f.writelines(res.iter_content(1024 * 1024))
+        except requests.RequestException as e:  # the connection dropped mid-download
+            raise NodeError(f"The download of the trained model from {self.url} stopped: {e}") from e
 
     def cancel(self, job_id):
         return self.request("POST", f"/jobs/{job_id}/cancel").json()
