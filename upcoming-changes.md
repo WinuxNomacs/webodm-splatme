@@ -18,8 +18,9 @@ other software. The plugin does that step.
 
 **Later**
 
-3. Proposed, not yet decided: HTTPS to a splat node on another machine (asked 2026-11-16: the lift, and whether
-   it belongs in 0.2.0). See "3. HTTPS to the splat node (proposed)".
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+   (asked 2026-11-16; the docs for a TLS proxy go into 0.2.0 with phase 1). See "3. HTTPS to the splat node
+   (proposed)".
 4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
@@ -1481,7 +1482,13 @@ Checks: headless on the dev stack, reading only (GET): with the node set (link c
 clipboard), and with no node set, which needs a write; done on a throwaway WebODM (as in the release check),
 not by clearing the dev stack's setting. Phone width (320 px), no sideways scroll.
 
-Open decisions for the user: below, asked before building.
+Decided with the user (2026-11-16):
+
+- **With a node set but not answering**, the link stays closed (as with any node set): the node is usually
+  down or its token wrong, not missing.
+- **The README's admin screenshot is kept**; the README says the steps are also on Administration → SplatMe.
+- **HTTPS goes into 0.2.0 as docs only** (option A of phase 3): a README section on a TLS proxy in front of a
+  standalone node, built on this phase's branch.
 
 ### 3. HTTPS to the splat node (proposed)
 
@@ -1512,7 +1519,8 @@ Ways to add it, smallest first:
 - **C. A Caddy sidecar in the node's compose file** (`--tls <domain>`, automatic certificates): needs a domain
   and port 80/443 reachable from the internet for the certificate; more moving parts than B.
 
-Recommendation: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
+Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here, a phase of
+its own after the directory entry if the user wants it. The recommendation it was decided on: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
 existing nodes: a new node release and its own testing on two machines, which would hold 0.2.0's fixes back.
 0.2.0 can carry A (docs) at no risk; B is a phase of its own after the directory entry.
 
