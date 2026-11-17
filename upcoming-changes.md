@@ -10,8 +10,10 @@ other software. The plugin does that step.
 **Up next**
 
 1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release"). 0.2.0 is
-   released (2026-11-17), with node 0.2.2 and the docs on Pages. The entry is on the user's fork of
-   WebODM-Plugins, branch `add-splatme`; the user opens the pull request from GitHub after reviewing it.
+   released (2026-11-17), with node 0.2.2 and the docs on Pages. The user opened the pull request,
+   https://github.com/WebODM/WebODM-Plugins/pull/9 (branch `add-splatme` of their fork, commit f103215): waiting
+   for the maintainer. Once merged, check that Administration → Plugins → Install Plugins lists SplatMe 0.2.0
+   (marked Experimental), then move this phase to Done.
 
 **Then**
 
@@ -45,6 +47,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- Documentation after the release (2026-11-17): `docs/how-it-works.md` (How It Works: what SplatMe takes from
+  WebODM, and how OpenSplat trains a model, from WebODM 4.0.0's `app/splats.py` and OpenSplat e33f9dd), the
+  network path from WebODM to a node on another machine in Getting Started's checklist, and the `release-check`
+  skill (`.claude/skills/release-check`, with its scripts). Published by hand (run 44114401146, documentation
+  only).
 - The rest of the review's findings (2026-11-16): D–H in `splatme/training.py` and `node.py`, N and O in
   `splatme/public` and `templates/options.html`, R and the job's `ref` in `node/splatnode.py`, S in
   `node/splatnode.sh`, U in `release.yml`. Tests: 13 in `test_splatme.py` (one a `TransactionTestCase` with two
@@ -2241,7 +2248,12 @@ run published node 0.2.2 on ghcr.io (`latest` moved to it; its inputs label the 
 "SplatMe 0.2.0" (the zip's SHA-256 `d2e6443eb95fde59f5196643848afd3b63c843b28333ac761c365233208221a4`, the same
 as a local build of the tag; `releases/latest/download/splatnode.sh` the tag's) and the docs. The directory
 entry (0.2.0's URL and SHA-256 appended to `directory.json`) is commit f103215 on branch `add-splatme` of the
-user's fork, pushed with the user's approval; the user reviews it and opens the pull request from GitHub.
+user's fork, pushed with the user's approval; the user opened it as WebODM-Plugins #9 (2026-11-17).
+
+Considered and dropped (2026-11-17, the user's decision): changing WebODM so that SplatMe trains without its own
+splat node. The three ways (the splat node started by `webodm.sh --gpu`; a GPU worker image training in WebODM's
+worker; a splat stage in ODX's processing) each lose something the separate node gives: a GPU on another machine,
+trainings that survive WebODM's restarts, and SplatMe's own options and continuing.
 
 ### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
