@@ -656,6 +656,31 @@ dev task untouched), 2026-11-16:
 - Cleaned up: `splatnode.sh uninstall --yes` (the jobs' volume, the tag), the stack's containers, volumes and
   network, the task copy. The dev stack and its node were not touched.
 
+**Run again after "The rest of the review's findings" (2026-11-17)**, the same way, with `dist/splatme-0.2.0.zip`
+from e7fd2b6 (SHA-256 `b31c05a5…`) and a node image built from that commit's `node/` (`splatme-node:relcheck`;
+the dev stack's image predates the fixes). Added: an upgrade under a running training, and Continue on node 0.2.0.
+
+- **On 0.1.1** (published zip, SHA-256 the same as the release's): node 0.2.0 installed from ghcr.io by the
+  published `splatnode.sh`; a Draft trained and imported in 2 minutes; the defaults, the administrator's options and
+  the task's automatic training saved.
+- **The plugin upgraded under a running training**: a 7,000-step training of 0.1.1 on the node (step 520) while
+  SplatMe was deleted, 0.2.0 loaded and WebODM restarted. 0.1.1's worker job died with the restart; the record
+  stood still for 106 s; one `GET revive` and 0.2.0's follower took it over within a second (step 4,010 by then),
+  and it completed and imported through `replace_files` (`.rad`, `.ply`, options; no staged file left). The record
+  gained 0.2.0's fields (`waiting`); every setting was as before, and the token still the node's.
+- **Continue on node 0.2.0** (no `ref`, which an older node refuses): 7,000 to 10,000 steps, imported.
+- **`splatnode.sh upgrade` during that training, with no terminal**: refused with "…Upgrade once it is done, or run
+  again with --force.", exit 1, the node and the training untouched. Once idle: "The splat node runs version 0.2.2
+  (it was 0.2.0). Its jobs and token are kept. The previous image was deleted." (a `docker` wrapper standing in for
+  the pull of a published 0.2.2).
+- **On 0.2.0 with node 0.2.2**: Continue 10,000 to 13,000; the node's `GET /jobs?ref=<run>` found the job. WebODM's
+  worker restarted mid-training: the record stood still until SplatMe's pages were opened (GET only), whose revive
+  took it over; it completed and imported (iteration 13,000). SplatMe → Tasks (View in 3D) and Administration →
+  SplatMe ("The splat node is ready.") without console errors. The Dashboard showed WebODM's welcome page: the
+  throwaway had no processing node, so it lists no projects (WebODM's behaviour, not SplatMe's).
+- No error or traceback in the webapp's, the worker's or the node's logs; the webapp logged both takeovers.
+- Cleaned up as before (and the `relcheck` image); the dev stack and its node not touched.
+
 ### Fixes from the review of 0.2.0 (built)
 
 Each with a test seen failing first, then passing (Django 99, Jest 75 with `__tests__/api.test.js`, the node's 40):
