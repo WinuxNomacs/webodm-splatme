@@ -29,16 +29,30 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 c
   the pages. The dialogs keep the keyboard's focus.
 - **Dashboard**: the Splats line keeps following after a failed request, and leaves out Open in SplatMe for a
   task SplatMe cannot train. SplatMe's button stays last among the project's buttons.
+- **Trainings left unattended**, more: Train or an automatic start over a training that lost its worker deletes
+  that training's job on the node; two first Train requests at once start one training; a training waiting in
+  WebODM's worker queue no longer counts as a lost worker, and one that fails that way while importing keeps its
+  model on the node; the time left is told from each training's own steps. The model's conversion has an hour;
+  the task's model, the file it continues from and its options are replaced together, or not at all; a proxy's
+  page in place of the node's answer is waited for like a node that does not answer; a training whose upload's
+  answer was lost follows the job the node made (node 0.2.2).
+- **SplatMe → Tasks** asks only for the rows that move while tasks process (a processing task through WebODM's
+  own API), and nothing while its tab is hidden. Its fields' labels name their fields; New Task With Splats keeps
+  the typed name after a failure. Crop to Boundary and Use the Administrators' Defaults are spelled as the other
+  names are.
 - **New task upload**: a file whose part is lost is sent again from its first part (WebODM appends parts).
 - **node/splatnode.sh**: upgrade and status work when the node does not answer; install joins the network
   WebODM's worker uses (behind a reverse proxy it joined the proxy's); connect moves the node to a reinstalled
   WebODM's network; upgrade rewrites the compose file and deletes the previous image (6.6 GB each, unpacked); a failed
-  install is undone; a port in use is refused first; uninstall clears the token too.
+  install is undone; a port in use is refused first; uninstall clears the token too. Upgrade asks first while the
+  node trains (that training would fail; `--force` with no terminal); connect asks before a node that listened
+  on every address listens on its machine only; status says how to start a node that is not running.
 - **Splat node 0.2.2**: a failure inside the node no longer leaves it stuck or silent. A full disk fails the job it
   hit and the next one trains; a trainer that won't stop is killed, and one that prints nothing for a long time is
   stopped (`SPLATNODE_STALL_MINUTES`); a damaged job file is set aside instead of keeping the node from starting;
-  every error is answered with its message; deleting a job answers at once. If its worker stops anyway, the node
-  exits and Docker starts it again. `/info` no longer holds up the jobs while it asks the GPU; finished jobs expire
+  every error is answered with its message; deleting a job answers at once, and the job stays deleted through a
+  restart. If its worker stops anyway, or stops beating, or a trainer outlasts SIGKILL, the node exits and Docker
+  starts it again. A job keeps the client's `ref`, to be found by it. `/info` no longer holds up the jobs while it asks the GPU; finished jobs expire
   while the queue is busy too. A setting that is not a number, or is too small, is logged and its default used.
   Built on CUDA 12.8.2, with the base image's packages brought up to date.
 - **The documentation moved to its own site**, https://winuxnomacs.github.io/webodm-splatme/, published with each

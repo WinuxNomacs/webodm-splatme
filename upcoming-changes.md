@@ -564,7 +564,8 @@ makes its failure happen, seen failing first.
     of patience.
   - An upload whose answer is lost (the connection drops after the zip is sent): SplatMe sends its run id with the
     upload (`ref`, which the node stores and lists in `GET /jobs`); when the answer is lost, it asks the node for the
-    job with that `ref` and deletes it before the training fails.
+    job with that `ref`. As built: it follows that job rather than deleting it (the upload did succeed); with no
+    such job the training fails as before. Only to a node 0.2.2 or later (an older one refuses `ref`).
 
 *The pages*
 

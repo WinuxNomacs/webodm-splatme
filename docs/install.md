@@ -49,7 +49,8 @@ Between trainings: a training running during an upgrade picks up again or fails 
     sky model is downloaded again by the next training with Ignore Sky, as an update replaces the plugin's folder.
 - **The splat node**: `curl -fsSL …/splatnode.sh | bash -s upgrade` (the same address as above) downloads the
     newest image, restarts the node keeping its jobs, token and port, and
-    deletes the previous image. SplatMe needs a node of version 0.2.0 or
+    deletes the previous image. While the node trains it asks first, as the restart fails that training; with no
+    terminal to ask on it stops (`upgrade --force` goes on). SplatMe needs a node of version 0.2.0 or
     later, and **Test Connection** says when the node is older.
 
 ## Uninstall
