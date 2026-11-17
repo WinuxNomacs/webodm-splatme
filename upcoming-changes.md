@@ -2141,7 +2141,7 @@ Ways to add it, smallest first:
 - **C. A Caddy sidecar in the node's compose file** (`--tls <domain>`, automatic certificates): needs a domain
   and port 80/443 reachable from the internet for the certificate; more moving parts than B.
 
-Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (phase 2), a
+Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (Later 3), a
 phase of its own after the directory entry if the user wants it. The recommendation it was decided on: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
 existing nodes: a new node release and its own testing on two machines, which would hold 0.2.0's fixes back.
 0.2.0 can carry A (docs) at no risk; B is a phase of its own after the directory entry.
