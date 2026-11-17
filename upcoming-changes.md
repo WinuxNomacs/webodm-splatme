@@ -9,9 +9,7 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The rest of the review of 0.2.0's findings (D–H, N, O, R, S, U), before 0.2.0's tag (the user's decision,
-   2026-11-16). See "The rest of the review's findings".
-2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
    0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
    confirmation; the entry waits for the user's approval).
 
@@ -21,12 +19,12 @@ other software. The plugin does that step.
 
 **Later**
 
-3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
 
@@ -44,6 +42,11 @@ other software. The plugin does that step.
 
 **Done**
 
+- The rest of the review's findings (2026-11-16): D–H in `splatme/training.py` and `node.py`, N and O in
+  `splatme/public` and `templates/options.html`, R and the job's `ref` in `node/splatnode.py`, S in
+  `node/splatnode.sh`, U in `release.yml`. Tests: 13 in `test_splatme.py` (one a `TransactionTestCase` with two
+  requests at once), 5 in `node/tests`; pages, the script and the workflow's step checked live. See "The rest of
+  the review's findings (built)".
 - Release check of 0.2.0 (2026-11-16): 0.1.1 and node 0.2.0 from the published release on a throwaway WebODM,
   upgraded to `dist/splatme-0.2.0.zip` and node 0.2.2, data kept, trainings before and after. See "Release check
   of 0.2.0 (done)".
@@ -536,7 +539,7 @@ linked to the full one; the 3D view screenshot stays below the opening paragraph
 the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
 headless at 1,280 and 320 px: no console errors, no sideways scroll.
 
-### The rest of the review's findings (planned)
+### The rest of the review's findings (built)
 
 Asked 2026-11-16: the findings of "Release review of 0.2.0 (done)" left for later are fixed before 0.2.0's tag.
 Node 0.2.2 is not published yet, so the node's changes stay 0.2.2 (no new `VERSION`). Each fix gets a test that
@@ -611,6 +614,18 @@ makes its failure happen, seen failing first.
     the tag.
 
 **Decided with the user (2026-11-16):** the Title Case rule and `upgrade`'s question as proposed above.
+
+**Built (2026-11-16)**, branch `review-findings`. Each new test was seen failing on the code before it. Checked
+live:
+- The node, as its own container from this branch on another port: a real GPU job keeps its `ref` and is found
+  by it; a running job deleted just before a `docker kill` is gone after the start.
+- SplatMe → Tasks, on the dev stack in a headless browser with a processing task faked in its answers: one list,
+  then WebODM's task API until the status changed, then one list; nothing for 35 s with the tab hidden, one list
+  when shown. The labels name their fields. With the create request aborted, New Task With Splats keeps the
+  typed name.
+- `splatnode.sh` with a stand-in `docker` and `curl`, with and without a terminal.
+- The workflow's step, run on the host against ghcr.io's real answers with pushes blocked: unpublished, published,
+  older than `latest`, a registry that does not answer.
 
 ### Release check of 0.2.0 (done)
 
