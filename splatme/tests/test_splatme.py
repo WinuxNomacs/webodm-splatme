@@ -10,17 +10,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 from unittest import mock
 
 import numpy as np
 from app import splats
-from app.models import Plugin, Project, Task
+from app.models import Plugin, PluginDatum, Project, Task
 from app.plugins import get_plugin_by_name, signals
-from app.tests.classes import BootTestCase
+from app.tests.classes import BootTestCase, BootTransactionTestCase
 from django.contrib.auth.models import User
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, OperationalError, connection
 from guardian.shortcuts import assign_perm
 from nodeodm import status_codes
 from PIL import Image
@@ -30,6 +31,7 @@ from .. import crop, sky, thermal, training
 from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
+CONVERT = training.convert  # the real one: the tests replace it, as WebODM's converter does not take their models
 IMAGES = ["tiny_drone_image.jpg", "tiny_drone_image_2.jpg"]
 
 
@@ -1355,6 +1357,95 @@ class TestSplatMe(BootTestCase):
         self.assertIn("run out of memory", status["error"])
         self.assertEqual(self.node.jobs, {})
 
+    # The rest of the review of 0.2.0's findings
+
+    def test_a_training_started_over_a_record_that_lost_its_worker_deletes_that_records_node_job(self):
+        task = make_task(self.user)
+        node_job = self.node.add_job()
+        self.lost_job(task, node_job)
+        self.assertEqual(self.train(task, steps=10).status_code, 200)
+        self.assertTrue(self.node.jobs[node_job]["deleted"])
+        self.assertEqual(self.status(task)["state"], "completed")
+
+    def test_the_follower_keeps_a_trainings_samples_under_its_node_job_not_its_task(self):
+        started = []
+        task = make_task(self.user)
+        self.node.script = [("running", {"progress": 50, "step": 5})]
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.train(task, steps=10)
+            training.run(*started[0][1:])
+            seen = {}
+            training.follow_all(started[1][1], seen)
+        self.assertEqual(list(seen), ["job1"])  # a later training of the task (another node job) starts from none
+
+    def test_a_run_that_waited_in_the_workers_queue_does_not_count_as_a_lost_worker(self):
+        task = make_task(self.user)
+        self.lost_job(task, None, state="exporting")
+        training.change_job(task.id, lambda job: job.update(takeovers=training.TAKEOVERS, waiting="lost"))
+        self.status(task)
+        self.assertEqual(self.status(task)["state"], "completed")
+
+    def test_a_training_that_fails_by_lost_workers_while_importing_keeps_the_nodes_model(self):
+        task = make_task(self.user)
+        node_job = self.node.add_job()
+        self.lost_job(task, node_job, state="importing")
+        training.change_job(task.id, lambda job: job.update(takeovers=training.TAKEOVERS))
+        self.assertEqual(self.status(task)["state"], "failed")
+        self.assertFalse(self.node.jobs[node_job]["deleted"])
+
+    def test_splat_tools_that_runs_too_long_is_stopped_and_named(self):
+        timeout = subprocess.TimeoutExpired("splat-tools", 1)
+        with mock.patch.object(training.shutil, "which", return_value="/usr/bin/splat-tools"), \
+                mock.patch.object(training.subprocess, "run", side_effect=timeout) as run, \
+                self.assertRaisesMessage(training.TrainingError, "splat-tools took longer than 60 minutes"):
+            CONVERT("model.ply", "model.rad")
+        self.assertEqual(run.call_args.kwargs["timeout"], training.CONVERT_TIMEOUT)
+
+    def test_a_failure_while_the_models_files_are_written_leaves_the_task_as_it_was(self):
+        task = make_task(self.user)
+        self.put_model(task, b"the model before")
+        task.update_available_assets_field(commit=True)
+        with mock.patch.object(training.json, "dump", side_effect=OSError(28, "No space left on device")):
+            self.assertEqual(self.train(task, steps=10).status_code, 200)
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("No space left on device", status["error"])
+        self.assertEqual(self.model(task), b"the model before")
+        self.assertFalse(os.path.exists(training.trained_model(task)))
+        folder = os.path.dirname(task.get_asset_file_or_stream("splats.rad"))
+        self.assertEqual([n for n in os.listdir(folder) if n.endswith(training.NEW)], [])
+
+    def test_a_page_that_is_not_the_nodes_answer_is_waited_for_like_a_node_that_does_not_answer(self):
+        task = make_task(self.user)
+        self.lost_job(task, self.node.add_job())
+        self.node.failures = [200, 200]  # a proxy's page, 200 OK
+        self.status(task)
+        self.assertEqual(training.get_job(task.id)["state"], "completed")
+
+        other = make_task(self.user)
+        self.lost_job(other, self.node.add_job("job-other"))
+        self.node.failures = [200]
+        with mock.patch.object(training, "NODE_PATIENCE", -1):
+            self.status(other)
+        job = training.get_job(other.id)
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("not a splat node's answer", job["error"])
+
+    def test_an_upload_whose_answer_is_lost_follows_the_job_the_node_made(self):
+        task = make_task(self.user)
+        self.node.version = "0.2.2"
+        self.node.lose_answer = True
+        self.assertEqual(self.train(task, steps=10).status_code, 200)
+        self.assertEqual(self.status(task)["state"], "completed")
+        self.assertEqual(list(self.node.jobs), ["job1"])
+        self.assertEqual(len(self.node.jobs["job1"]["ref"]), 32)  # the run's id
+        self.assertEqual(self.model(task), MODEL)
+
+    def test_a_node_older_than_0_2_2_is_sent_no_ref(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10).status_code, 200)
+        self.assertIsNone(self.node.jobs["job1"]["ref"])
+
     def test_a_cancel_during_the_import_keeps_the_tasks_model(self):
         task = make_task(self.user)
         self.put_model(task, b"the model before")
@@ -1429,3 +1520,38 @@ class TestSplatMe(BootTestCase):
         self.assertIn("compacted", status["unlisted"])
         jpeg = make_task(self.user)
         self.assertIsNone(self.client.get(f"{API}/task/{jpeg.id}/status?listed=1").data["unlisted"])
+
+
+class TestTwoRequestsAtOnce(BootTransactionTestCase):
+    """Requests that really run at once, each with its own database connection."""
+
+    def test_two_first_trainings_of_a_task_at_once_make_one_record_and_one_training(self):
+        node = FakeNode()
+        self.addCleanup(node.close)
+        training.set_node(node.url, node.token)
+        task = make_task(User.objects.get(username="testuser"))
+        real_get_job, results = training.get_job, []
+
+        def slow_get_job(task_id):
+            job = real_get_job(task_id)
+            time.sleep(0.5)  # both requests have read the record before either writes it
+            return job
+
+        def start():
+            try:
+                training.start(Task.objects.get(pk=task.id), "testuser", {"steps": 10})
+                results.append("started")
+            except training.TrainingError as e:
+                results.append(str(e))
+            finally:
+                connection.close()
+
+        with mock.patch.object(training, "get_job", slow_get_job), mock.patch.object(training, "run_function_async"):
+            threads = [threading.Thread(target=start) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(30)
+        self.assertEqual(sorted(results), ["This task's splats are already being trained.", "started"])
+        key = training.store().db_key(training.job_key(task.id))
+        self.assertEqual(PluginDatum.objects.filter(key=key, user=None).count(), 1)

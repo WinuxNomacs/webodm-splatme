@@ -2,17 +2,18 @@ import React from 'React';
 import { _ } from 'webodm/classes/gettext';
 import TrainSplats from './TrainSplats';
 import NewTask from './NewTask';
-import { request } from './api';
+import { request, webodm } from './api';
 import { ACCEPT, projectByName } from './newTask';
 import { panelMode, rowNote, taskStatusText, nextRefresh, runningPercent, resultText, justCompleted, dashboardLink,
-    TASK_FAILED, TASK_QUEUED, TASK_RUNNING, FAST, SETTLE } from './trainingView';
+    TASK_FAILED, TASK_QUEUED, TASK_RUNNING, FAST, SLOW, SETTLE } from './trainingView';
 import './TrainSplats.scss';
 
 // SplatMe → Tasks (templates/tasks.html): the tasks the user may see, by project, each with its splats and what
 // can be done with them: only the tasks SplatMe can train (api.py's tasks leaves out the others, and projects
-// with none). One request for the whole list, asked again while a task processes, and for a while after a task set
-// to train completes; while only trainings are followed, their rows' statuses are asked for instead, and the list
-// once a minute. ?task=<id> (the task panel's Open in SplatMe) shows that task's project and marks the task.
+// with none). One request for the whole list (which reads every task's folder), asked again for a while after a
+// task set to train completes; while tasks train or process, only their rows are asked for (a training's status
+// from SplatMe, a processing task from WebODM's own task API), the list when a processing task's status changes,
+// and once a minute. Nothing is asked while the page's tab is hidden: the list is, once it shows again. ?task=<id> (the task panel's Open in SplatMe) shows that task's project and marks the task.
 // New Task With Splats (NewTask.jsx) is in each project's heading; ?new=1 (the Dashboard's button) opens it for
 // ?project=<id>, or for the project ?name= names when only one has that name.
 const LIST_EVERY = 60000;  // the whole list, while only trainings' rows are refreshed (another user may start one)
@@ -32,13 +33,31 @@ export default class Tasks extends React.Component {
 
     componentDidMount(){
         this._mounted = true;
+        document.addEventListener("visibilitychange", this.handleVisibility);
         this.load();
     }
 
     componentWillUnmount(){
         this._mounted = false;
+        document.removeEventListener("visibilitychange", this.handleVisibility);
         clearTimeout(this.timer);
     }
+
+    // fn after wait, unless the tab is hidden then: the list is asked for once it shows
+    later(fn, wait){
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => {
+            if (document.hidden) this.missed = true;
+            else fn();
+        }, wait);
+    }
+
+    handleVisibility = () => {
+        if (!document.hidden && this.missed && this._mounted){
+            this.missed = false;
+            this.load();
+        }
+    };
 
     load = () => {
         clearTimeout(this.timer);
@@ -59,7 +78,7 @@ export default class Tasks extends React.Component {
             if (!this._mounted) return;
             this.setState({error: e.message});
             // The server may be restarting: asked again while nothing was shown yet, or there is something to follow
-            if (this.state.projects === null || nextRefresh(this.state.projects)) this.timer = setTimeout(this.load, 15000);
+            if (this.state.projects === null || nextRefresh(this.state.projects)) this.later(this.load, SLOW);
         });
     };
 
@@ -79,36 +98,48 @@ export default class Tasks extends React.Component {
         const settling = Object.keys(this.settling).length > 0;
         const wait = nextRefresh(projects) || (settling ? FAST : 0);
         if (!wait) return;
-        const tasks = [].concat(...(projects || []).map(p => p.tasks));
-        const training = tasks.filter(t => t.splats && t.splats.active).map(t => t.id);
-        const processing = tasks.some(t => t.status == null || t.status === TASK_QUEUED || t.status === TASK_RUNNING);
-        if (training.length && !processing && !settling && now - this.listed < LIST_EVERY){
-            this.timer = setTimeout(() => this.refreshRows(training), FAST);
+        const rows = [].concat(...(projects || []).map(p => p.tasks.map(task => ({project: p.id, task}))));
+        const training = rows.filter(r => r.task.splats && r.task.splats.active).map(r => r.task.id);
+        const processing = rows.filter(r => r.task.status == null || r.task.status === TASK_QUEUED || r.task.status === TASK_RUNNING)
+            .map(r => ({project: r.project, id: r.task.id, status: r.task.status}));
+        if ((training.length || processing.length) && !settling && now - this.listed < LIST_EVERY){
+            this.later(() => this.refreshRows(training, processing), wait);
         }else{
-            this.timer = setTimeout(this.load, wait);
+            this.later(this.load, wait);
         }
     }
 
-    // The statuses of the tasks that train, without the whole list (for which each task's folder is read)
-    refreshRows(ids){
+    // The rows of the tasks that train or process, without the whole list (for which each task's folder is read)
+    refreshRows(ids, processing){
         const actions = this.actions;
-        Promise.all(ids.map(id => request("GET", "task/" + id + "/status").catch(e => (e.status === 404 ? "gone" : null))))
-            .then(answers => {
-                if (!this._mounted) return;
-                if (answers.indexOf("gone") !== -1) return this.load();
-                if (actions !== this.actions) return this.schedule(this.state.projects);
-                if (answers.every(a => !a)){  // WebODM did not answer: it may be restarting
-                    this.timer = setTimeout(this.load, 15000);
-                    return;
-                }
-                const answered = {};
-                ids.forEach((id, i) => { if (answers[i]) answered[id] = answers[i]; });
-                const projects = this.state.projects.map(project => Object.assign({}, project, {
-                    tasks: project.tasks.map(task => answered[task.id] ? Object.assign({}, task, {splats: answered[task.id]}) : task)
-                }));
-                this.setState({projects});
-                this.schedule(projects);
-            });
+        const gone = e => (e.status === 404 ? "gone" : null);
+        Promise.all([
+            Promise.all(ids.map(id => request("GET", "task/" + id + "/status").catch(gone))),
+            Promise.all(processing.map(t => webodm("GET", "/api/projects/" + t.project + "/tasks/" + t.id + "/").catch(gone))),
+        ]).then(([answers, tasks]) => {
+            if (!this._mounted) return;
+            if (answers.indexOf("gone") !== -1 || tasks.indexOf("gone") !== -1) return this.load();
+            // A processing task that moved on (completed, failed, started): the list, which says what it now can do
+            if (tasks.some((t, i) => t && t.status !== processing[i].status)) return this.load();
+            if (actions !== this.actions) return this.schedule(this.state.projects);
+            if (answers.concat(tasks).every(a => !a)){  // WebODM did not answer: it may be restarting
+                this.later(this.load, SLOW);
+                return;
+            }
+            const answered = {}, progress = {};
+            ids.forEach((id, i) => { if (answers[i]) answered[id] = answers[i]; });
+            processing.forEach((t, i) => { if (tasks[i]) progress[t.id] = tasks[i].running_progress; });
+            const projects = this.state.projects.map(project => Object.assign({}, project, {
+                tasks: project.tasks.map(task => {
+                    let row = task;
+                    if (answered[task.id]) row = Object.assign({}, row, {splats: answered[task.id]});
+                    if (task.id in progress) row = Object.assign({}, row, {running_progress: progress[task.id]});
+                    return row;
+                })
+            }));
+            this.setState({projects});
+            this.schedule(projects);
+        });
     }
 
     // The task asked for in the address: its project is the one shown, and the task is scrolled to

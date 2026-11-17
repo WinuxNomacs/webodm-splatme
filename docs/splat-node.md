@@ -4,7 +4,7 @@
 owner only) to `~/splatnode` (`SPLATNODE_DIR`); `status` says whether the node answers, and `connect` gives
 SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM, whose network the
 node then joins; `connect --webodm <container>` connects a node installed `--standalone` to a WebODM on the same
-machine). The node's settings are read from that `.env` only, not from variables of the same names in the shell. Without the
+machine, after asking, as the node then listens on that machine only; `--force` does not ask). The node's settings are read from that `.env` only, not from variables of the same names in the shell. Without the
 script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d`, from a checkout (add `--build` to
 compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
 v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series; the build needs about 27 GB of disk). The image is
@@ -13,8 +13,9 @@ v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series; the build needs about 
 The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
 (`SPLATNODE_KEEP_HOURS`). A training whose trainer prints nothing for 30 minutes is stopped and fails with that
 reason (`SPLATNODE_STALL_MINUTES`). Both are set in `~/splatnode/.env`, then `splatnode.sh upgrade`; a value that is not
-a number, or is below 1, is logged and the default used. If the node's own worker stops, the node exits and Docker
-starts it again; the training it was running fails with a message.
+a number, or is below 1, is logged and the default used. If the node's own worker stops or hangs, or a trainer
+cannot be stopped, the node exits and Docker starts it again; the training it was running fails with a message.
+`status` says how to start a node that is not running.
 
 Its API ([node/splatnode.py](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/splatnode.py)), with `Authorization: Bearer <token>`:
 
@@ -22,8 +23,8 @@ Its API ([node/splatnode.py](https://github.com/WinuxNomacs/webodm-splatme/blob/
 |---|---|
 | `GET /health` | Whether the node works (no token needed): 503 when its worker has stopped |
 | `GET /info` | The node, its trainer, its GPU, its queue and the options a job accepts |
-| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`. Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total |
-| `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error |
+| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`. Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total. `ref=<name>` (up to 64 letters, digits, `-` or `_`) is kept with the job |
+| `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error; `GET /jobs?ref=<name>` lists the jobs with that ref |
 | `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
 | `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
 | `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |

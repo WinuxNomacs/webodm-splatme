@@ -5,6 +5,8 @@ import requests
 
 # The oldest node this plugin works with
 MIN_VERSION = (0, 2, 0)
+# The first node that keeps a job's ref (to find a job whose upload's answer was lost)
+REF_VERSION = (0, 2, 2)
 CREATE_TIMEOUT = 600  # seconds the node may take to answer a new job, once its zip is sent
 
 
@@ -51,11 +53,24 @@ class Node:
             raise NodeError(message, res.status_code)
         return res
 
+    def answer(self, res):
+        """The JSON a request answered; NodeError (no status: as a node not answering) for anything else (a proxy's page)."""
+        try:
+            return res.json()
+        except ValueError as e:
+            raise NodeError(
+                f"The splat node at {self.url} answered something that is not a splat node's answer "
+                f"({res.status_code}, {res.headers.get('Content-Type') or 'no content type'})."
+            ) from e
+
     def info(self):
         try:
             return self.request("GET", "/info").json()
         except ValueError as e:
             raise NodeError(f"{self.url} is not a splat node. Check its address in SplatMe's settings.") from e
+
+    def keeps_refs(self):
+        return parse_version(self.info().get("version")) >= REF_VERSION
 
     def check(self):
         """The node's info, once it is known to be able to train for this plugin."""
@@ -79,10 +94,15 @@ class Node:
         headers = {"Content-Length": str(length), "Content-Type": "application/zip"}
         # Once the zip is sent the node checks it and unpacks a model to continue (hundreds of MB) before it answers
         timeout = (self.timeout, max(self.timeout, CREATE_TIMEOUT))
-        return self.request("POST", "/jobs", params=options, data=body, headers=headers, timeout=timeout).json()
+        res = self.request("POST", "/jobs", params=options, data=body, headers=headers, timeout=timeout)
+        return self.answer(res)
+
+    def jobs(self, ref):
+        """The node's jobs with that ref."""
+        return self.answer(self.request("GET", "/jobs", params={"ref": ref}))
 
     def job(self, job_id):
-        return self.request("GET", f"/jobs/{job_id}").json()
+        return self.answer(self.request("GET", f"/jobs/{job_id}"))
 
     def log(self, job_id, offset=0):
         """The trainer's output from a byte on, and the offset to ask from next."""
@@ -97,7 +117,7 @@ class Node:
             raise NodeError(f"The download of the trained model from {self.url} stopped: {e}") from e
 
     def cancel(self, job_id):
-        return self.request("POST", f"/jobs/{job_id}/cancel").json()
+        return self.answer(self.request("POST", f"/jobs/{job_id}/cancel"))
 
     def delete(self, job_id):
         self.request("DELETE", f"/jobs/{job_id}")

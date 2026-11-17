@@ -7,8 +7,9 @@ Python's standard library only. One job trains at a time (one GPU); the others w
     GET    /info                  the node, its trainer, its GPU and its queue
     POST   /jobs?steps=7000       the training zip as the body; answers the new job. A zip that also holds
                                   resume.ply (an earlier job's result) continues that model: steps is then
-                                  the total, the model's own steps included
-    GET    /jobs                  every job
+                                  the total, the model's own steps included. ref=<the client's name for it>
+                                  is kept with the job, for a client whose answer was lost to find it
+    GET    /jobs?ref=             every job, or those with that ref
     GET    /jobs/<id>             one job: state, progress, error
     GET    /jobs/<id>/log?offset= the trainer's output from that byte on (X-Log-Offset: where it now ends)
     GET    /jobs/<id>/result      the trained model (.ply), once the job is completed
@@ -28,7 +29,9 @@ How it stays up (each has a test in tests/test_splatnode.py that makes the failu
   thread ends anyway, /health answers 503 and the process exits, so Docker starts it again (restart:
   unless-stopped); a start fails the job that was running.
 - Every wait has a deadline: a trainer is stopped with SIGTERM, then SIGKILL after GRACE_SECONDS; a trainer that
-  goes silent is stopped; a client's socket times out after SOCKET_TIMEOUT.
+  goes silent is stopped; a client's socket times out after SOCKET_TIMEOUT. A trainer still there KILL_WAIT after
+  SIGKILL (stuck in the driver) fails its job and ends the worker, so the process exits. A watchdog ends the process
+  when the worker has not beaten for HEARTBEAT_LIMIT (Docker does not act on /health's 503 by itself).
 - A job's state is changed only by Node.transition, under the lock, which refuses a change that is not allowed.
   Files are never deleted under the lock: they are moved to trash/ (a rename) and deleted by the worker.
 - A job's saved file that doesn't read is moved to broken/ at start; the node starts all the same. A setting that
@@ -76,6 +79,7 @@ MODEL = "model.ply"
 RESUME = "resume.ply"
 KEPT_FILES = ("job.json", "log.txt", MODEL)
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
+REF = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 CHUNK = 1 << 20
 # The trainer extracts the zip beside it: an upload needs this many times its size free
 DISK_FACTOR = 2.5
@@ -86,6 +90,7 @@ OUT_OF_MEMORY = re.compile(r"out of memory", re.IGNORECASE)
 
 # Deadlines
 GRACE_SECONDS = 20  # SIGTERM to SIGKILL; inside compose's stop_grace_period (30 s)
+KILL_WAIT = 60  # SIGKILL to giving up on the trainer
 STALL_MINUTES = 30  # the trainer's longest silence measured, with a margin (see upcoming-changes.md)
 SOCKET_TIMEOUT = 120  # one read or write on a client's connection
 
@@ -103,6 +108,10 @@ class IllegalTransition(Exception):
 
 class BadJobFile(Exception):
     pass
+
+
+class TrainerStuck(Exception):
+    """A trainer that SIGKILL did not end: the worker ends, and with it the process."""
 
 
 def log(message):
@@ -198,7 +207,7 @@ def read_job(path, job_id):
         raise BadJobFile("it has no creation time")
     job.pop("canceling", None)  # an internal flag that 0.2.1 and earlier saved
     for name, default in (("progress", 0), ("step", 0), ("started", None), ("finished", None), ("error", None),
-                          ("size", None), ("resume", False)):
+                          ("size", None), ("resume", False), ("ref", None)):
         job.setdefault(name, default)
     return job
 
@@ -214,6 +223,7 @@ class Node:
         self.keep_seconds = keep_hours * 3600
         self.stall_seconds = stall_minutes * 60
         self.grace = GRACE_SECONDS
+        self.kill_wait = KILL_WAIT
         self.on_worker_death = None
         self.lock = threading.Condition()
         self.trainer_said = None
@@ -232,6 +242,7 @@ class Node:
         self.load()
         self.worker = threading.Thread(target=self.run_worker, daemon=True)
         self.worker.start()
+        threading.Thread(target=self.watch, daemon=True).start()
 
     # Jobs on disk
 
@@ -332,7 +343,7 @@ class Node:
 
     # The API's actions
 
-    def create(self, options, stream, length):
+    def create(self, options, stream, length, ref=None):
         need = int(length * DISK_FACTOR)
         with self.lock:
             if need > shutil.disk_usage(self.jobs_dir).free - self.reserved:
@@ -356,7 +367,7 @@ class Node:
             job = {
                 "id": job_id, "state": QUEUED, "options": options, "progress": 0, "step": 0,
                 "created": time.time(), "started": None, "finished": None, "error": None, "size": None,
-                "resume": resume,
+                "resume": resume, "ref": ref,
             }
             self.save(job)
         except BaseException:
@@ -393,6 +404,8 @@ class Node:
             if job["state"] == RUNNING:
                 self.cancel_requested.add(job_id)
                 self.delete_requested.add(job_id)
+                # Its folder stays for the trainer until it stops; without job.json a restart meanwhile drops it
+                self.discard(self.path(job_id, "job.json"))
                 self.lock.notify_all()
             else:
                 self.discard(self.path(job_id))
@@ -443,9 +456,21 @@ class Node:
         except BaseException:  # noqa: BLE001 (whatever ended the worker is logged before the node is told)
             log("The worker stopped:\n" + traceback.format_exc())
         if not self.stopping:
+            self.died()
+
+    def died(self):
+        if not self.worker_died:
             self.worker_died = True
             if self.on_worker_death:
                 self.on_worker_death()
+
+    def watch(self):
+        """The watchdog: a worker stuck somewhere it does not beat (a hung disk) ends the process too."""
+        while not self.stopping and not self.worker_died:
+            time.sleep(1)
+            if not self.stopping and time.monotonic() - self.heartbeat > self.HEARTBEAT_LIMIT:
+                log(f"The worker has not beaten for {self.HEARTBEAT_LIMIT} seconds")
+                self.died()
 
     def work(self):
         self.empty_trash()  # what a previous run left
@@ -457,6 +482,8 @@ class Node:
                 if job_id is not None:
                     self.run_job(job_id)
                 self.empty_trash()
+            except TrainerStuck:
+                raise
             except Exception as e:  # noqa: BLE001 (a job's failure must not end the worker)
                 log(f"The worker's pass failed (job {job_id}):\n" + traceback.format_exc())
                 if job_id is not None:
@@ -541,7 +568,7 @@ class Node:
 
     def supervise(self, job_id, process, output):
         """Wait for the trainer, stopping it when asked or when it goes silent. Answers why it was stopped."""
-        why, term_sent = None, None
+        why, term_sent, kill_sent = None, None, None
         while True:
             try:
                 process.wait(timeout=0.2)
@@ -564,6 +591,10 @@ class Node:
                 term_sent = now
             elif term_sent is not None and now - term_sent > self.grace:
                 self.signal(process, signal.SIGKILL)
+                kill_sent = kill_sent or now
+                if now - kill_sent > self.kill_wait:
+                    self.fail_quietly(job_id, "The trainer could not be stopped: the splat node restarts")
+                    raise TrainerStuck(f"Job {job_id}: the trainer is still there {self.kill_wait} s after SIGKILL")
 
     @staticmethod
     def signal(process, sig):
@@ -707,8 +738,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def list_jobs(self, params):
         node = self.server.node
+        ref = params.get("ref")
         with node.lock:
-            jobs = [node.public(j) for j in sorted(node.jobs.values(), key=lambda j: j["created"])]
+            jobs = [node.public(j) for j in sorted(node.jobs.values(), key=lambda j: j["created"])
+                    if ref is None or j.get("ref") == ref]
         self.send_json(200, jobs)
 
     def create_job(self, params):
@@ -718,8 +751,11 @@ class Handler(BaseHTTPRequestHandler):
             raise Refused(411, "Content-Length is required") from None
         if length <= 0:
             raise Refused(400, "The request has no dataset")
+        ref = params.pop("ref", None)
+        if ref is not None and not REF.match(ref):
+            raise Refused(400, "ref must be 1 to 64 letters, digits, - or _")
         options = parse_options(params)
-        self.send_json(201, self.server.node.create(options, self.rfile, length))
+        self.send_json(201, self.server.node.create(options, self.rfile, length, ref))
 
     def get_job(self, params, job_id):
         node = self.server.node

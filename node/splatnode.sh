@@ -2,7 +2,7 @@
 # Installs, upgrades and uninstalls SplatMe's splat node: the GPU container that trains WebODM tasks' splats.
 #
 #   splatnode.sh install [--webodm <container> | --standalone] [--port <port>]
-#   splatnode.sh upgrade | status | connect [--webodm <container>] | uninstall [--yes]
+#   splatnode.sh upgrade [--force] | status | connect [--webodm <container>] [--force] | uninstall [--yes]
 #
 # Or without a checkout:
 #   curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
@@ -14,10 +14,11 @@
 #   enter on SplatMe's page in WebODM's Administration.
 #   A failed install is undone, so it can be run again.
 # upgrade: pulls the newest image, writes the compose file again and restarts the node, then deletes the previous
-#   image; its jobs, token and port stay.
+#   image; its jobs, token and port stay. While the node trains it asks first (the restart fails that training);
+#   with no terminal to ask on it stops, unless --force.
 # connect: gives SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM);
 #   when WebODM's webapp is on another network than the node (--webodm, or a reinstalled WebODM), the node moves
-#   to it.
+#   to it. A node that listened on every address then listens on this machine only: it asks first (--force: no).
 # uninstall: stops and removes the node and its folder; asks before deleting its jobs' data and the image, and
 #   before removing the node from SplatMe's settings (--yes says yes to all).
 #
@@ -49,6 +50,8 @@ yes_to() {
     fi
     case "$answer" in y|Y|yes|Yes) return 0 ;; *) return 1 ;; esac
 }
+# Whether a question can be asked (a terminal, not stdin)
+has_tty() { [ -r /dev/tty ] && { : < /dev/tty; } 2>/dev/null; }
 # Compose reads the node's settings from .env only: the same names exported in the shell would win over it
 compose() {
     env -u SPLATNODE_IMAGE -u SPLATNODE_CONTAINER -u SPLATNODE_TOKEN -u SPLATNODE_PORT -u SPLATNODE_BIND \
@@ -239,6 +242,12 @@ node_version() {
         | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' || true  # nothing when the node does not answer
 }
 
+# Whether the node trains a job now (its /info names the running job, or says null)
+node_training() {
+    curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
+        | grep -q '"running": *"'
+}
+
 # SplatMe's settings in WebODM get the node's address and token, through WebODM's own manage.py (the token passed
 # in the environment, not on a command line). 0: saved; 3: SplatMe is not installed in that WebODM.
 save_in_splatme() {
@@ -268,7 +277,7 @@ print_settings() {
 }
 
 connect() {
-    local webapp="$1" network wanted
+    local webapp="$1" force="${2:-0}" network wanted
     network="$(env_value SPLATNODE_WEBODM_NETWORK)"
     if [ -z "$webapp" ]; then
         if [ -z "$network" ]; then
@@ -285,6 +294,11 @@ connect() {
     wanted="$(webodm_network "$webapp")"
     [ -n "$wanted" ] || fail "$webapp is on no Docker network."
     if [ "$wanted" != "$network" ]; then
+        if [ -z "$network" ] && [ "$(env_value SPLATNODE_BIND)" != "127.0.0.1:" ] && [ "$force" = 0 ]; then
+            local why="On $webapp's network the node listens on this machine only: a WebODM on another machine can no longer reach it."
+            if ! has_tty; then fail "$why Run again with --force to move it."; fi
+            yes_to "$why Move it?" || { say "Nothing was changed."; exit 1; }
+        fi
         say "Moving the node to $webapp's network $wanted"
         IMAGE="$(env_value SPLATNODE_IMAGE)"
         write_files "$wanted" "$(env_value SPLATNODE_PORT)" "$(env_value SPLATNODE_TOKEN)"
@@ -346,8 +360,20 @@ cmd_install() {
 }
 
 cmd_upgrade() {
+    local force=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --force) force=1; shift ;;
+            *) fail "upgrade: unknown option $1" ;;
+        esac
+    done
     [ -f "$DIR/compose.yml" ] || fail "No splat node is installed in $DIR."
     check_docker
+    if [ "$force" = 0 ] && node_training; then
+        local why="A training runs on the node: the upgrade restarts the node and that training fails."
+        if ! has_tty; then fail "$why Upgrade once it is done, or run again with --force."; fi
+        yes_to "$why Upgrade now?" || { say "Nothing was changed."; exit 1; }
+    fi
     local before old
     before="$(node_version)"
     IMAGE="$(env_value SPLATNODE_IMAGE)"
@@ -368,23 +394,31 @@ cmd_status() {
     compose ps
     local version
     version="$(node_version)"
-    if [ -n "$version" ]; then say "Answering: version $version"; else say "Not answering on port $(env_value SPLATNODE_PORT)."; fi
+    if [ -n "$version" ]; then
+        say "Answering: version $version"
+    else
+        say "Not answering on port $(env_value SPLATNODE_PORT)."
+        if [ -z "$(compose ps -q --status running 2>/dev/null)" ]; then
+            say "It is not running. Start it with: docker compose -p $PROJECT --project-directory $DIR -f $DIR/compose.yml up -d"
+        fi
+    fi
     local network
     network="$(env_value SPLATNODE_WEBODM_NETWORK)"
     if [ -n "$network" ]; then say "On WebODM's network $network as http://$ALIAS:$INNER_PORT"; else print_settings; fi
 }
 
 cmd_connect() {
-    local webodm=""
+    local webodm="" force=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --webodm) webodm="${2:?--webodm needs a container name}"; shift 2 ;;
+            --force) force=1; shift ;;
             *) fail "connect: unknown option $1" ;;
         esac
     done
     [ -f "$DIR/compose.yml" ] || fail "No splat node is installed in $DIR."
     check_docker
-    connect "$webodm"
+    connect "$webodm" "$force"
 }
 
 cmd_uninstall() {

@@ -87,7 +87,9 @@ jobs:
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
       - name: Log in to ghcr.io
         if: steps.image.outputs.publish == 'true'
-        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       - name: Skip a version already published
         id: published
         if: steps.image.outputs.publish == 'true'
@@ -96,18 +98,39 @@ jobs:
           # image is built once, so a change to what goes in it (node/Dockerfile, node/splatnode.py) needs a new
           # VERSION, or it would never be published: the published image's inputs must be these.
           name="${{ steps.image.outputs.name }}"; version="${{ steps.image.outputs.version }}"
-          if docker manifest inspect "$name:$version" >/dev/null 2>&1; then
-            published="$(docker buildx imagetools inspect "$name:$version" --format '{{index .Image.Config.Labels "splatme.node.inputs"}}')"
-            if [ -z "$published" ]; then
+          # FOUND: what --format shows of a published tag, or nothing when it is not published ("not found", as
+          # ghcr.io words it). Any other error (ghcr.io not answering) ends the job: a published version must never
+          # be built over. (It sets FOUND rather than printing it: an exit in $(...) would end only the subshell.)
+          inspect() {
+            local out
+            FOUND=""
+            if out="$(docker buildx imagetools inspect "$name:$1" --format "$2" 2>&1)"; then
+              FOUND="$out"
+            elif ! printf '%s' "$out" | grep -q ': not found$'; then
+              echo "::error::ghcr.io did not say whether $name:$1 is published: $out"
+              exit 1
+            fi
+          }
+          version_label='{{index .Image.Config.Labels "org.opencontainers.image.version"}}'
+          # latest moves only forward: never to a version older than the one it is (a tag on an older commit, a run by hand)
+          inspect latest "$version_label"; current="$FOUND"
+          move=false
+          if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$version" ]; then move=true; fi
+          echo "move_latest=$move" >> "$GITHUB_OUTPUT"
+          [ "$move" = true ] || echo "latest stays at the splat node $current, newer than $version." >> "$GITHUB_STEP_SUMMARY"
+          inspect "$version" '{{.Name}}'
+          if [ -n "$FOUND" ]; then
+            inspect "$version" '{{index .Image.Config.Labels "splatme.node.inputs"}}'; inputs="$FOUND"
+            if [ -z "$inputs" ]; then
               echo "::notice::The splat node $version was published before images carried their inputs: not compared."
-            elif [ "$published" != "${{ steps.image.outputs.inputs }}" ]; then
+            elif [ "$inputs" != "${{ steps.image.outputs.inputs }}" ]; then
               echo "::error::node/Dockerfile or node/splatnode.py changed since the splat node $version was published: raise VERSION in node/splatnode.py."
               exit 1
             fi
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "The splat node $version is already published: not built again." >> "$GITHUB_STEP_SUMMARY"
             # latest is that version (a run whose second push failed left it behind)
-            docker buildx imagetools create -t "$name:latest" "$name:$version"
+            if [ "$move" = true ]; then docker buildx imagetools create -t "$name:latest" "$name:$version"; fi
           fi
       - name: Make room on the runner
         if: steps.published.outputs.skip != 'true'
@@ -133,9 +156,12 @@ jobs:
         if: steps.image.outputs.publish == 'true' && steps.published.outputs.skip != 'true'
         run: |
           docker push "${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}"
-          docker push "${{ steps.image.outputs.name }}:latest"
           echo "### The splat node" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}\` and \`latest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.published.outputs.move_latest }}" = true ]; then
+            docker push "${{ steps.image.outputs.name }}:latest"
+            echo "and \`latest\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   docs:
     name: The documentation site

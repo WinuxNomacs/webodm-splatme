@@ -41,7 +41,7 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     with it downloads the sky model (180 MB, the one ODX uses for its sky removal) from ODX's releases on
     github.com into WebODM's media folder (`plugins/splatme/models`), so WebODM must reach that address once.
 
-    **Crop To Boundary** shows for a task that was processed with a boundary (a GeoJSON file in WebODM's
+    **Crop to Boundary** shows for a task that was processed with a boundary (a GeoJSON file in WebODM's
     Boundary option) and is ticked: the splats outside the boundary (or in one of its holes) are left out of the
     model the task shows, as the processing leaves them out of the point cloud and the mesh. The training itself still sees the
     photos whole, and the model kept for continuing is not cropped.

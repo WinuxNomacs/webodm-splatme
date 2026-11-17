@@ -119,20 +119,22 @@ export default class NewTask extends React.Component {
     getFiles = () => this.props.files;
 
     // As WebODM's own panel: a name from the first photo's date, and the map preview if it has a position. The
-    // place name WebODM looks up online is left out: SplatMe calls no outside service.
+    // place name WebODM looks up online is left out: SplatMe calls no outside service. The panel filled again after
+    // a failure keeps the name the user gave.
     suggestedTaskName = hasGPS => {
         const first = this.props.files.find(f => f.type.indexOf("image") === 0);
-        if (!first) return Promise.reject();
+        if (!first) return this.givenName ? Promise.resolve(this.givenName) : Promise.reject();
         return exifr.parse(first, {ifd0: false, exif: [0x9003], gps: [0x0001, 0x0002, 0x0003, 0x0004], interop: false, ifd1: false}).then(exif => {
             exif = exif || {};
             if (exif.latitude && exif.longitude && hasGPS) hasGPS();
             let date = exif.DateTimeOriginal;
             date = date && date.toLocaleDateString ? date.toLocaleDateString() : new Date(first.lastModified).toLocaleDateString();
-            return interpolate(_("Splats - %(date)s"), {date});
+            return this.givenName || interpolate(_("Splats - %(date)s"), {date});
         });
     };
 
     handleSave = taskInfo => {
+        this.givenName = taskInfo.name;
         this.upload = new Upload({
             projectId: this.props.project.id, files: this.props.files, send: webodm,
             onProgress: progress => { if (this._mounted) this.setState({progress}); }
