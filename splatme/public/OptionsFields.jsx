@@ -5,6 +5,8 @@ import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, THERMAL_PALETTES } from 
 import StagesTable from './StagesTable';
 import ImageSizeTable from './ImageSizeTable';
 
+let instances = 0;  // each form's fields get their own ids, for their labels
+
 // A training's options as form rows: the Quality choice, and under Advanced the numbers. Used by the Train Splats
 // and Change dialogs and by SplatMe's panel above WebODM's New Task panel; the form's values are the parent's.
 export default class OptionsFields extends React.Component {
@@ -18,6 +20,11 @@ export default class OptionsFields extends React.Component {
         photoSizes: PropTypes.array            // the task's photo sizes, [[width, height]], when known: the Image Size table
     };
 
+    constructor(props){
+        super(props);
+        this.uid = "splatme-option-" + (++instances) + "-";
+    }
+
     handlePreset = e => {
         const preset = PRESETS.find(p => p.key === e.target.value);
         if (preset) this.props.onChange("steps", String(preset.steps));
@@ -27,9 +34,9 @@ export default class OptionsFields extends React.Component {
     numberField(name, label, help, placeholder, more){
         return (
             <div className="form-group">
-                <label className="col-sm-4 control-label">{label}</label>
+                <label className="col-sm-4 control-label" htmlFor={this.uid + name}>{label}</label>
                 <div className="col-sm-8">
-                    <input type="number" min="0" className="form-control" value={this.props.form[name]} placeholder={placeholder || ""}
+                    <input type="number" min="0" className="form-control" id={this.uid + name} value={this.props.form[name]} placeholder={placeholder || ""}
                            onChange={e => this.props.onChange(name, e.target.value)} />
                     {more || ""}
                     <span className="help-block">{help}</span>
@@ -45,9 +52,9 @@ export default class OptionsFields extends React.Component {
         return (
             <React.Fragment>
                 <div className="form-group">
-                    <label className="col-sm-4 control-label">{_("Quality")}</label>
+                    <label className="col-sm-4 control-label" htmlFor={this.uid + "quality"}>{_("Quality")}</label>
                     <div className="col-sm-8">
-                        <select className="form-control" value={key} onChange={this.handlePreset}>
+                        <select className="form-control" id={this.uid + "quality"} value={key} onChange={this.handlePreset}>
                             {PRESETS.map(p => <option key={p.key} value={p.key}>{_(p.label) + " (" + p.steps.toLocaleString() + " " + _("steps") + ")"}</option>)}
                             <option value="custom">{_("Custom")}</option>
                         </select>
@@ -56,9 +63,9 @@ export default class OptionsFields extends React.Component {
                 </div>
                 {this.props.thermal ?
                     <div className="form-group">
-                        <label className="col-sm-4 control-label">{_("Thermal Colours")}</label>
+                        <label className="col-sm-4 control-label" htmlFor={this.uid + "palette"}>{_("Thermal Colours")}</label>
                         <div className="col-sm-8">
-                            <select className="form-control splatme-palette" value={form.palette} onChange={e => this.props.onChange("palette", e.target.value)}>
+                            <select className="form-control splatme-palette" id={this.uid + "palette"} value={form.palette} onChange={e => this.props.onChange("palette", e.target.value)}>
                                 {THERMAL_PALETTES.map(p => <option key={p.key} value={p.key}>{_(p.label)}</option>)}
                             </select>
                             <span className="help-block">{_("The colours the temperatures are drawn in, which the model shows. They run from the task's coldest to its hottest, the same in every photo.")}</span>
@@ -78,7 +85,7 @@ export default class OptionsFields extends React.Component {
                         <div className="col-sm-8 col-sm-offset-4">
                             <div className="checkbox"><label>
                                 <input type="checkbox" className="splatme-crop" checked={form.crop !== false}
-                                       onChange={e => this.props.onChange("crop", e.target.checked)} /> {_("Crop To Boundary")}
+                                       onChange={e => this.props.onChange("crop", e.target.checked)} /> {_("Crop to Boundary")}
                             </label></div>
                             <span className="help-block">{_("For a task processed with a boundary (a GeoJSON file): the splats outside it are left out, as they are of the point cloud and the mesh.")}</span>
                         </div>

@@ -35,7 +35,7 @@ it short; edit in place.
   containers: they have no GPU.
 - **The plugin's code**: `training.py` (a task's job and its record, automatic training and its settings),
   `sky.py` (Ignore Sky: masks of the sky in a training's photos, made with ODX's sky model),
-  `crop.py` (Crop To Boundary: the trained model cut to the task's boundary GeoJSON),
+  `crop.py` (Crop to Boundary: the trained model cut to the task's boundary GeoJSON),
   `thermal.py` (DJI Thermal Analyzer's TIFFs drawn in a palette, one range for the task),
   `node.py` (the splat node's API as the plugin uses it), `api.py` (the views), `plugin.py` (the mount points,
   the menu item, the scripts, the signal receivers). State is
@@ -86,7 +86,9 @@ it short; edit in place.
   link or anchor fails it); `.venv/bin/zensical serve` previews on http://localhost:8000. The site is published
   with each release, so it describes the released version.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
-  descriptions and messages are sentences.
+  descriptions and messages are sentences. Articles, conjunctions and prepositions of three letters or fewer are
+  lower case unless first ("Set Up a Splat Node", "Crop to Boundary"); longer ones are capitalised ("New Task With
+  Splats", "Continue From Step").
 - Planned in `upcoming-changes.md` (with what the design must respect); new requests arrive in `new.md`
   (untracked).
 

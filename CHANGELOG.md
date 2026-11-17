@@ -21,7 +21,7 @@ Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 c
   while the node restarts), is waited for up to an hour, then asked to drop the job. A cancel during the import keeps the task's model. A job whose worker keeps dying
   (memory) fails with the reason.
 - GCP, geo and image group files, alignment files and ODM's masks no longer hide a task from SplatMe → Tasks, nor
-  make a thermal task not thermal. Crop To Boundary leaves out what is in a boundary's holes. A thermal task of
+  make a thermal task not thermal. Crop to Boundary leaves out what is in a boundary's holes. A thermal task of
   thousands of photos finds its range in bounded memory.
 - **SplatMe → Tasks**: New Task With Splats no longer replaces a task whose files are being sent; it names photos
   SplatMe cannot train. Closing Train Splats or Change while it is answered no longer loses the training or the

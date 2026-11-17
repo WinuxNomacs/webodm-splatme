@@ -100,9 +100,9 @@ export default class TrainDialog extends React.Component {
                         </div> : ""}
                     {resume && !blocked ?
                         <div className="form-group">
-                            <label className="col-sm-4 control-label">{_("More Steps")}</label>
+                            <label className="col-sm-4 control-label" htmlFor="splatme-more-steps">{_("More Steps")}</label>
                             <div className="col-sm-8">
-                                <input type="number" min="1" className="form-control splatme-more-steps" value={more}
+                                <input type="number" min="1" className="form-control splatme-more-steps" id="splatme-more-steps" value={more}
                                        onChange={e => this.setState({more: e.target.value, error: null})} />
                                 <StagesTable total={total} from={trained} />
                                 <span className="help-block">

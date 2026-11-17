@@ -166,7 +166,7 @@ describe("a task's automatic training", () => {
         expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
     });
 
-    test("Crop To Boundary is on unless it is unticked", () => {
+    test("Crop to Boundary is on unless it is unticked", () => {
         expect(optionsFromForm({steps: "2000", image_size: "1600", crop: true}, null).options).toEqual({steps: 2000, image_size: 1600});
         expect(optionsFromForm({steps: "2000", image_size: "1600", crop: false}, null).options).toEqual({steps: 2000, image_size: 1600, crop: false});
         expect(formFromOptions({steps: 2000, crop: false}).crop).toBe(false);
