@@ -17,6 +17,7 @@ nav = [
   { "Install, Upgrade, Uninstall" = "install.md" },
   { "Using SplatMe" = "using.md" },
   { "The Splat Node" = "splat-node.md" },
+  { "How It Works" = "how-it-works.md" },
   { "The Plugin's API" = "api.md" },
   { "Development" = "development.md" },
   { "Changelog" = "changelog.md" },

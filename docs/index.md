@@ -31,6 +31,7 @@ and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-
 - [Using SplatMe](using.md): training, its options, following a training, and training automatically.
 - [The Splat Node](splat-node.md): the GPU container, its settings and API, and HTTPS to a node on another
   machine.
+- [How It Works](how-it-works.md): what SplatMe takes from WebODM, and how OpenSplat trains a model from it.
 - [The Plugin's API](api.md) and [Development](development.md).
 
 ## Thanks
