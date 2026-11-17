@@ -9,7 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
+1. The rest of the review of 0.2.0's findings (D–H, N, O, R, S, U), before 0.2.0's tag (the user's decision,
+   2026-11-16). See "The rest of the review's findings".
+2. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
    0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
    confirmation; the entry waits for the user's approval).
 
@@ -19,8 +21,6 @@ other software. The plugin does that step.
 
 **Later**
 
-2. The rest of the review of 0.2.0's findings (D–G, H, N, O, R, S, U), to review with the user before a release
-   (the user's decision, 2026-11-16). See "Release review of 0.2.0 (done)".
 3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
@@ -536,6 +536,81 @@ linked to the full one; the 3D view screenshot stays below the opening paragraph
 the licence in the README). Each link answered (2026-11-16). `zensical build` strict: no issues; the Home page
 headless at 1,280 and 320 px: no console errors, no sideways scroll.
 
+### The rest of the review's findings (planned)
+
+Asked 2026-11-16: the findings of "Release review of 0.2.0 (done)" left for later are fixed before 0.2.0's tag.
+Node 0.2.2 is not published yet, so the node's changes stay 0.2.2 (no new `VERSION`). Each fix gets a test that
+makes its failure happen, seen failing first.
+
+*Unattended trainings (training.py)*
+
+- **D**: `start()` replacing a stale record deletes that record's node job first (as `cancel()` of a stale job does);
+  an automatic start goes through `start()`, so it is covered too.
+- **E**: a new record is created under a lock on SplatMe's own `Plugin` row (`select_for_update`), the one row that
+  always exists, since WebODM's data store has no unique key: `start()` reads the current record and writes the new
+  one under it, so a second request sees the first's record ("already being trained"). `ensure_follower()`, which
+  creates its record the same way, takes the same lock.
+- **F**: the follower keeps its samples per node job, not per task, so a new training starts from none.
+- **G**: a takeover counts only when the run it replaces had started (`run()` marks its record as it starts): a run
+  still waiting in WebODM's worker queue is not a lost worker. A job that fails by the takeover limit while
+  importing keeps its node job (the node deletes it after its keep-hours), as its model is finished.
+- **H**:
+  - splat-tools gets a deadline (1 hour; killed, then "The trained model could not be converted: splat-tools took
+    longer than an hour").
+  - The model, the kept `.ply` and its options are first written beside their places under temporary names, then
+    renamed in place one after another: a failure while writing leaves the task as it was.
+  - An answer from the node that is not JSON (a proxy's page) is a `NodeError` ("The splat node at … answered
+    something that is not a splat node's answer"), which the follower treats as a node not answering, with its hour
+    of patience.
+  - An upload whose answer is lost (the connection drops after the zip is sent): SplatMe sends its run id with the
+    upload (`ref`, which the node stores and lists in `GET /jobs`); when the answer is lost, it asks the node for the
+    job with that `ref` and deletes it before the training fails.
+
+*The pages*
+
+- **N**: the Tasks page stops asking while its tab is hidden and asks again when it shows. While a task processes it
+  follows that task's status through WebODM's own task API (no folder read) and reloads the whole list only when a
+  task's status changes.
+- **O**:
+  - Labels tied to their fields (`htmlFor`/`id`): Steps, Image Size, Max Gaussians, Quality, Thermal Colours, More
+    Steps.
+  - A failed New Task With Splats keeps the typed task name.
+  - Title Case, one rule (the one most names already follow): articles, conjunctions and prepositions of three
+    letters or fewer are lower case unless first ("Set Up a Splat Node", "Install the Plugin"); longer words are
+    capitalised ("New Task With Splats", "Continue From Step"). Two names change: Crop To Boundary → **Crop to
+    Boundary**, Use The Administrators' Defaults → **Use the Administrators' Defaults**, in the pages and the docs.
+    The rule goes into `CLAUDE.md`.
+
+*The splat node and its script*
+
+- **R**:
+  - A trainer that has not ended a minute after SIGKILL (stuck in the driver) fails its job ("The trainer could not
+    be stopped") and the worker ends, so the process exits and Docker starts it again.
+  - A watchdog thread exits the process when the worker's heartbeat is older than its limit (today only `/health`
+    says 503, which Docker does not act on).
+  - Deleting a running job moves its `job.json` to the trash at once, so a restart before its trainer stops does
+    not bring it back as failed.
+- **S**:
+  - `upgrade` asks first when the node is training (`/info`'s `running`): "A training runs on the node: the upgrade
+    restarts the node and that training fails. Upgrade now?" [y/N]. With no terminal it stops and names `--force`.
+  - `connect --webodm` on a node that listens on every address says that it will then listen on this machine only
+    (a WebODM on another machine can no longer reach it) and asks first.
+  - `status` on a node that is not running says how to start it (the `docker compose … up -d` command for its
+    folder).
+
+*The release*
+
+- **U** (`release.yml`):
+  - Only "manifest unknown" from ghcr.io means a version is not published; any other error fails the job, never a
+    build over a published version.
+  - `latest` moves only to a version at least as new as the one it points to (its `org.opencontainers.image.version`
+    label, compared as versions), so a tag on an older commit or a run by hand cannot move it back.
+  - The login reads the token from the step's environment.
+  - Tested by running the steps' shell on the host against a stand-in `docker`; the workflow itself first runs with
+    the tag.
+
+**Decided with the user (2026-11-16):** the Title Case rule and `upgrade`'s question as proposed above.
+
 ### Release check of 0.2.0 (done)
 
 On a throwaway production WebODM 4.0.0 (port 8018, project `sm-scratch`, its own volumes and administrator,
@@ -622,7 +697,8 @@ Then a live sweep of the pages on the dev stack (reading only, 320 and 1,280 px,
 checked; what was found sound. No change is made during the review.
 
 **Decided with the user (2026-11-16):** the recommendation: A, B, C, I, J, K, L, M, P, Q, T and the documentation go
-into 0.2.0; the rest waits, to be reviewed with the user before a release. **Was open:** which go into 0.2.0 and which wait; for the documentation, the list of
+into 0.2.0; the rest waits, to be reviewed with the user before a release. Then (2026-11-16) the user chose to fix the
+rest before 0.2.0 too: "The rest of the review's findings". **Was open:** which go into 0.2.0 and which wait; for the documentation, the list of
 removals and corrections is shown before it is applied.
 
 **Found (2026-11-16).** Four parts read in parallel (the plugin's Python, its pages, the node and the release, the
