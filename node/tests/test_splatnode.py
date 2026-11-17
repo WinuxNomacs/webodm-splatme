@@ -273,6 +273,21 @@ class TestSplatNode(NodeTestCase):
             self.assertEqual(response.status, 400, query)
         self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
 
+    def test_a_job_keeps_the_clients_ref_and_is_found_by_it(self):
+        job = self.create("steps=20&ref=run-1_a")
+        self.create("steps=20&ref=other")
+        self.assertEqual(job["ref"], "run-1_a")
+        found = self.request("GET", "/jobs?ref=run-1_a")[1]
+        self.assertEqual([j["id"] for j in found], [job["id"]])
+        self.assertEqual(len(self.request("GET", "/jobs")[1]), 2)
+        self.assertEqual(self.request("GET", "/jobs?ref=nothing")[1], [])
+
+    def test_a_ref_that_is_not_a_short_name_is_refused(self):
+        for ref in ("a%20b", "x" * 65, "..%2Fx"):
+            response = self.request("POST", "/jobs?ref=" + ref, body=training_zip())[0]
+            self.assertEqual(response.status, 400, ref)
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+
     def test_an_unknown_job_or_path_is_not_found(self):
         self.assertEqual(self.request("GET", "/jobs/" + "0" * 32)[0].status, 404)
         self.assertEqual(self.request("GET", "/jobs/..%2F..")[0].status, 404)
@@ -416,6 +431,47 @@ class TestFailures(NodeTestCase):
         response, data = self.request("GET", "/health", token="")
         self.assertEqual(response.status, 503)
         self.assertFalse(data["ok"])
+
+    def test_a_trainer_that_survives_sigkill_fails_its_job_and_ends_the_worker(self):
+        node = self.server.node
+        node.kill_wait = 0.5
+        os.environ["FAKE_TRAINER"] = "stubborn"
+        job = self.create()
+        self.wait_for_a_step(job["id"])
+        process = node.process
+        self.addCleanup(process.kill)
+        self.patch(node, "signal", lambda process, sig: None)  # as if stuck in the driver
+        self.request("POST", "/jobs/{}/cancel".format(job["id"]))
+        node.worker.join(10)
+        self.assertFalse(node.worker.is_alive())
+        self.assertEqual(self.worker_deaths, [True])
+        failed = self.request("GET", "/jobs/" + job["id"])[1]
+        self.assertEqual((failed["state"], failed["error"]),
+                         ("failed", "The trainer could not be stopped: the splat node restarts"))
+
+    def test_a_worker_that_stops_beating_ends_the_process(self):
+        node = self.server.node
+        self.patch(type(node), "beat", lambda self: None)
+        node.heartbeat -= node.HEARTBEAT_LIMIT + 1
+        for _ in range(40):
+            if self.worker_deaths:
+                break
+            time.sleep(0.1)
+        self.assertEqual(self.worker_deaths, [True])
+
+    def test_a_running_job_deleted_does_not_come_back_after_a_restart(self):
+        node = self.server.node
+        os.environ["FAKE_TRAINER"] = "slow"
+        job = self.create()
+        self.wait(job["id"], ("running",))
+        # The node stops before the trainer has, as in a crash: the job's folder is still there
+        self.patch(type(node), "finish_job", lambda self, job_id, state, error=None: None)
+        self.assertEqual(self.request("DELETE", "/jobs/" + job["id"])[0].status, 200)
+        self.stop()
+        os.environ.pop("FAKE_TRAINER")
+        self.start()
+        self.assertEqual(self.request("GET", "/jobs/" + job["id"])[0].status, 404)
+        self.assertFalse(os.path.exists(os.path.join(self.data, "jobs", job["id"])))
 
     def test_a_worker_that_stops_beating_shows_in_health(self):
         node = self.server.node
