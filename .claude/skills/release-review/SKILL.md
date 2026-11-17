@@ -72,5 +72,5 @@ as a plain user; console errors read (the dev stack's livereload one is expected
   confirmed again in the code or a run. The documentation's findings list each removal and correction.
 - Recorded in `upcoming-changes.md` as "Release review of X.Y.Z", with what was found sound.
 - The user decides which findings go into the release. The fixes are built on branches with tests (the `test`
-  skill), then the release check on a throwaway WebODM (the last release installed, upgraded to this one), then
+  skill), then the release check on a throwaway WebODM (the `release-check` skill: the last release installed, upgraded to this one), then
   the release, which the user approves.

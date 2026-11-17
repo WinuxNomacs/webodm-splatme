@@ -61,7 +61,8 @@ it short; edit in place.
   runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum), `splatnode.sh` (install,
   upgrade, status, connect, uninstall: writes its own compose file and token to `~/splatnode`, joins WebODM's
   network and saves the address and token in SplatMe's settings through `manage.py` when WebODM runs on the same
-  machine; test it with `SPLATNODE_DIR`, `SPLATNODE_PROJECT` and `SPLATNODE_IMAGE=splatme-node:dev`, against a
+  machine; test it with `SPLATNODE_DIR`, `SPLATNODE_PROJECT` and `SPLATNODE_IMAGE=splatme-node:dev` (with no
+  terminal, as when piped: `setsid -w bash node/splatnode.sh ... </dev/null`), against a
   throwaway WebODM, never the user's stacks) and `compose.yml` (running it without the script). It is not part of
   the plugin's zip. The service is built to fail safely (its docstring lists how): its job state changes only in
   `Node.transition`, files are deleted outside the lock, every wait has a deadline, and a failure its worker
@@ -71,19 +72,27 @@ it short; edit in place.
 - **Every release is reviewed first, unless the user says otherwise for that release**: the code for bugs and
   weak areas to harden, and the documentation for accuracy and for saying only what helps its reader. The
   `release-review` skill in `.claude/skills` has the procedure; its findings go to the user, who decides which
-  are fixed before the tag.
+  are fixed before the tag. Then the `release-check` skill rehearses an existing user's upgrade on a throwaway
+  WebODM (the last release installed, upgraded to the new zip and node), run again if shipped code changes after.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
   `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
-  is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation"). A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there: a version's image is built
+  is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation";
+  a run by hand builds the node's image too, without pushing it, before the docs deploy: about 30 minutes). A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there: a version's image is built
   once, and carries a hash of those two files, so a release whose node changed under a published version fails. Never add a
   push or pull-request trigger.
-- **The documentation is the site in `docs/`** (https://winuxnomacs.github.io/webodm-splatme/), built with
+- **Each release's entry in WebODM's plugin directory** (the release zip's URL and SHA-256 appended to
+  WebODM-Plugins' `directory.json`) is a branch pushed to the user's fork, `WinuxNomacs/WebODM-Plugins`, from
+  upstream's `main`, with the user's approval; the user reviews it and opens the pull request on GitHub.
+- **The documentation is the site in `docs/`** (https://winuxnomacs.github.io/webodm-splatme/, served at
+  https://winuxnomacs.com/webodm-splatme/: the account's user site has that custom domain), built with
   Zensical (`zensical.toml`; pinned in `requirements-dev.txt` and, with hashes, in `docs/requirements.txt`, which
   the release builds from: upgrade both together). The README only introduces SplatMe (its splash image and
   thanks included) and links to Getting Started and the docs. "Keep the README current" means these pages here: Getting Started, the reference pages,
   and the admin page's links into them (`templates/node.html`). `.venv/bin/zensical build` is strict (a broken
-  link or anchor fails it); `.venv/bin/zensical serve` previews on http://localhost:8000. The site is published
+  link or anchor fails it, but not a list item swallowed by the paragraph above it: a bullet after an indented
+  paragraph in the item before needs a blank line, so check the rendered page); `.venv/bin/zensical serve`
+  previews on http://localhost:8000. The site is published
   with each release, so it describes the released version.
 - **Names in the UI are in Title Case**: headings, buttons, menu items and setting names ("Train Splats");
   descriptions and messages are sentences. Articles, conjunctions and prepositions of three letters or fewer are
@@ -127,7 +136,8 @@ it short; edit in place.
 
 ## Tests and checks
 
-The `test` skill in `.claude/skills` has the steps; the `release-review` skill, the review before a release.
+The `test` skill in `.claude/skills` has the steps; the `release-review` skill, the review before a release;
+the `release-check` skill, the upgrade rehearsal before the tag.
 
 - Django: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
   One run at a time: runs share the stack's test database.
