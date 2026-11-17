@@ -21,6 +21,14 @@ with a terminal on WebODM's machine, and on the GPU machine if that is another o
     You should see your GPU listed (`GPU 0: NVIDIA GeForce …`). An error here means the driver or the NVIDIA
     Container Toolkit is missing; the splat node's install would stop at the same point.
 
+- **A network path from WebODM to the splat node**, when the node runs on another machine. WebODM sends each
+  training's photos to the node and asks it for progress and the model over HTTP, on the node's port (3100 unless
+  installed with `--port`, or the port of an
+  [HTTPS proxy](splat-node.md#https-to-a-node-on-another-machine) in front of it). Any firewall in between, on
+  either machine or a device on the network, must let WebODM's machine connect to that port and the answers come
+  back over the same connections. The node never connects to WebODM. On WebODM's own machine, nothing is needed:
+  the node joins WebODM's Docker network.
+
 ### 2. Install the Plugin
 
 In WebODM, open **Administration → Plugins**:
