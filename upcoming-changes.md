@@ -9,9 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release": 0.1.0 and
-   0.1.1 are released; 0.2.0 waits for its tag; before the tag, Pages is switched on with the user's
-   confirmation; the entry waits for the user's approval).
+1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release"). 0.2.0 is
+   released (2026-11-17), with node 0.2.2 and the docs on Pages. The entry is on the user's fork of
+   WebODM-Plugins, branch `add-splatme`; the user opens the pull request from GitHub after reviewing it.
 
 **Then**
 
@@ -2232,6 +2232,16 @@ pages, no errors). `v0.1.1` pushed with the user's approval and released (the zi
 Left: the directory entry (0.1.1's URL and SHA-256 appended to WebODM-Plugins' `directory.json`, from the user's
 fork, as TweakUI's was). Its change and description were drafted and shown; the user chose "Not now"
 (2026-11-16), so nothing was sent. It is opened only when the user approves it.
+
+**0.2.0 released (2026-11-17).** Pages switched on by the user (source GitHub Actions; the `github-pages`
+environment allows `main` and tags `v*`). The site is served at https://winuxnomacs.com/webodm-splatme/: the
+user's site `winuxnomacs.github.io` has that custom domain, so the `github.io` addresses redirect there. Enforce
+HTTPS was off on that site's repository and is now on. `v0.2.0` pushed with the user's approval on e88386c; the
+run published node 0.2.2 on ghcr.io (`latest` moved to it; its inputs label the hash of `node/`), the release
+"SplatMe 0.2.0" (the zip's SHA-256 `d2e6443eb95fde59f5196643848afd3b63c843b28333ac761c365233208221a4`, the same
+as a local build of the tag; `releases/latest/download/splatnode.sh` the tag's) and the docs. The directory
+entry (0.2.0's URL and SHA-256 appended to `directory.json`) is commit f103215 on branch `add-splatme` of the
+user's fork, pushed with the user's approval; the user reviews it and opens the pull request from GitHub.
 
 ### 5. Pull requests to WebODM (a SplatMe section in Task Options, the New Task panel's row)
 
