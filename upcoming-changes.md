@@ -15,18 +15,21 @@ other software. The plugin does that step.
 
 **Then**
 
-(nothing yet)
+2. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
+   quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
+   decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
+   (to evaluate before the release after 0.2.0)".
 
 **Later**
 
-2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "6. Steps for an Image Size (proposed)".
+   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 2's quality testing.
 
 **Dropped**
 
@@ -2237,3 +2240,44 @@ and peak GPU memory (about 25 to 30 trainings, a night of the GPU). Then the nod
 Also worth trying: a later end to the growing for large photos (`--densify-until`), as the growing stops at step
 15,000 however many steps. No percentage of quality is shown: it depends on the scene and the steps. Not yet
 decided by the user.
+
+### 7. OpenSplat's other training options (to evaluate before the release after 0.2.0)
+
+Asked by the user (2026-11-17): review OpenSplat for further quality options SplatMe could offer. Recorded to be
+evaluated again before the next release after 0.2.0, likely with quality testing first.
+
+Builds on: "OpenSplat presets (built)" (the study of every option, and the measurements of steps, Image Size,
+SH degree and Max Gaussians on the dev GPU) and "Continue training (built)".
+
+**Review (2026-11-17, OpenSplat at e33f9dd, the node's pin and still upstream's latest commit).** No new field
+in Advanced is recommended: what is left either belongs inside a preset or an Image Size, or means nothing to
+someone choosing a training.
+
+- **Worth measuring**:
+  - `--densify-until` (default half the steps, at most 15,000): the step after which the trainer only refines
+    the gaussians it has. High (30,000) stops growing at 15,000, and a continued training past that step grows
+    nothing. A later end could add detail to large scenes and continued trainings, for more GPU memory.
+  - `--num-downscales` (default 0, off) with `--resolution-schedule` (3,000): train on smaller copies of the
+    photos first, doubling their size every few thousand steps. 2,400 px gave nothing at 7,000 steps for twice
+    the time; starting small is the usual remedy, and saves time early on. The scoring that chooses where to
+    add detail uses the same smaller photos.
+  - Either would be set by a preset or by the Image Size, not shown as a field.
+- **Smaller extras**: `--refine-every` and `--densify-from` (500 each) earlier for Draft, which densifies once
+  (at step 1,000): 250 from 250 gave 0.9 dB at 2,000 steps. `--val` as a quality score in the training's log
+  (one photo held out and scored by PSNR at the end, at the cost of not training on it).
+- **Not worth exposing**: `--ssim-weight` (0.2, the usual mix of pixel and structural loss), `--loss-thresh`
+  (0.1) and `--no-edge-guidance` (internal to the multi-view scoring), `--sh-degree-interval` (1,000),
+  `--no-masks` (Ignore Sky needs the masks), `--downscale-factor` (Image Size resizes in WebODM's export).
+
+**Quality testing first.** On the dev GPU (8 GB), each scored on held-out photos at full resolution, with time
+and peak GPU memory: `--densify-until` later on High and on a continued training; coarse-to-fine at 2,400 px and
+full size; optionally Draft refining every 250. About 12 to 16 trainings (30,000 steps takes about 26 minutes),
+an evening; one night with phase 5's grid. Also a nadir-only task and a small one, which the presets' study
+lacked.
+
+**What adopting one needs**: new node options (node 0.2.3: a new `VERSION`, as the image is built once per
+version), sent only to a node that has them (as `REF_VERSION` gates `ref`: an older node refuses an unknown
+option), the presets' hints measured again, and Continue keeping the options a model was trained with.
+
+Open decisions (with the user, after the testing): which options a preset or Image Size sets, and whether `--val`'s
+score is shown.
