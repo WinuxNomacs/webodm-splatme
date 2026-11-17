@@ -50,6 +50,7 @@ RESULT_TRIES = 5  # downloads of a trained model before the training fails (the 
 FOLLOWER_ERRORS = 30  # errors of its own in a row (BEAT seconds apart) before the follower ends, for revive to start anew
 REVIVE_EVERY = 30  # seconds between looks for jobs that lost their worker, from WebODM's events and pages
 TAKEOVERS = 3  # times a job's export or import may lose its worker (killed: memory) before the job fails
+CONVERT_TIMEOUT = 3600  # seconds splat-tools may take to convert a trained model
 # The states in which the node has a job, followed by the follower rather than by the job's own worker job
 HANDED = ("queued", "training")
 FOLLOWER = "follower"
@@ -259,6 +260,15 @@ def cancel_requested(task_id):
 def forget(task_id):
     store().del_key(job_key(task_id))
     store().del_key(cancel_key(task_id))
+
+
+def lock_records():
+    """
+    Inside a transaction: waits for, and holds until it ends, the lock under which SplatMe's records are created.
+    WebODM's data store has no unique key: two requests creating the same record at once make two rows, which it
+    then deletes both of. The lock is on SplatMe's own Plugin row, the one row that always exists.
+    """
+    Plugin.objects.select_for_update().filter(name=NAME).first()
 
 
 def work_dir(task_id, run=None):
@@ -492,18 +502,22 @@ def start(task, username, given, auto=False):
     options = parse_options(given, node_info)
     sweep()
 
-    if current and current["state"] in ACTIVE and not is_stale(current):
-        raise TrainingError("This task's splats are already being trained.")
-
     run = uuid.uuid4().hex
     now = time.time()
     job = {
         "state": "starting", "run": run, "options": options, "user": username, "auto": auto, "progress": 0,
         "status": "", "node_job": None, "error": None, "started": now, "updated": now, "finished": None,
-        "resume": resume, "source": reconstruction(task),
+        "resume": resume, "source": reconstruction(task), "waiting": run,
     }  # fmt: skip
-    store().del_key(cancel_key(task.id))
-    store().set_json(job_key(task.id), job)
+    with transaction.atomic():
+        lock_records()
+        current = get_job(task.id)  # again, under the lock: another request may have just started one
+        if current and current["state"] in ACTIVE and not is_stale(current):
+            raise TrainingError("This task's splats are already being trained.")
+        store().del_key(cancel_key(task.id))
+        store().set_json(job_key(task.id), job)
+    if current and current["state"] in ACTIVE:
+        drop_node_job(current)  # a record that lost its worker: its node job would train on, followed by nobody
     run_function_async(run_job, PACKAGE, str(task.id), run)
     return get_job(task.id)
 
@@ -546,7 +560,7 @@ def completed(task_id):
         logger.warning(f"SplatMe: task {task.id} completed and its training did not start: {e}")
 
 
-def stop_job(task_id, state, error):
+def stop_job(task_id, state, error, keep_node_job=False):
     """Ends the task's job here, with the reason: its worker job stops at its next report."""
     job = get_job(task_id)
 
@@ -555,7 +569,7 @@ def stop_job(task_id, state, error):
             j.update(state=state, run=None, error=error, status="", time_left=None, finished=time.time())
 
     change_job(task_id, stop)
-    if job:
+    if job and not keep_node_job:
         drop_node_job(job)
     shutil.rmtree(work_dir(task_id), ignore_errors=True)
     return get_job(task_id)
@@ -586,9 +600,11 @@ def follow(task):
 
     def take_over(j):
         if is_stale(j):
-            if j["state"] not in HANDED:  # the follower's jobs are taken over whenever it restarts
+            # Not the follower's jobs (taken over whenever it restarts), nor a run that never started (it waited in
+            # WebODM's worker queue): only a worker lost mid-work counts
+            if j["state"] not in HANDED and j.get("waiting") != j.get("run"):
                 j["takeovers"] = j.get("takeovers", 0) + 1
-            j.update(run=run, updated=time.time())
+            j.update(run=run, waiting=run, updated=time.time())
 
     job = change_job(task.id, take_over)
     if job and job.get("run") == run and job.get("takeovers", 0) > TAKEOVERS:
@@ -597,6 +613,7 @@ def follow(task):
             task.id, "failed",
             f"The training stopped {job['takeovers']} times while {job['state']}: WebODM's worker may have run out "
             "of memory. Try a smaller Image Size.",
+            keep_node_job=job["state"] == "importing",  # its model is trained: the node deletes it after its keep-hours
         )  # fmt: skip
     if job and job.get("run") == run:
         logger.info(f"SplatMe: the job of task {task.id} lost its worker, starting another")
@@ -719,6 +736,10 @@ def run(task_id, run):
     job = get_job(task_id)
     if not job or job.get("run") != run:
         return
+    try:
+        update(task_id, run, waiting=None)  # it started: losing it from here on counts as a takeover
+    except Superseded:
+        return
     node = get_node()
     node_job = job.get("node_job")
     try:
@@ -831,7 +852,15 @@ def export_and_send(task_id, run, node, options, work, resume=None):
             yield chunk
 
     node_options = {name: options[name] for name in NODE_OPTIONS if options.get(name) is not None}
-    node_job = node.create_job(body(), total, node_options)["id"]
+    ref = run if node.keeps_refs() else None
+    try:
+        node_job = node.create_job(body(), total, {**node_options, "ref": ref} if ref else node_options)["id"]
+    except NodeError as e:
+        # The answer was lost (the connection dropped once the zip was sent): the job, if the node made it, is ours
+        found = node.jobs(ref) if ref and e.status is None else []
+        if not found:
+            raise
+        node_job = found[0]["id"]
     try:
         update(task_id, run, state="queued", node_job=node_job, status="", progress=0)
     except Superseded:
@@ -897,6 +926,7 @@ def ensure_follower():
     """Starts the follower, unless one is alive."""
     frun = uuid.uuid4().hex
     with transaction.atomic():
+        lock_records()
         key = store().db_key(FOLLOWER)
         datum = PluginDatum.objects.select_for_update().filter(key=key, user=None).first()
         if datum is None:
@@ -951,7 +981,7 @@ def follower_done(frun):
 
 def follow_node(frun):
     """The follower: follows every training the node has, and starts each trained one's import."""
-    seen = {}  # task id: what follow_job keeps between looks (the time left's samples, since when the node is silent)
+    seen = {}  # node job: what follow_job keeps between looks (the time left's samples, since when the node is silent)
     errors = 0
     while True:
         try:
@@ -980,23 +1010,23 @@ def follow_all(frun, seen):
     node = get_node()
     for task_id, job in jobs:
         try:
-            follow_job(task_id, job["run"], node, job["node_job"], seen.setdefault(task_id, {}))
+            follow_job(task_id, job["run"], node, job["node_job"], seen.setdefault(job["node_job"], {}))
         except Superseded:
-            seen.pop(task_id, None)
+            seen.pop(job["node_job"], None)
         except Canceled:
-            seen.pop(task_id, None)
+            seen.pop(job["node_job"], None)
             drop_node_job(job)
             finish(task_id, job["run"], "canceled")
             if not Task.objects.filter(pk=task_id).exists():
                 forget(task_id)
         except (TrainingError, NodeError) as e:
-            seen.pop(task_id, None)
+            seen.pop(job["node_job"], None)
             logger.warning(f"SplatMe: training task {task_id} failed: {e}")
             if isinstance(e, NodeError):
                 drop_node_job(job)  # a node unwell this long may still train it once it is well again
             finish(task_id, job["run"], "failed", str(e))
         except Exception as e:
-            seen.pop(task_id, None)
+            seen.pop(job["node_job"], None)
             logger.exception(f"SplatMe: following task {task_id}'s training failed")
             finish(task_id, job["run"], "failed", f"Unexpected error: {e}")
     return True
@@ -1029,7 +1059,8 @@ def follow_job(task_id, run, node, node_job, memory):
         def to_import(j):
             if j.get("run") != run:
                 raise Superseded()
-            j.update(state="importing", run=importing, progress=0, status="", time_left=None, updated=time.time())
+            j.update(state="importing", run=importing, waiting=importing, progress=0, status="", time_left=None,
+                 updated=time.time())
 
         if change_job(task_id, to_import) is None:
             raise Superseded()
@@ -1054,10 +1085,16 @@ def convert(trained, model):
     """The trainer's .ply as the .rad WebODM's viewer shows, as WebODM's own import makes it (process_splats)."""
     if shutil.which("splat-tools") is None:
         raise TrainingError("WebODM's splat-tools is not available, so the trained model cannot be converted.")
-    p = subprocess.run(
-        ["splat-tools", "--quality", "-o", model, trained], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        check=False,
-    )  # fmt: skip
+    try:
+        p = subprocess.run(
+            ["splat-tools", "--quality", "-o", model, trained], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            check=False, timeout=CONVERT_TIMEOUT,
+        )  # fmt: skip
+    except subprocess.TimeoutExpired:
+        minutes = round(CONVERT_TIMEOUT / 60)
+        raise TrainingError(
+            f"The trained model could not be converted: splat-tools took longer than {minutes} minutes."
+        ) from None
     if p.returncode != 0 or not os.path.isfile(model):
         tail = p.stderr.decode("utf-8", "replace").strip().splitlines()[-1:]
         reason = tail[0][:300] if tail else "splat-tools failed"
@@ -1077,6 +1114,32 @@ def download(task_id, run, node, node_job, dest):
             logger.warning(f"SplatMe: downloading task {task_id}'s model failed, trying again: {e}")
             update(task_id, run, status=f"The download stopped: trying again ({attempt} of {RESULT_TRIES - 1})")
             time.sleep(5 * POLL * attempt)
+
+
+NEW = ".splatme-new"  # a file written beside the one it replaces
+
+
+def replace_files(task, model, trained, options):
+    """
+    The task's model, the .ply it was made from and its options, replaced together: each is first written beside its
+    place (a failure there leaves the task as it was), then renamed in place. The model first: a .ply older than the
+    model shown is not continued from (trained_steps).
+    """
+    dest, kept, options_file = task.get_asset_file_or_stream("splats.rad"), trained_model(task), trained_options_file(task)
+    try:
+        shutil.move(model, dest + NEW)
+        shutil.move(trained, kept + NEW)
+        os.utime(kept + NEW)  # not older than the model made from it: see trained_steps
+        with open(options_file + NEW, "w") as f:
+            json.dump(options, f)
+        for path in (dest, kept, options_file):
+            os.replace(path + NEW, path)
+    finally:
+        for path in (dest, kept, options_file):
+            try:
+                os.remove(path + NEW)
+            except FileNotFoundError:
+                pass
 
 
 def import_model(task_id, run, node, node_job, work):
@@ -1114,12 +1177,7 @@ def import_model(task_id, run, node, node_job, work):
         raise TrainingError("The task was processed again while its splats trained. Start the training again.")
     dest = task.get_asset_file_or_stream("splats.rad")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    shutil.move(model, dest)
-    kept = trained_model(task)
-    shutil.move(trained, kept)
-    os.utime(kept)  # not older than the model made from it: see trained_steps
-    with open(trained_options_file(task), "w") as f:
-        json.dump(options, f)
+    replace_files(task, model, trained, options)
     task.refresh_from_db()
     task.update_available_assets_field()
     task.update_size()

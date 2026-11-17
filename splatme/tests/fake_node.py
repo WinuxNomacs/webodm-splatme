@@ -26,7 +26,8 @@ class FakeNode:
         self.token = token
         self.version = "0.2.0"
         self.script = [("queued", {"position": 1}), ("running", {"progress": 50, "step": 5}), ("completed", {})]
-        self.failures = []  # statuses its next job status requests answer (a proxy's 502 while the node restarts)
+        self.failures = []  # statuses its next job status requests answer with a page (a proxy's 502 while the node restarts)
+        self.lose_answer = False  # the next new job's answer is lost: the connection closes once the job is made
         self.jobs = {}  # id -> {"options", "names" (the zip's files), "resume" (the model it continues), "asked" (status requests), "deleted"}
         node = self
 
@@ -52,16 +53,26 @@ class FakeNode:
                 parts = [p for p in path.split("/") if p]
                 if parts == ["info"]:
                     return self.send(200, node.info())
+                params = dict(pair.split("=") for pair in query.split("&") if pair)
+                if parts == ["jobs"] and self.command == "GET":
+                    found = [node.describe(i) for i, j in node.jobs.items() if j.get("ref") == params.get("ref")]
+                    return self.send(200, found)
                 if parts == ["jobs"] and self.command == "POST":
                     job_id = f"job{len(node.jobs) + 1}"
-                    options = {k: int(v) for k, v in (pair.split("=") for pair in query.split("&") if pair)}
+                    ref = params.pop("ref", None)
+                    options = {k: int(v) for k, v in params.items()}
                     with zipfile.ZipFile(io.BytesIO(body)) as z:
                         names = z.namelist()
                         resume = z.read("resume.ply") if "resume.ply" in names else None
                         masks = {name: z.read(name) for name in names if name.startswith("masks/")}
                     node.jobs[job_id] = {
                         "options": options, "names": names, "resume": resume, "masks": masks, "asked": 0, "deleted": False,
+                        "ref": ref,
                     }  # fmt: skip
+                    if node.lose_answer:
+                        node.lose_answer = False
+                        self.close_connection = True
+                        return None
                     return self.send(201, node.describe(job_id))
                 job = node.jobs.get(parts[1]) if len(parts) > 1 and parts[0] == "jobs" else None
                 if job is None or job["deleted"]:
