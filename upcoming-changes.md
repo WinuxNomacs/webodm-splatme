@@ -609,8 +609,7 @@ makes its failure happen, seen failing first.
   - Tested by running the steps' shell on the host against a stand-in `docker`; the workflow itself first runs with
     the tag.
 
-**Open:** none: no question changes what is built. The Title Case rule and `upgrade`'s question are proposed above
-for the user to correct.
+**Decided with the user (2026-11-16):** the Title Case rule and `upgrade`'s question as proposed above.
 
 ### Release check of 0.2.0 (done)
 
