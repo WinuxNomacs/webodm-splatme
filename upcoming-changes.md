@@ -18,9 +18,9 @@ other software. The plugin does that step.
 2. Splat editing (asked 2026-11-18): an editor page of SplatMe's own (Edit on SplatMe → Tasks), on upstream
    Spark 2.4.0 and three.js 0.187.0 vendored in the plugin: Box and Polygon crop, a Lasso that removes what is
    behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
-   converted again; a retraining applies them again. In steps: 2a the renderer test (the trained `.ply` whole in
-   the browser: load time, memory, a box edit, a pick), 2b the edits' pipeline with Box and Polygon, 2c Lasso,
-   2d Floaters. See "8. Splat editing".
+   converted again; a retraining applies them again. In steps: 2a the renderer test (done 2026-11-18: it works,
+   branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (next: plan it in
+   detail with the user), 2c Lasso, 2d Floaters. See "8. Splat editing".
 
 **Then**
 
@@ -2409,6 +2409,19 @@ loaded by an import map on the editor page; checked again when upgraded.
   `.ply` loaded whole; measured: its size and splat count, load time, the browser's memory, frame rate; then a
   `SplatEdit` box hiding what is outside, and a raycast pick. Too heavy for the check task: bring the options to the
   user (a lighter edit copy made on the server, or the paged `.rad`).
+  **Done 2026-11-18** (branch `spike-editor-renderer`, kept, not merged: `templates/editor_spike.html`, a mount
+  point, the vendored files). The check task's `.ply` (216,865 splats, 53,784,100 bytes: 248 bytes a splat, as
+  OpenSplat writes 62 floats) loaded whole by `SplatMesh({url})` from WebODM's asset URL
+  (`/api/projects/<p>/tasks/<t>/assets/splats/splatme-model.ply`, which serves any file under the task's `assets`
+  to those who may view the task) in 0.42 to 0.61 s from the dev stack, the JS heap up 9 to 11 MB (GPU memory not
+  measured), 60 fps at 1280 x 800 (the display's limit) on the dev GPU; `forEachSplat` over all of it in 28 to
+  37 ms; a raycast pick in 14 to 17 ms, hitting the roof; a `SplatEdit` BOX with `invert` and opacity 0 hid
+  everything outside it at once. Learned: Spark also imports `three/addons/postprocessing/Pass.js` (vendored with
+  `three.module.js`, `three.core.js` and `OrbitControls.js`; three.js 0.187.0 ships no minified build, about
+  2.2 MB unminified); a BOX SDF's size comes from its object's `scale` (the exact convention, half or whole size, to
+  pin in 2b); the centres' bounding box is useless for framing (floaters reach 194 m out on a 27 m scene): frame on
+  the middle 90% of the centres. Not yet measured: a larger model (a High training), a phone, Firefox and Safari.
+  Headless Chromium draws nothing at a usable speed with its software renderer; live checks need the GPU.
 - 2b. The edits' pipeline, Apply Edits, the API, edits applied again after a training, the page with Box and
   Polygon, a docs page "Editing Splats".
 - 2c. Lasso. 2d. Floaters.
