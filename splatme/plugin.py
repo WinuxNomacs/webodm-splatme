@@ -5,7 +5,21 @@ from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, Revive, SharedAutomation, Status, Tasks, Train
+from .api import (
+    Apply,
+    Auto,
+    Automation,
+    Cancel,
+    Check,
+    Edits,
+    Log,
+    NodeSettings,
+    Revive,
+    SharedAutomation,
+    Status,
+    Tasks,
+    Train,
+)
 
 
 class Plugin(PluginBase):
@@ -52,6 +66,8 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/cancel$", Cancel.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/log$", Log.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/auto$", Auto.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/edits$", Edits.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/apply$", Apply.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("automation$", Automation.as_view()),
             MountPoint("automation/shared$", SharedAutomation.as_view()),

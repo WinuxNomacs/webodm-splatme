@@ -27,7 +27,7 @@ from nodeodm import status_codes
 from PIL import Image
 from rest_framework.test import APIClient
 
-from .. import crop, sky, thermal, training
+from .. import crop, edits, sky, thermal, training
 from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
@@ -177,7 +177,7 @@ class TestSplatMe(BootTestCase):
             self.status(task),
             {
                 "state": None, "active": False, "has_splats": False, "can_train": True,
-                "task_status": status_codes.COMPLETED,
+                "task_status": status_codes.COMPLETED, "editable": False, "apply": None,
                 "auto": {"enabled": False, "options": training.DEFAULTS}, "listening": None,
             },
         )  # fmt: skip
@@ -1067,6 +1067,244 @@ class TestSplatMe(BootTestCase):
         task_id = task.id
         task.delete()
         self.assertFalse(training.get_auto(task_id)["enabled"])
+
+    # Splat edits
+
+    def edits_url(self, task):
+        return f"{API}/task/{task.id}/edits"
+
+    def put_edits(self, task, items, client=None):
+        return (client or self.client).put(self.edits_url(task), {"edits": items}, format="json")
+
+    def apply(self, task):
+        return self.client.post(f"{API}/task/{task.id}/apply")
+
+    def with_offset(self, task, x, y):
+        """The offset WebODM's export takes off the model's x and y (odm_georeferencing/coords.txt)."""
+        with open(task.assets_path("odm_georeferencing", "coords.txt"), "w") as f:
+            f.write(f"WGS84 UTM 32N\n{x} {y}\n")
+
+    def trained_task(self, points=((0, 0), (3, 0), (0.5, -0.5), (0, -1.5))):
+        task = make_task(self.user)
+        header, rows = self.node_model(points)
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(self.status(task)["state"], "completed")
+        self.converted.clear()
+        return task, header, rows
+
+    def box(self, center, size, keep=True, turn=0):
+        return {"type": "box", "keep": keep, "center": list(center), "size": list(size), "turn": turn}
+
+    def polygon(self, ring, keep=False):
+        return {"type": "polygon", "keep": keep, "ring": [list(p) for p in ring]}
+
+    def test_edits_are_kept_in_the_tasks_projection_and_given_in_its_models_frame(self):
+        task, _, _ = self.trained_task()
+        self.with_offset(task, 1000, 2000)
+        data = self.client.get(self.edits_url(task)).data
+        self.assertEqual(data["edits"], [])
+        self.assertIsNone(data["editable"])
+        self.assertTrue(data["can_edit"])
+        self.assertEqual(data["model"]["splats"], 4)
+        self.assertTrue(data["model"]["url"].endswith(f"/tasks/{task.id}/assets/splats/splatme-model.ply"))
+        # WebODM serves it there
+        self.assertEqual(self.client.get(data["model"]["url"]).status_code, 200)
+        res = self.put_edits(task, [self.box((1, 2, 3), (4, 5, 6), turn=-90), self.polygon([(0, 0), (1, 0), (1, 1)])])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"][0]["center"], [1, 2, 3])
+        self.assertEqual(res.data["edits"][0]["turn"], 270)
+        stored = training.store().get_json(edits.edits_key(task.id))
+        self.assertEqual(stored[0]["center"], [1001, 2002, 3])
+        self.assertEqual(stored[1]["ring"], [[1000, 2000], [1001, 2000], [1001, 2001]])
+        # Processed again with another offset: the shapes stay where they were on the ground
+        self.with_offset(task, 1010, 2000)
+        self.assertEqual(self.client.get(self.edits_url(task)).data["edits"][0]["center"], [-9, 2, 3])
+        self.assertEqual(self.put_edits(task, []).data["edits"], [])
+        self.assertIsNone(training.store().get_json(edits.edits_key(task.id), None))
+
+    def test_edits_that_are_not_shapes_are_refused_and_the_saved_ones_stay(self):
+        task, _, _ = self.trained_task()
+        good = [self.box((0, 0, 0), (1, 1, 1))]
+        self.assertEqual(self.put_edits(task, good).status_code, 200)
+        wrong = [
+            ("not a list", "must be a list"),
+            ([self.box((0, 0, 0), (1, 0, 1))], "must be more than 0"),
+            ([self.box((0, 0), (1, 1, 1))], "must be 3 numbers"),
+            ([self.box((0, "a", 0), (1, 1, 1))], "must be a number"),
+            ([self.box((0, 1e12, 0), (1, 1, 1))], "out of range"),
+            ([{**self.box((0, 0, 0), (1, 1, 1)), "keep": "yes"}], "keeps or removes"),
+            ([self.polygon([(0, 0), (1, 1)])], "from 3 to"),
+            ([{"type": "sphere", "keep": True}], "unknown kind"),
+            ([self.box((0, 0, 0), (1, 1, 1))] * (edits.MAX_EDITS + 1), "at most"),
+        ]
+        for items, reason in wrong:
+            res = self.put_edits(task, items)
+            self.assertEqual(res.status_code, 400, items)
+            self.assertIn(reason, res.data["error"])
+        self.assertEqual(self.client.get(self.edits_url(task)).data["edits"], good)
+
+    def test_edits_in_the_store_that_do_not_read_are_set_aside(self):
+        task, header, rows = self.trained_task()
+        training.store().set_json(edits.edits_key(task.id), [{"type": "box"}])
+        self.assertEqual(self.client.get(self.edits_url(task)).data["edits"], [])
+        self.assertEqual(training.store().get_json(edits.edits_key(task.id), None), None)
+        self.assertEqual(training.store().get_json(edits.unreadable_key(task.id)), [{"type": "box"}])
+        # Nor do they stop a training
+        training.store().set_json(edits.edits_key(task.id), "junk")
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(self.status(task)["state"], "completed")
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+
+    def test_apply_edits_makes_the_shown_model_again_from_the_trained_model(self):
+        task, header, rows = self.trained_task()
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        # Remove what is around (3, 0); keep what is below 6 m (all of it: the gaussians are 5 m up)
+        self.put_edits(task, [self.polygon([(2, -1), (4, -1), (4, 1), (2, 1)]), self.box((0, 0, 0), (100, 100, 12))])
+        res = self.apply(task)
+        self.assertEqual(res.status_code, 200, res.data)
+        status = self.status(task)
+        self.assertEqual(status["apply"]["state"], "completed", status)
+        self.assertEqual(status["apply"]["edited"], 1)
+        self.assertIsNone(status["apply"]["cropped"])
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 3") + rows[[0, 2, 3]].tobytes()])
+        self.assertEqual(self.model(task), MODEL)
+        # The trained model is unchanged and can still be continued from
+        with open(training.trained_model(task), "rb") as f:
+            self.assertEqual(f.read(), header + rows.tobytes())
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"], 10)
+        self.assertTrue(self.status(task)["editable"])
+        # A box that keeps only what is inside, turned: (0.5, -0.5) is in a 1 x 0.2 box along that diagonal
+        self.converted.clear()
+        self.put_edits(task, [self.box((0.25, -0.25, 5), (1, 0.2, 1), turn=-45)])
+        self.apply(task)
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 2") + rows[[0, 2]].tobytes()])
+        # Clear Edits, then Apply: the whole model again
+        self.converted.clear()
+        self.put_edits(task, [])
+        self.apply(task)
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+        self.assertIsNone(self.status(task)["apply"]["edited"])
+
+    def test_apply_edits_crops_to_the_boundary_first_when_the_model_was_trained_so(self):
+        task = make_task(self.user)
+        self.with_boundary(task)
+        header, rows = self.node_model([(0, 0), (3, 0), (0.5, -0.5), (0, -1.5)])
+        self.train(task, steps=10, image_size=16)
+        self.converted.clear()
+        self.put_edits(task, [self.box((0, 0, 5), (0.2, 0.2, 1), keep=False)])
+        self.apply(task)
+        status = self.status(task)["apply"]
+        self.assertEqual((status["cropped"], status["edited"]), (2, 1))
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 1") + rows[[2]].tobytes()])
+
+    def test_a_retraining_applies_the_edits_again(self):
+        task, header, rows = self.trained_task()
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        self.assertEqual(self.train(task, resume="true", steps=10).status_code, 200)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed", status)
+        self.assertEqual(status["edited"], 1)
+        self.assertIsNone(status["edits_error"])
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 3") + rows[[0, 2, 3]].tobytes()])
+
+    def test_edits_that_remove_every_splat_are_not_applied(self):
+        task, header, rows = self.trained_task()
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        self.put_edits(task, [self.box((100, 100, 0), (1, 1, 1))])
+        self.assertEqual(self.apply(task).status_code, 200)
+        status = self.status(task)["apply"]
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("remove every splat", status["error"])
+        self.assertEqual(self.converted, [])
+        self.assertEqual(self.model(task), b"shown before")
+        # A training imports its model without them, and says so
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertIn("remove every splat", status["edits_error"])
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+
+    def test_splat_tools_failing_during_apply_keeps_the_shown_model(self):
+        task, _, _ = self.trained_task()
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        for error in ("splat-tools failed", "splat-tools took longer than 60 minutes"):
+            with mock.patch.object(training, "convert", side_effect=training.TrainingError(error)):
+                self.assertEqual(self.apply(task).status_code, 200)
+            status = self.status(task)["apply"]
+            self.assertEqual(status["state"], "failed")
+            self.assertEqual(status["error"], error)
+            self.assertEqual(self.model(task), b"shown before")
+        self.assertFalse(os.path.exists(training.apply_dir(task.id)))
+
+    def test_apply_and_a_training_refuse_to_run_at_the_same_time(self):
+        task, _, _ = self.trained_task()
+        self.lost_job(task, None)
+        training.change_job(task.id, lambda j: j.update(updated=time.time()))
+        res = self.apply(task)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("being trained", res.data["error"])
+        training.forget(task.id)
+        now = time.time()
+        training.store().set_json(training.apply_key(task.id), {"state": "applying", "run": "other", "updated": now})
+        res = self.train(task, steps=10, image_size=16)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("edits are being applied", res.data["error"])
+        res = self.apply(task)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("already being applied", res.data["error"])
+        # One that lost its worker fails, and frees the task
+        training.store().set_json(
+            training.apply_key(task.id), {"state": "applying", "run": "other", "updated": now - training.STALE - 10}
+        )
+        status = self.status(task)["apply"]
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("worker stopped", status["error"])
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+
+    def test_a_model_not_made_from_the_trained_model_cannot_be_edited(self):
+        task = make_task(self.user)
+        self.assertIn("no splat model", self.client.get(self.edits_url(task)).data["editable"])
+        self.assertFalse(self.status(task)["editable"])
+        self.train(task, steps=10, image_size=16)
+        self.assertTrue(self.status(task)["editable"])
+        self.put_model(task, b"a model uploaded in WebODM's Splats dialog")
+        later = time.time() + 60
+        os.utime(task.get_asset_file_or_stream("splats.rad"), (later, later))
+        data = self.client.get(self.edits_url(task)).data
+        self.assertIn("not trained by SplatMe", data["editable"])
+        self.assertIsNone(data["model"])
+        self.assertFalse(self.status(task)["editable"])
+        self.assertEqual(self.put_edits(task, []).status_code, 400)
+        self.assertEqual(self.apply(task).status_code, 400)
+        # The trained model gone
+        os.utime(task.get_asset_file_or_stream("splats.rad"), (time.time() - 60,) * 2)
+        self.assertTrue(self.status(task)["editable"])
+        os.remove(training.trained_model(task))
+        self.assertFalse(self.status(task)["editable"])
+
+    def test_only_those_who_may_change_the_project_edit_its_splats(self):
+        task, _, _ = self.trained_task()
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        self.assertEqual(other.get(self.edits_url(task)).status_code, 404)
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        self.assertFalse(other.get(self.edits_url(task)).data["can_edit"])
+        self.assertEqual(self.put_edits(task, [], client=other).status_code, 404)
+        self.assertEqual(other.post(f"{API}/task/{task.id}/apply").status_code, 404)
+        self.assertEqual(APIClient().get(self.edits_url(task)).status_code, 404)
+
+    def test_deleting_a_task_removes_its_edits(self):
+        task, _, _ = self.trained_task()
+        self.put_edits(task, [self.box((0, 0, 0), (1, 1, 1))])
+        self.apply(task)
+        task_id = task.id
+        task.delete()
+        self.assertIsNone(training.store().get_json(edits.edits_key(task_id), None))
+        self.assertIsNone(training.get_apply(task_id))
 
     # Thermal tasks
 

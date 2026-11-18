@@ -17,12 +17,16 @@ The plugin's API, under /api/plugins/splatme/.
     POST automation          saves the user's own options; with reset true, drops them
     GET  automation/shared   the administrators' options, for users who saved none of their own
     POST automation/shared   sets them (administrators)
+    GET  task/<id>/edits     the task's splat edits (edits.py) in its trained model's frame, that model's URL, size
+                             and splat count, why it cannot be edited (editable) and its last Apply Edits
+    PUT  task/<id>/edits     replaces its edits (edits), then answers as GET does
+    POST task/<id>/apply     makes the task's shown model again from its trained model and its edits
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
                              them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
                              projects the user may add a task to (New Task With Splats). ?project=<id> for one project
 
-Starting and canceling need the right to change the task's project; the node's token never leaves the server.
+Starting, canceling, editing and applying need the right to change the task's project; the node's token never leaves the server.
 """
 from app.api.common import check_project_perms
 from app.models import Project
@@ -34,14 +38,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import crop, thermal, training
+from . import crop, edits, thermal, training
 from .node import Node, NodeError
 
 # What a page may know of a job: not its run id, nor the node's job
 PUBLIC = (
     "state", "progress", "status", "error", "options", "user", "auto", "started", "finished", "sky_masks", "cropped",
-    "time_left", "thermal",
+    "time_left", "thermal", "edited", "edits_error",
 )  # fmt: skip
+# What a page may know of an Apply Edits
+APPLY_PUBLIC = ("state", "status", "error", "user", "started", "finished", "cropped", "edited")
 UNAVAILABLE = "The splat node is not available. Ask an administrator to check SplatMe's settings."
 
 
@@ -73,6 +79,10 @@ def describe(request, task, job):
     return summary(request, task, job, can_train(request, task))
 
 
+def describe_apply(record):
+    return {name: record.get(name) for name in APPLY_PUBLIC} if record else None
+
+
 def summary(request, task, job, may_train):
     """A task's splats as a page shows them: its job, its model, whether the user may train it, its automation."""
     out = {name: job.get(name) for name in PUBLIC} if job else {"state": None}
@@ -80,6 +90,8 @@ def summary(request, task, job, may_train):
     out["has_splats"] = "splats.rad" in task.available_assets
     out["can_train"] = may_train
     out["task_status"] = task.status
+    out["editable"] = out["has_splats"] and training.editable(task) is None
+    out["apply"] = describe_apply(training.get_apply(task.id))
     out["auto"] = describe_auto(training.get_auto(task.id, request.user))
     # Whether WebODM's worker tells the plugin of completed tasks, for a task set to train (None: not known)
     out["listening"] = training.listens() if out["auto"]["enabled"] else None
@@ -169,6 +181,46 @@ class Auto(TaskView):
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe_auto(training.get_auto(task.id, request.user)))
+
+
+class Edits(TaskView):
+    def describe(self, request, task):
+        reason, job = training.editable(task), training.get_job(task.id)
+        out = {
+            "edits": edits.get(task), "editable": reason, "can_edit": can_train(request, task), "name": task.name,
+            "project": task.project.id, "apply": describe_apply(training.get_apply(task.id)), "model": None,
+            "training": bool(job) and job["state"] in training.ACTIVE,
+        }  # fmt: skip
+        if reason is None:
+            out["model"] = training.model_info(task)
+        return out
+
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        return Response(self.describe(request, task))
+
+    def put(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        reason = training.editable(task)
+        if reason:
+            return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            edits.save(task, request.data.get("edits"))
+        except edits.EditsError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.describe(request, task))
+
+
+class Apply(TaskView):
+    def post(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        try:
+            training.start_apply(task, request.user.username)
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(describe(request, task, training.get_job(task.id)))
 
 
 class Automation(APIView):

@@ -23,6 +23,7 @@ import threading
 import time
 import uuid
 
+import numpy as np
 from app import splats
 from app.models import Plugin, PluginDatum, Task
 from app.plugins.data_store import GlobalDataStore, UserDataStore
@@ -32,7 +33,7 @@ from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from nodeodm import status_codes
 
-from . import crop, sky, thermal
+from . import crop, edits, sky, thermal
 from .node import Node, NodeError
 
 logger = logging.getLogger("app.logger")
@@ -514,6 +515,8 @@ def start(task, username, given, auto=False):
         current = get_job(task.id)  # again, under the lock: another request may have just started one
         if current and current["state"] in ACTIVE and not is_stale(current):
             raise TrainingError("This task's splats are already being trained.")
+        if applying(task.id):
+            raise TrainingError("This task's edits are being applied: train its splats when that is done.")
         store().del_key(cancel_key(task.id))
         store().set_json(job_key(task.id), job)
     if current and current["state"] in ACTIVE:
@@ -663,7 +666,10 @@ def removed(task_id):
         drop_node_job(job)
     forget(task_id)
     reset_auto(task_id)
+    edits.forget(task_id)
+    store().del_key(apply_key(task_id))
     shutil.rmtree(work_dir(task_id), ignore_errors=True)
+    shutil.rmtree(apply_dir(task_id), ignore_errors=True)
 
 
 def sweep():
@@ -672,7 +678,8 @@ def sweep():
     starts, so until WebODM restarts after this plugin is installed, a task the worker deletes sends this plugin
     no signal.
     """
-    for prefix in (store().db_key(job_key("")), store().db_key(auto_key(""))):
+    keys = (job_key(""), auto_key(""), edits.edits_key(""), apply_key(""))
+    for prefix in (store().db_key(key) for key in keys):
         for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):
             task_id = key[len(prefix) :]
             try:
@@ -704,8 +711,8 @@ def run_job(package, task_id, run):
 class Heartbeat:
     """Touches the record while a worker job is alive, also through steps that report nothing."""
 
-    def __init__(self, task_id, run):
-        self.task_id, self.run = task_id, run
+    def __init__(self, task_id, run, report=None):
+        self.task_id, self.run, self.report = task_id, run, report or update
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.beat, daemon=True)
 
@@ -713,7 +720,7 @@ class Heartbeat:
         try:
             while not self.stopped.wait(BEAT):
                 try:
-                    update(self.task_id, self.run)
+                    self.report(self.task_id, self.run)
                 except Superseded:
                     return
                 except Exception as e:  # noqa: BLE001 (Django's InterfaceError is no DatabaseError: keep beating)
@@ -1149,21 +1156,16 @@ def import_model(task_id, run, node, node_job, work):
     if os.path.getsize(trained) == 0:
         raise TrainingError("The splat node sent an empty model.")
     task = Task.objects.get(pk=task_id)
-    shown, cropped = trained, None
     job = get_job(task_id) or {}
     options = job.get("options", {})
-    rings = crop.boundary(task) if options.get("crop", True) else []
-    if rings:
-        # Only the model the task shows is cropped: a later training continues from all the trainer made
-        update(task_id, run, status="Cropping to the task's boundary")
-        inside = os.path.join(work, "cropped.ply")
-        try:
-            kept, total = crop.crop_ply(trained, inside, rings)
-        except (ValueError, KeyError) as e:
-            raise TrainingError(f"The trained model could not be cropped to the task's boundary: {e}") from None
-        if 0 < kept < total:
-            shown, cropped = inside, total - kept
-    update(task_id, run, status="Converting the model", cropped=cropped)
+    try:
+        shown, cut = shown_model(task, trained, work, options.get("crop", True), lambda text: update(task_id, run, status=text))
+    except EditsRemoveAll:
+        # Only the model the task shows is cut: a later training continues from all the trainer made
+        shown, cut = shown_model(task, trained, work, options.get("crop", True), use_edits=False)
+        cut["edits_error"] = EditsRemoveAll.text
+    update(task_id, run, status="Converting the model", cropped=cut["boundary"], edited=cut["edits"],
+           edits_error=cut.get("edits_error"))
     model = os.path.join(work, "model.rad")
     convert(shown, model)
     check_cancel(task_id)  # the last moment a cancel keeps the task's model
@@ -1182,3 +1184,219 @@ def import_model(task_id, run, node, node_job, work):
     task.update_available_assets_field()
     task.update_size()
     task.save()
+
+
+# The model the task shows, and Apply Edits
+
+
+class EditsRemoveAll(TrainingError):
+    text = "The edits were not applied: together they remove every splat."
+
+    def __init__(self):
+        super().__init__(self.text)
+
+
+def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
+    """
+    The model the task shows, made from the trainer's .ply: cut to the task's boundary (for a model trained with
+    Crop to Boundary) and by its edits. Answers its path (trained itself when nothing is cut) and how many gaussians
+    the boundary and the edits each removed (None for none). A boundary with nothing of the model inside crops
+    nothing; edits that would leave nothing raise EditsRemoveAll, and nothing is written.
+    """
+    rings = crop.boundary(task) if use_boundary else []
+    shapes = edits.get(task) if use_edits else []
+    dest = os.path.join(work, "shown.ply")
+
+    def cut(rings):
+        counts = {"boundary": 0, "edits": 0}
+        inside = crop.within(rings) if rings else None
+
+        def keep(rows):
+            kept = np.ones(len(rows), dtype=bool)
+            if inside:
+                kept &= inside(rows)
+                counts["boundary"] += int(len(rows) - kept.sum())
+            if shapes:
+                by_edits = edits.keep_mask(rows, shapes)
+                counts["edits"] += int((kept & ~by_edits).sum())
+                kept &= by_edits
+            return kept
+
+        try:
+            kept, total = crop.crop_ply(trained, dest, keep)
+        except (ValueError, KeyError) as e:
+            raise TrainingError(f"The trained model could not be cut: {e}") from None
+        return kept, total, counts
+
+    if not rings and not shapes:
+        return trained, {"boundary": None, "edits": None}
+    if report:
+        report("Applying the edits" if shapes else "Cropping to the task's boundary")
+    kept, total, counts = cut(rings)
+    if kept == 0 and rings and counts["boundary"] == total:
+        kept, total, counts = cut([])  # nothing of the model is inside the boundary: it crops nothing
+    if kept == 0 and total > 0 and shapes:
+        raise EditsRemoveAll()
+    removed = {name: counts[name] or None for name in counts}
+    if kept in (0, total):
+        return trained, removed
+    return dest, removed
+
+
+def model_info(task):
+    """The trained model as the Edit Splats page loads it: its URL (WebODM's own for a task's assets), size and splats."""
+    path = trained_model(task)
+    with open(path, "rb") as f:
+        count, _ = splats.parse_ply_header(f)
+    relative = os.path.relpath(path, task.assets_path())
+    url = f"/api/projects/{task.project.id}/tasks/{task.id}/assets/{relative}"
+    return {"url": url, "size": os.path.getsize(path), "splats": count}
+
+
+APPLYING = "applying"
+
+
+def apply_key(task_id):
+    return f"apply::{task_id}"
+
+
+def apply_dir(task_id, run=None):
+    parts = ("apply", str(task_id)) + ((run,) if run else ())
+    return get_plugins_persistent_path(NAME, *parts)
+
+
+def get_apply(task_id):
+    """The task's last Apply Edits, or None. One that lost its worker fails here: it is short, so it is not taken over."""
+
+    def lost(record):
+        return record.get("state") == APPLYING and time.time() - record.get("updated", 0) > STALE
+
+    def fail(record):
+        if lost(record):
+            error = "The edits were not applied: WebODM's worker stopped. Apply them again."
+            record.update(state="failed", run=None, status="", error=error, finished=time.time())
+
+    record = store().get_json(apply_key(task_id), None)
+    if record and lost(record):
+        record = change_record(apply_key(task_id), fail)
+    return record
+
+
+def applying(task_id):
+    record = get_apply(task_id)
+    return bool(record) and record.get("state") == APPLYING
+
+
+def editable(task):
+    """Why the task's splats cannot be edited, or None: its shown model must be made from the .ply SplatMe keeps."""
+    if "splats.rad" not in task.available_assets:
+        return "This task has no splat model."
+    if trained_steps(task) is None:
+        return (
+            "This task's splat model was not trained by SplatMe, or was replaced since (WebODM's Splats dialog): "
+            "train its splats to edit them."
+        )
+    return None
+
+
+def start_apply(task, username):
+    """Makes the task's shown model again from its trained .ply, with its edits. Raises TrainingError with the reason it cannot."""
+    reason = editable(task)
+    if reason:
+        raise TrainingError(reason)
+    run = uuid.uuid4().hex
+    now = time.time()
+    record = {
+        "state": APPLYING, "run": run, "user": username, "status": "", "error": None, "started": now, "updated": now,
+        "finished": None, "cropped": None, "edited": None,
+    }  # fmt: skip
+    with transaction.atomic():
+        lock_records()
+        job = get_job(task.id)
+        if job and job["state"] in ACTIVE:
+            raise TrainingError("This task's splats are being trained: apply the edits when the training is done.")
+        if applying(task.id):
+            raise TrainingError("This task's edits are already being applied.")
+        store().set_json(apply_key(task.id), record)
+    run_function_async(apply_job, PACKAGE, str(task.id), run)
+    return get_apply(task.id)
+
+
+def apply_job(package, task_id, run):
+    # Only this function's source reaches the worker (run_function_async): the rest is imported there
+    import importlib
+
+    importlib.import_module(package + ".training").apply(task_id, run)
+
+
+def update_apply(task_id, run, **fields):
+    """An Apply Edits job's report. Raises Superseded when the record is no longer this run's."""
+
+    def change(record):
+        if record.get("run") != run:
+            raise Superseded()
+        record.update(fields, updated=time.time())
+
+    if change_record(apply_key(task_id), change) is None:
+        raise Superseded()
+
+
+def apply(task_id, run):
+    record = store().get_json(apply_key(task_id), None)
+    if not record or record.get("run") != run:
+        return
+    work = apply_dir(task_id, run)
+    try:
+        with Heartbeat(task_id, run, update_apply):
+            os.makedirs(work, exist_ok=True)
+            task = Task.objects.get(pk=task_id)
+            reason = editable(task)
+            if reason:
+                raise TrainingError(reason)
+            trained, steps = trained_model(task), trained_steps(task)
+            options = trained_options(task) or {}
+            shown, cut = shown_model(
+                task, trained, work, options.get("crop", True), lambda text: update_apply(task_id, run, status=text)
+            )
+            update_apply(task_id, run, status="Converting the model")
+            model = os.path.join(work, "model.rad")
+            convert(shown, model)
+            task.refresh_from_db()
+            if task.status != status_codes.COMPLETED or trained_steps(task) != steps:
+                raise TrainingError("The task's splat model changed while the edits were applied. Apply them again.")
+            dest = task.get_asset_file_or_stream("splats.rad")
+            try:
+                shutil.move(model, dest + NEW)
+                os.replace(dest + NEW, dest)
+            finally:
+                try:
+                    os.remove(dest + NEW)
+                except FileNotFoundError:
+                    pass
+            os.utime(trained)  # not older than the model made from it: see trained_steps
+            task.update_size(commit=True)
+        update_apply(
+            task_id, run, state="completed", status="", finished=time.time(), cropped=cut["boundary"],
+            edited=cut["edits"],
+        )  # fmt: skip
+    except Superseded:
+        pass
+    except (TrainingError, ValueError, OSError, Task.DoesNotExist) as e:
+        logger.warning(f"SplatMe: applying task {task_id}'s edits failed: {e}")
+        finish_apply(task_id, run, str(e))
+    except Exception as e:
+        logger.exception(f"SplatMe: applying task {task_id}'s edits failed")
+        finish_apply(task_id, run, f"Unexpected error: {e}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        try:
+            os.rmdir(apply_dir(task_id))
+        except OSError:
+            pass
+
+
+def finish_apply(task_id, run, error):
+    try:
+        update_apply(task_id, run, state="failed", status="", error=error, finished=time.time())
+    except Superseded:
+        pass
