@@ -39,7 +39,8 @@ splats right on an edge may end up on the other side when applied.
   in the list, is **Light**, **Medium** (the start) or **Strong**; the list says how many splats it removes besides
   those **Crop to Boundary** already leaves out. A task has one.
 
-Pick an edit in the list to show a box's handles and fields. **Undo** takes back the last change, and **Clear
+Once drawn, a shape is hidden from the view, which shows only what it cuts; pick its edit in the list to show
+the shape again, and a box's handles and fields with it. **Undo** takes back the last change, and **Clear
 Edits** removes them all. **Top View** and **Side View** frame the model again.
 
 Edits are saved as you make them ("Saved" under the list); leaving the page before then asks first.

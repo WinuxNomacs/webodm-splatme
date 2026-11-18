@@ -138,12 +138,12 @@ export default class Editor extends React.Component {
         const clean = cleanRing(ring);
         this.setState({drawing: null});
         if (clean.length < 3) return;
-        this.change([...this.state.edits, {type: "polygon", keep: true, ring: clean}], this.state.edits.length);
+        this.change([...this.state.edits, {type: "polygon", keep: true, ring: clean}], -1);
     };
 
     handleLasso = ({ring, view, camera}) => {
         this.setState({lassoing: false});
-        this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera}], this.state.edits.length);
+        this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera}], -1);
     };
 
     lasso = () => {
