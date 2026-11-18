@@ -96,11 +96,12 @@ def read_ply(source, with_header=False):
     return (data, header) if with_header else data
 
 
-def crop_ply(source, dest, keep_rows):
+def crop_ply(source, dest, keep_rows, change=None):
     """
     Writes the trainer's .ply with only the gaussians keep_rows keeps: a function of a chunk of its rows (a numpy
-    record array, a field per property) and the number of the chunk's first row, that answers which of them stay.
-    Answers (kept, all); nothing is written when it keeps none or all of them.
+    record array, a field per property) and the number of the chunk's first row, that answers which of them stay;
+    change, when given, changes the kept rows of each chunk (a copy) before they are written. Answers (kept, all);
+    nothing is written when it keeps none of them, or all of them with no change.
     """
     data, header = read_ply(source, with_header=True)
     count = len(data)
@@ -109,7 +110,7 @@ def crop_ply(source, dest, keep_rows):
         rows = data[first : first + ROWS]
         keep[first : first + ROWS] = keep_rows(rows, first)
     kept = int(keep.sum())
-    if kept in (0, count):
+    if kept == 0 or (kept == count and change is None):
         return kept, count
     old = b"element vertex %d" % count
     if header.count(old) != 1:
@@ -117,5 +118,8 @@ def crop_ply(source, dest, keep_rows):
     with open(dest, "wb") as f:
         f.write(header.replace(old, b"element vertex %d" % kept))
         for first in range(0, count, ROWS):
-            f.write(data[first : first + ROWS][keep[first : first + ROWS]].tobytes())
+            rows = data[first : first + ROWS][keep[first : first + ROWS]]  # a copy: the source is not changed
+            if change:
+                change(rows)
+            f.write(rows.tobytes())
     return kept, count

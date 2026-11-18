@@ -1199,13 +1199,15 @@ class EditsRemoveAll(TrainingError):
 def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     """
     The model the task shows, made from the trainer's .ply: cut to the task's boundary (for a model trained with
-    Crop to Boundary) and by its edits. Answers its path (trained itself when nothing is cut) and how many gaussians
+    Crop to Boundary) and by its edits, its colours adjusted by its Colour Adjust. Answers its path (trained itself when nothing is cut) and how many gaussians
     the boundary and the edits each removed (None for none). A boundary with nothing of the model inside crops
     nothing; edits that would leave nothing raise EditsRemoveAll, and nothing is written.
     """
     rings = crop.boundary(task) if use_boundary else []
     shapes = edits.get(task) if use_edits else []  # EditsError: the caller goes on without them, or fails
     dest = os.path.join(work, "shown.ply")
+    colour = edits.colour(shapes)
+    change = edits.colour_change(colour) if colour else None
 
     floaters = None
     if edits.strength(shapes):
@@ -1235,7 +1237,7 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
             return kept
 
         try:
-            kept, total = crop.crop_ply(trained, dest, keep)
+            kept, total = crop.crop_ply(trained, dest, keep, change)
         except (ValueError, KeyError) as e:
             raise TrainingError(f"The trained model could not be cut: {e}") from None
         return kept, total, counts
@@ -1250,7 +1252,7 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     if kept == 0 and total > 0 and shapes:
         raise EditsRemoveAll()
     removed = {name: counts[name] or None for name in counts}
-    if kept in (0, total):
+    if kept == 0 or (kept == total and not change):
         return trained, removed
     return dest, removed
 

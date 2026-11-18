@@ -1,7 +1,7 @@
 # Editing Splats
 
 A trained model often has haze and stray splats around the scene (floaters), or more ground than you want to
-show. **Edit** crops it to the part you want and removes what you don't. The edits are shapes kept with the task:
+show. **Edit** crops it to the part you want, removes what you don't and can adjust its colours. The edits are shapes kept with the task:
 they cut the model SplatMe trained, so nothing is lost. A training of the task, later (**Continue From Step** or
 a new one), applies them again.
 
@@ -44,6 +44,11 @@ splats right on an edge may end up on the other side when applied.
   the sky), judged on the whole trained model, so the other edits don't change which ones they are. Its strength,
   in the list, is **Light**, **Medium** (the start) or **Strong**; the list says how many splats it removes besides
   those **Crop to Boundary** already leaves out. A task has one.
+- **Colour Adjust**: changes the whole model's **Brightness**, **Contrast**, **Saturation** and **Warmth** (more
+  red and less blue, or the reverse). Each slider goes from -100 to 100 and starts at 0, no change; pick it in the
+  list to show its sliders again, and **Undo** takes back one slider's move. The view shows the change as you
+  move them. The part of a splat's colour that changes with the viewing angle (shine, a sky's tint on a roof)
+  changes only when applied, so the applied model can look slightly different from the view. A task has one.
 
 Once drawn, a shape is hidden from the view, which shows only what it cuts; pick its edit in the list to show
 the shape again, and a box's handles and fields with it. **Undo** takes back the last change, and **Clear
@@ -54,7 +59,8 @@ Edits are saved as you make them ("Saved" under the list); leaving the page befo
 ## Applying Them
 
 **Apply** makes the task's model again from its trained model with the edits, as the end of a training does:
-cut to the task's boundary first when it was trained with **Crop to Boundary**, then by the edits. It takes about
+cut to the task's boundary first when it was trained with **Crop to Boundary**, then by the edits, then
+recoloured by **Colour Adjust**. It takes about
 as long as the end of a training (the conversion of the model). WebODM's 3D view, the download and the share links
 then show the edited model. **SplatMe → Tasks** shows the Apply while it runs.
 

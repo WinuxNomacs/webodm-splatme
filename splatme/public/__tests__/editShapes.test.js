@@ -1,4 +1,4 @@
-import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, colourEdit, colourMatrix, colourText, newColour } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -243,5 +243,40 @@ describe("floaters", () => {
         expect(editLabel(floaters)).toBe("Floaters");
         expect(editLabel(floaters, 1638)).toBe("Floaters, 1,638 splats");
         expect(editLabel(floaters, 1)).toBe("Floaters, 1 splat");
+    });
+});
+
+describe("Colour Adjust", () => {
+    const apply = (edit, c) => {
+        const { m, t } = colourMatrix({...newColour(), ...edit});
+        return [0, 1, 2].map(r => m[3 * r] * c[0] + m[3 * r + 1] * c[1] + m[3 * r + 2] * c[2] + t[r]);
+    };
+    const close = (got, want) => got.forEach((v, i) => expect(v).toBeCloseTo(want[i], 6));
+    const c = [0.6, 0.3, 0.2];
+
+    test("changes nothing at its start", () => {
+        close(apply({}, c), c);
+    });
+
+    test("is the same change as the server's on a colour", () => {
+        // As test_colour_adjust_changes_the_colours_and_the_light_that_changes_with_the_view in the Django tests
+        close(apply({brightness: 1}, c), [0.9, 0.45, 0.3]);
+        const grey = 0.2126 * 0.6 + 0.7152 * 0.3 + 0.0722 * 0.2;
+        close(apply({saturation: -1}, c), [grey, grey, grey]);
+        close(apply({warmth: 1}, c), [0.72, 0.3, 0.16]);
+        close(apply({contrast: 1}, c), [0.7, 0.1, -0.1]);
+        close(apply({contrast: -1}, c), [0.55, 0.4, 0.35]);
+    });
+
+    test("keeps every splat and shows no shape of its own", () => {
+        expect(kept([newColour()])).toEqual([1, 1, 1, 1]);
+        expect(colourEdit([{type: "floaters", strength: "light"}, {...newColour(), warmth: 0.5}]).warmth).toBe(0.5);
+        expect(colourEdit([])).toBeNull();
+    });
+
+    test("is named in the list with its sliders away from 0", () => {
+        expect(editLabel(newColour())).toBe("Colour Adjust");
+        expect(colourText(newColour())).toBe("No change yet");
+        expect(colourText({...newColour(), brightness: 0.2, warmth: -0.15})).toBe("Brightness +20, Warmth -15");
     });
 });

@@ -23,6 +23,8 @@ x and y (get_rtc_offset). Heights are not offset.
     floaters strength ("light", "medium" or "strong"), at most one, no keep: removes the gaussians far from their
              neighbours or oversized, judged on the whole trained model (floaters()), so the shapes do not change
              which ones they are
+    colour   brightness, contrast, saturation, warmth (each -1 to 1, 0 for no change), at most one, no keep: changes
+             the colours of the whole model (colour_change()), the light that changes with the view too
 """
 import itertools
 import logging
@@ -49,6 +51,9 @@ MAX_COORDINATE = 1e9  # metres, or degrees in a task without a projection: anyth
 # far and 107 oversized of 216,865, Medium 638 and 246, Strong 1,634 and 563 (2026-11-18).
 STRENGTHS = {"light": (3, 0.2), "medium": (2, 0.1), "strong": (1, 0.05)}
 NEIGHBOURS = 16
+COLOURS = ("brightness", "contrast", "saturation", "warmth")  # Colour Adjust's sliders, each -1 to 1
+SH_C0 = 0.28209479177387814  # a gaussian's colour is 0.5 + SH_C0 * f_dc
+LUMA = (0.2126, 0.7152, 0.0722)  # how much each of red, green and blue counts in a colour's lightness
 
 
 class EditsError(Exception):
@@ -100,6 +105,17 @@ def clean(given):
             continue
         if kind == "brush":
             out.append(clean_brush(edit, i))
+            continue
+        if kind == "colour":
+            if any(e["type"] == "colour" for e in out):
+                raise EditsError("The colours can be adjusted only once.")
+            clean_edit = {"type": "colour"}
+            for name in COLOURS:
+                value = number(edit.get(name, 0), f"Edit {i}'s {name}")
+                if abs(value) > 1:
+                    raise EditsError(f"Edit {i}'s {name} must be from -1 to 1.")
+                clean_edit[name] = round(value, 2)
+            out.append(clean_edit)
             continue
         keep = edit.get("keep")
         if not isinstance(keep, bool):
@@ -287,7 +303,7 @@ def keep_mask(rows, edits):
     x, y, z = (rows[axis].astype(np.float64) for axis in ("x", "y", "z"))
     keep = np.ones(len(rows), dtype=bool)
     for edit in edits:
-        if edit["type"] == "floaters":
+        if edit["type"] in ("floaters", "colour"):
             continue
         within = inside(edit, x, y, z)
         keep &= within if edit.get("keep", False) else ~within  # a brush has no keep: it removes
@@ -297,6 +313,51 @@ def keep_mask(rows, edits):
 def strength(edits):
     """The strength of the edits' floaters, or None when they keep them."""
     return next((e["strength"] for e in edits if e["type"] == "floaters"), None)
+
+
+def colour(edits):
+    """The edits' Colour Adjust, or None."""
+    return next((e for e in edits if e["type"] == "colour"), None)
+
+
+def colour_matrix(edit):
+    """
+    Colour Adjust as a matrix and an offset on a colour's red, green and blue (0 to 1): c' = m @ c + t. The same
+    as editShapes.js's colourMatrix. Warmth more red and less blue, brightness a gain, saturation away from or towards
+    the colour's grey, contrast away from or towards the middle grey.
+    """
+    warm = np.diag([1 + 0.2 * edit["warmth"], 1, 1 - 0.2 * edit["warmth"]])
+    gain = 1 + 0.5 * edit["brightness"]
+    s = 1 + edit["saturation"]
+    saturate = s * np.eye(3) + (1 - s) * np.outer(np.ones(3), LUMA)
+    k = 2 ** edit["contrast"]
+    return k * gain * saturate @ warm, np.full(3, 0.5 * (1 - k))
+
+
+def colour_change(edit):
+    """
+    A crop_ply change: Colour Adjust on a chunk of the .ply's rows (a numpy record array). Their colours (f_dc) take
+    the whole change; the light that changes with the view (f_rest, red's, then green's, then blue's) its matrix only.
+    """
+    m, t = colour_matrix(edit)
+
+    def change(rows):
+        names = rows.dtype.names
+        dc = [f"f_dc_{c}" for c in range(3)]
+        if all(name in names for name in dc):
+            c = 0.5 + SH_C0 * np.stack([rows[name].astype(np.float64) for name in dc])
+            c = m @ c + t[:, None]
+            for row, name in zip(c, dc, strict=True):
+                rows[name] = (row - 0.5) / SH_C0
+        each = sum(name.startswith("f_rest_") for name in names) // 3
+        for j in range(each):
+            rest = [f"f_rest_{j + each * c}" for c in range(3)]
+            if all(name in names for name in rest):
+                v = m @ np.stack([rows[name].astype(np.float64) for name in rest])
+                for row, name in zip(v, rest, strict=True):
+                    rows[name] = row
+
+    return change
 
 
 def floaters(path, strength):

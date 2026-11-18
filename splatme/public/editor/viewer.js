@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
-import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, BRUSH_SIZES } from "../editShapes.js";
+import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, BRUSH_SIZES } from "../editShapes.js";
 
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
@@ -55,6 +55,7 @@ export function createViewer(container, handlers){
     scene.add(transform.getHelper());
 
     let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null, floaters = null;
+    let rgb = null, colourShown = "";  // the splats' colours as trained; the Colour Adjust shown ("": none)
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
     let lasso = null;  // {points: [[x, y] in pixels], down}
@@ -95,10 +96,28 @@ export function createViewer(container, handlers){
                 changed = true;
             }
         }
+        if (recolour(packed, encoding)) changed = true;
         if (changed){
             mesh.packedSplats.needsUpdate = true;
             mesh.updateVersion();
         }
+    }
+
+    // The edits' Colour Adjust on the trained colours, when it changed: answers whether it did. The view's light
+    // that changes with the angle stays as trained (Apply adjusts it too)
+    function recolour(packed, encoding){
+        const adjust = colourEdit(edits);
+        const change = adjust ? colourMatrix(adjust) : null;
+        const key = change ? JSON.stringify(change) : "";
+        if (key === colourShown) return false;
+        const { m, t } = change || {m: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0]};
+        for (let i = 0, j = 0; i < rgb.length / 3; i++, j += 3){
+            const r = rgb[j], g = rgb[j + 1], b = rgb[j + 2];
+            utils.setPackedSplatRgb(packed, i, m[0] * r + m[1] * g + m[2] * b + t[0], m[3] * r + m[4] * g + m[5] * b + t[1],
+                m[6] * r + m[7] * g + m[8] * b + t[2], encoding);
+        }
+        colourShown = key;
+        return true;
     }
 
     function queueMask(){
@@ -182,9 +201,9 @@ export function createViewer(container, handlers){
         transform.detach();
         clearGroup(shapes);
         handles = edits.map((edit, i) => {
-            // Floaters have no shape: an empty group keeps the handles numbered as the edits
+            // Floaters and Colour Adjust have no shape: an empty group keeps the handles numbered as the edits
             const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) :
-                edit.type === "brush" ? brushObject(edit) : edit.type === "floaters" ? new THREE.Group() : polygonObject(edit);
+                edit.type === "brush" ? brushObject(edit) : edit.type === "floaters" || edit.type === "colour" ? new THREE.Group() : polygonObject(edit);
             // Only the edit picked in the list shows its shape: the others show only in what they hide
             object.visible = i === selected;
             object.renderOrder = 10;
@@ -516,11 +535,15 @@ export function createViewer(container, handlers){
             ys = new Float32Array(n);
             zs = new Float32Array(n);
             opacity = new Float32Array(n);
-            mesh.forEachSplat((i, center, scales, quaternion, alpha) => {
+            rgb = new Float32Array(n * 3);
+            mesh.forEachSplat((i, center, scales, quaternion, alpha, color) => {
                 xs[i] = center.x;
                 ys[i] = center.y;
                 zs[i] = center.z;
                 opacity[i] = alpha;
+                rgb[3 * i] = color.r;
+                rgb[3 * i + 1] = color.g;
+                rgb[3 * i + 2] = color.b;
             });
             shown = new Uint8Array(n).fill(1);
             keep = new Uint8Array(n);
@@ -545,6 +568,18 @@ export function createViewer(container, handlers){
             floaters = numbers;
             queueMask();
             return numbers ? numbers.filter(i => !base || base[i]).length : 0;
+        },
+        // A Colour Adjust's sliders moved: only the colours change (the splats hidden stay as they are)
+        setColour(edit){
+            const index = edits.findIndex(e => e.type === "colour");
+            if (index < 0) return;
+            edits[index] = {...edit};
+            requestAnimationFrame(() => {
+                if (mesh && recolour(mesh.packedSplats.packedArray, mesh.packedSplats.splatEncoding)){
+                    mesh.packedSplats.needsUpdate = true;
+                    mesh.updateVersion();
+                }
+            });
         },
         // What the handles do: "translate" (move), "scale" (size) or "rotate" (turn, about the vertical only)
         setMode(mode){
