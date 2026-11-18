@@ -15,11 +15,12 @@ other software. The plugin does that step.
    for the maintainer. Once merged, check that Administration → Plugins → Install Plugins lists SplatMe 0.2.0
    (marked Experimental), then move this phase to Done.
 
-2. Splat editing in a task's 3D view (asked 2026-11-18): Box and Polygon crop, a Lasso that removes what is
+2. Splat editing (asked 2026-11-18): an editor page of SplatMe's own (Edit on SplatMe → Tasks), on upstream
+   Spark 2.4.0 and three.js 0.187.0 vendored in the plugin: Box and Polygon crop, a Lasso that removes what is
    behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
-   converted again; a retraining applies them again. In steps: 2a the renderer test (can a plugin hide splats
-   in WebODM's Spark build?), 2b the edits' pipeline with Box and Polygon, 2c Lasso, 2d Floaters. See "8. Splat
-   editing in the 3D view".
+   converted again; a retraining applies them again. In steps: 2a the renderer test (the trained `.ply` whole in
+   the browser: load time, memory, a box edit, a pick), 2b the edits' pipeline with Box and Polygon, 2c Lasso,
+   2d Floaters. See "8. Splat editing".
 
 **Then**
 
@@ -2335,13 +2336,16 @@ option), the presets' hints measured again, and Continue keeping the options a m
 Open decisions (with the user, after the testing): which options a preset or Image Size sets, and whether `--val`'s
 score is shown.
 
-### 8. Splat editing in the 3D view
+### 8. Splat editing
 
 Asked 2026-11-18: tools in a task's 3D view to crop a model to a chosen area and remove unwanted splats. Builds on
 the trained `.ply` SplatMe keeps (`training.TRAINED_MODEL`, next to `model.rad`) and on the finishing step that
 already crops it to the boundary and converts it (`crop.crop_ply`, `training.convert`).
 
-**Decided with the user (2026-11-18)**: our own tools in WebODM's 3D view (not a separate editor); the first tools
+**Decided with the user (2026-11-18)**: first, our own tools in WebODM's 3D view; then, the same day, an editor
+page of SplatMe's own instead (Edit on a row of SplatMe → Tasks), so the whole model can be loaded and edited
+exactly, without reaching into WebODM's 3D view; its renderer is upstream Spark with a current three.js, vendored
+(approved after the vetting below). The first tools
 are Box crop, Polygon crop seen from above, a Lasso, and automatic Floater removal; a Lasso stroke removes
 everything behind it on screen (the user turns the view to isolate what to cut); edits are applied again after a
 retraining (Continue From Step or a new training), and Clear Edits drops them.
@@ -2355,42 +2359,57 @@ retraining (Continue From Step or a new training), and Clear Edits drops them.
   in no public Spark repository. Its base is Spark's `main` of about 2026-08-24 (`uav4geo/spark`, a fork 0 commits
   ahead). Upstream: https://github.com/sparkjsdev/spark, MIT, v2.4.0 of 2026-10-20, a release every 2 to 5 weeks
   since 2.0.0 (2026-04-14), one npm maintainer, mixed issue response; its paged raycast is imprecise (#468).
-- So the browser can only hide splats (a `dyno` modifier, as upstream's `examples/splat-painter`): a paged `.rad`
-  cannot be edited or exported, and its level-of-detail splats are not the `.ply`'s. Edits are kept as shapes and
-  applied on the server to the `.ply`, which `splat-tools` converts again as now. Only SplatMe's trainings can be
+- So in WebODM's 3D view a plugin could only hide splats (a `dyno` modifier, as upstream's
+  `examples/splat-painter`): a paged `.rad` cannot be edited or exported, and its level-of-detail splats are not
+  the `.ply`'s. That, and its only hook being a button (`PluginsAPI.ModelView.addActionButton`, which gives
+  Potree's `viewer`), is why the editor is a page of SplatMe's own. Either way edits are kept as shapes and applied
+  on the server to the `.ply`, which `splat-tools` converts again as now. Only SplatMe's trainings can be
   edited: WebODM's own Splats import deletes the `.ply` it converts.
 - WebODM 4.0.0 pins `numpy==2.5.4` and `scipy==1.18.1` (no plyfile, open3d or scikit-learn): enough for the filters
   and a statistical outlier removal with `scipy.spatial.cKDTree`.
-- The hook is `PluginsAPI.ModelView.addActionButton`, which gives Potree's `viewer` (`osm-quickedit` in
-  WebODM-Plugins uses it). The splat mesh is found in `viewer.scene.scene`.
-- Not chosen: SuperSplat (https://github.com/playcanvas/supersplat, MIT, v3.9.0 of 2026-11-17, very active, the
+- Not chosen as the editor: SuperSplat (https://github.com/playcanvas/supersplat, MIT, v3.9.0 of 2026-11-17, very active, the
   richest tools, but an app: WebGPU only since 3.0.0, and no way to send its result back), splat-transform (MIT,
   v3.11.2 of 2026-11-12, good filters but 53 MB with `webgpu` and `playcanvas`, Node 22), GaussianSplats3D (no
   longer developed, its README says), gsplat.js (little activity), Splat-Tools (no crop or filter options).
   3dgsconverter (MIT, needs Taichi) is the model for the floaters' order of filters (box, opacity, density,
   statistical outliers), written again in numpy.
 
+**The renderer (vetted 2026-11-18, npm registry, GitHub API and the package)**: `@sparkjsdev/spark` 2.4.0 (MIT,
+2026-10-20; 2.3.1 2026-10-01, 2.3.0 2026-09-30, 2.2.0 2026-09-11; last commit 2026-10-20, about four active
+contributors, one npm maintainer; 120 open issues, mixed response; no advisories in GitHub's database). No
+runtime dependencies, peer `three` >= 0.180. `dist/spark.module.min.js` (2,852,378 bytes) is self-contained (its
+WebAssembly inlined, its worker made from a blob) and imports only `three`; it has `SplatEdit`, `raycast`,
+`writeSpz` and a PLY reader. three.js 0.187.0 (MIT, 2026-10-30): WebODM's own (Potree's) is revision 124, too old
+for Spark. WebODM sets no Content-Security-Policy, so the blob worker runs. Risks: one npm maintainer; paged
+raycasts are imprecise (#468; the editor loads the model whole). Shipped as files in `splatme/public/vendor/` with
+their licences, versions and SHA-256 (no `npm install` on the user's server, no WebAssembly through webpack);
+loaded by an import map on the editor page; checked again when upgraded.
+
 **Design**:
 
-- One list of edits per task in the plugin's global store, in the `.ply`'s coordinates (the offset WebODM's view
-  adds taken off): Box (centre, size, rotation; keep or remove inside), Polygon (a ring seen from above, all
-  heights; keep or remove inside, with `crop.inside`), Lasso (a screen polygon and the camera's view-projection
-  matrix in the `.ply`'s frame: removes every splat whose centre falls inside it, in front of the camera), Floaters
-  (one entry with a strength).
+- The editor page (`templates/editor.html`, an app mount point like the Tasks page): the trained `.ply` served by
+  SplatMe's API (permission as for viewing the task), loaded whole by Spark (not paged), orbit, pan and zoom with
+  touch; the 3D code a plain ES module (`public/editor/*.mjs`, importing `three` and Spark through the import
+  map), the panel React. Box, Polygon and Lasso shown live with `SplatEdit` shapes (opacity 0); Floaters shown
+  after Apply. The 3D view, the download and the share links show the edited model after Apply, as now.
+- One list of edits per task in the plugin's global store, in the `.ply`'s coordinates: Box (centre, size,
+  rotation; keep or remove inside), Polygon (a ring seen from above, all heights; keep or remove inside, with
+  `crop.inside`), Lasso (a screen polygon and the camera's view-projection matrix: removes every splat whose centre
+  falls inside it, in front of the camera), Floaters (one entry with a strength). Shapes, not splat numbers, so a
+  retraining can apply them again.
 - `splatme/edits.py`: which splats a chunk keeps; `crop.crop_ply` takes a function of the chunk, so the boundary and
   the edits share one writer. The finishing step applies the boundary, then the edits. Apply Edits is a short job
   (same record and log) that only crops and converts from the kept `.ply`; refused while a training runs.
-- API: a task's edits (read, replace) and Apply, for those who may change the project (as training).
-- The panel (`public/SplatEditor.jsx`, its maths in `public/splatEdits.js` for Jest): Edit Splats in the 3D view,
-  for a task SplatMe trained; Box, Polygon, Lasso, Floaters, Undo, Clear Edits, Apply. Box, Polygon and Lasso are
-  shown as they are drawn, by a `worldModifier` that hides what they remove; Floaters show only after Apply.
+- API: the `.ply` (read), a task's edits (read, replace) and Apply, for those who may change the project (as
+  training); Edit on SplatMe → Tasks for a task SplatMe trained.
 
 **Steps**:
 
-- 2a. The renderer test, on a throwaway branch: from a plugin's button, find the splat mesh and hide what is outside
-  a fixed box with a `worldModifier`, on the paged `.rad`. If the trimmed build cannot, bring the options to the
-  user (ask uav4geo for the patched Spark's source; show the edits only after Apply).
-- 2b. The edits' pipeline, Apply Edits, the API, edits applied again after a training, the panel with Box and
+- 2a. The renderer test, on a throwaway branch: the vendored files on a bare SplatMe page, the check task's trained
+  `.ply` loaded whole; measured: its size and splat count, load time, the browser's memory, frame rate; then a
+  `SplatEdit` box hiding what is outside, and a raycast pick. Too heavy for the check task: bring the options to the
+  user (a lighter edit copy made on the server, or the paged `.rad`).
+- 2b. The edits' pipeline, Apply Edits, the API, edits applied again after a training, the page with Box and
   Polygon, a docs page "Editing Splats".
 - 2c. Lasso. 2d. Floaters.
 
@@ -2398,5 +2417,6 @@ retraining (Continue From Step or a new training), and Clear Edits drops them.
 `splat-tools` failing or running out of time during Apply (the shown model stays), Apply while a training runs
 (refused), an edit that removes everything (refused, nothing written), the `.ply` missing (Edit Splats not shown).
 
-Open decisions (with the user, when 2b is planned in detail): where the panel sits in the 3D view, and whether the
-box's handles come from Potree's own tools or from number fields.
+Open decisions (with the user, when 2b is planned in detail, after 2a's measurements): the page's layout (the panel
+beside or over the view, on a phone), the box's handles (drag handles or number fields), and what a model too large
+for the browser gets.
