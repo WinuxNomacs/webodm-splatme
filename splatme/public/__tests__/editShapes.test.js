@@ -1,4 +1,4 @@
-import { keepMask, strokeRing, insideLasso, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -148,5 +148,31 @@ describe("the lasso", () => {
     test("a long stroke is thinned to the most corners an edit may have", () => {
         const points = Array.from({length: 5000}, (_, i) => [i, 0]);
         expect(strokeRing(points, 5000, 100, 1).length).toBeLessThanOrEqual(2000);
+    });
+});
+
+describe("floaters", () => {
+    const floaters = {type: "floaters", strength: "medium"};
+
+    test("hide the splats the server numbered, with the shapes and the boundary", () => {
+        expect(Array.from(keepMask(xs, ys, zs, [floaters], null, null, [1, 3]))).toEqual([1, 0, 1, 0]);
+        const removeFirst = {type: "box", keep: false, center: [0, 0, 5], size: [0.2, 0.2, 1], turn: 0};
+        expect(Array.from(keepMask(xs, ys, zs, [floaters, removeFirst], null, Uint8Array.from([1, 1, 0, 1]), [3]))).toEqual([0, 1, 0, 0]);
+    });
+
+    test("hide nothing before the server has answered, and ignore numbers beyond the model", () => {
+        expect(kept([floaters])).toEqual([1, 1, 1, 1]);
+        expect(Array.from(keepMask(xs, ys, zs, [floaters], null, null, [-1, 4, 99]))).toEqual([1, 1, 1, 1]);
+    });
+
+    test("are the edits' strength, or none", () => {
+        expect(floatersStrength([{type: "polygon"}, floaters])).toBe("medium");
+        expect(floatersStrength([{type: "polygon"}])).toBeNull();
+    });
+
+    test("are words in the list, with how many once known", () => {
+        expect(editLabel(floaters)).toBe("Floaters");
+        expect(editLabel(floaters, 1638)).toBe("Floaters, 1,638 splats");
+        expect(editLabel(floaters, 1)).toBe("Floaters, 1 splat");
     });
 });

@@ -15,6 +15,9 @@ x and y (get_rtc_offset). Heights are not offset.
              centre falls inside the ring, through to the back; camera {position, target}, for the page to go back
              to that view
     each     keep: true keeps what is inside and removes the rest, false removes what is inside
+    floaters strength ("light", "medium" or "strong"), at most one, no keep: removes the gaussians far from their
+             neighbours or oversized, judged on the whole trained model (floaters()), so the shapes do not change
+             which ones they are
 """
 import logging
 import math
@@ -31,6 +34,12 @@ NAME = __name__.split(".")[-2]
 MAX_EDITS = 200
 MAX_CORNERS = 2000
 MAX_COORDINATE = 1e9  # metres, or degrees in a task without a projection: anything beyond is a mistake
+# Floaters, by strength: a gaussian is one when the mean distance to its NEIGHBOURS nearest is more than the
+# model's mean of it plus this many standard deviations, or when its largest axis is more than this share of the
+# scene (the largest side of the box holding the middle 90% of the centres). Chosen on the check task: Light 382
+# far and 107 oversized of 216,865, Medium 638 and 246, Strong 1,634 and 563 (2026-11-18).
+STRENGTHS = {"light": (3, 0.2), "medium": (2, 0.1), "strong": (1, 0.05)}
+NEIGHBOURS = 16
 
 
 class EditsError(Exception):
@@ -72,10 +81,17 @@ def clean(given):
     for i, edit in enumerate(given, 1):
         if not isinstance(edit, dict):
             raise EditsError(f"Edit {i} is not a shape.")
+        kind = edit.get("type")
+        if kind == "floaters":
+            if edit.get("strength") not in STRENGTHS:
+                raise EditsError(f"Edit {i}'s strength must be Light, Medium or Strong.")
+            if any(e["type"] == "floaters" for e in out):
+                raise EditsError("Floaters can be removed only once.")
+            out.append({"type": "floaters", "strength": edit["strength"]})
+            continue
         keep = edit.get("keep")
         if not isinstance(keep, bool):
             raise EditsError(f"Edit {i} must say whether it keeps or removes what is inside.")
-        kind = edit.get("type")
         if kind == "box":
             out.append({
                 "type": "box", "keep": keep, "center": numbers(edit.get("center"), 3, f"Edit {i}'s centre"),
@@ -189,10 +205,46 @@ def inside(edit, x, y, z):
 
 
 def keep_mask(rows, edits):
-    """Which of the rows (a chunk of the .ply) the edits keep: all the shapes agree on it."""
+    """Which of the rows (a chunk of the .ply) the shapes keep: all of them agree on it (floaters are not here)."""
     x, y, z = (rows[axis].astype(np.float64) for axis in ("x", "y", "z"))
     keep = np.ones(len(rows), dtype=bool)
     for edit in edits:
+        if edit["type"] == "floaters":
+            continue
         within = inside(edit, x, y, z)
         keep &= within if edit["keep"] else ~within
     return keep
+
+
+def strength(edits):
+    """The strength of the edits' floaters, or None when they keep them."""
+    return next((e["strength"] for e in edits if e["type"] == "floaters"), None)
+
+
+def floaters(path, strength):
+    """
+    Which gaussians of the .ply at path are floaters at that strength (a boolean per gaussian): far from their
+    neighbours or oversized. Raises ValueError or KeyError for a .ply that cannot be read so.
+    """
+    ratio, share = STRENGTHS[strength]
+    data = crop.read_ply(path)
+    count = len(data)
+    found = np.zeros(count, dtype=bool)
+    if count <= NEIGHBOURS:
+        return found
+    from scipy.spatial import cKDTree  # only here: the rest of SplatMe does without scipy
+
+    centres = np.stack([data[axis].astype(np.float64) for axis in ("x", "y", "z")], axis=1)
+    tree = cKDTree(centres)
+    spacing = np.empty(count)
+    for first in range(0, count, crop.ROWS):  # in chunks: the distances of all at once would be large
+        distances, _ = tree.query(centres[first : first + crop.ROWS], k=NEIGHBOURS + 1, workers=-1)
+        spacing[first : first + crop.ROWS] = distances[:, 1:].mean(axis=1)  # the first is the gaussian itself
+    found |= spacing > spacing.mean() + ratio * spacing.std()
+    scales = [name for name in ("scale_0", "scale_1", "scale_2") if name in data.dtype.names]
+    if scales:
+        scene = (np.percentile(centres, 95, axis=0) - np.percentile(centres, 5, axis=0)).max()
+        # The trainer writes scales as logarithms
+        largest = np.exp(np.max(np.stack([data[name].astype(np.float64) for name in scales], axis=1), axis=1))
+        found |= largest > share * scene
+    return found

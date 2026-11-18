@@ -20,6 +20,8 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/edits     the task's splat edits (edits.py) in its trained model's frame, that model's URL, size
                              and splat count, why it cannot be edited (editable) and its last Apply Edits
     PUT  task/<id>/edits     replaces its edits (edits), then answers as GET does
+    GET  task/<id>/floaters  which splats of its trained model are floaters at ?strength= (light, medium or strong):
+                             their numbers in the .ply (removed), for the page to hide them
     POST task/<id>/apply     makes the task's shown model again from its trained model and its edits
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
@@ -217,6 +219,22 @@ class Edits(TaskView):
         except edits.EditsError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.describe(request, task))
+
+
+class Floaters(TaskView):
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        strength = request.query_params.get("strength")
+        if strength not in edits.STRENGTHS:
+            return Response({"error": "The strength must be light, medium or strong."}, status=status.HTTP_400_BAD_REQUEST)
+        reason = training.editable(task)
+        if reason:
+            return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            found = edits.floaters(training.trained_model(task), strength)
+        except (OSError, ValueError, KeyError, MemoryError) as e:
+            return Response({"error": f"The trained model's floaters could not be found: {str(e) or type(e).__name__}"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"strength": strength, "removed": found.nonzero()[0].tolist()})
 
 
 class Apply(TaskView):

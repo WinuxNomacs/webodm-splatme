@@ -81,15 +81,11 @@ def inside(x, y, shapes):
 
 def within(rings):
     """A crop_ply rule: the gaussians inside the polygons (boundary's)."""
-    return lambda rows: inside(rows["x"].astype(np.float64), rows["y"].astype(np.float64), rings)
+    return lambda rows, _first: inside(rows["x"].astype(np.float64), rows["y"].astype(np.float64), rings)
 
 
-def crop_ply(source, dest, keep_rows):
-    """
-    Writes the trainer's .ply with only the gaussians keep_rows keeps: a function of a chunk of its rows (a numpy
-    record array, a field per property) that answers which of them stay. Answers (kept, all); nothing is written
-    when it keeps none or all of them.
-    """
+def read_ply(source, with_header=False):
+    """The trainer's .ply's gaussians, mapped from the file (a numpy record array, a field per property); with its header's bytes too."""
     with open(source, "rb") as f:
         count, props = splats.parse_ply_header(f)
         start = f.tell()
@@ -97,10 +93,21 @@ def crop_ply(source, dest, keep_rows):
         header = f.read(start)
     record = np.dtype([(name, PLY_TYPES[kind]) for name, kind in props])
     data = np.memmap(source, dtype=record, mode="r", offset=start, shape=(count,))
+    return (data, header) if with_header else data
+
+
+def crop_ply(source, dest, keep_rows):
+    """
+    Writes the trainer's .ply with only the gaussians keep_rows keeps: a function of a chunk of its rows (a numpy
+    record array, a field per property) and the number of the chunk's first row, that answers which of them stay.
+    Answers (kept, all); nothing is written when it keeps none or all of them.
+    """
+    data, header = read_ply(source, with_header=True)
+    count = len(data)
     keep = np.zeros(count, dtype=bool)
     for first in range(0, count, ROWS):
         rows = data[first : first + ROWS]
-        keep[first : first + ROWS] = keep_rows(rows)
+        keep[first : first + ROWS] = keep_rows(rows, first)
     kept = int(keep.sum())
     if kept in (0, count):
         return kept, count

@@ -15,30 +15,23 @@ other software. The plugin does that step.
    for the maintainer. Once merged, check that Administration → Plugins → Install Plugins lists SplatMe 0.2.0
    (marked Experimental), then move this phase to Done.
 
-2. Splat editing (asked 2026-11-18): an editor page of SplatMe's own (Edit on SplatMe → Tasks), on upstream
-   Spark 2.4.0 and three.js 0.187.0 vendored in the plugin: Box and Polygon crop, a Lasso that removes what is
-   behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
-   converted again; a retraining applies them again. In steps: 2a the renderer test (done 2026-11-18: it works,
-   branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (done
-   2026-11-18, branch `splat-editing-2b`), 2c Lasso (done 2026-11-18, branch `splat-editing-2c`), 2d Floaters (next: plan it). See "8. Splat editing".
-
 **Then**
 
-3. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
+2. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
    quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
    decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
    (to evaluate before the release after 0.2.0)".
 
 **Later**
 
-4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 3's quality testing.
+   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 2's quality testing.
 
 **Dropped**
 
@@ -54,6 +47,13 @@ other software. The plugin does that step.
 
 **Done**
 
+- Splat editing (2026-11-18, asked the same day): Edit Splats, a page of SplatMe's own (Edit on SplatMe → Tasks),
+  on Spark 2.4.0 and three.js 0.187.0 vendored in `splatme/public/vendor`: Box, Polygon, Lasso and Remove
+  Floaters, kept as shapes and applied to the trained `.ply` on the server by Apply Edits and after every
+  training. Code: `splatme/edits.py`, `training.py` (`shown_model`, Apply Edits), `api.py` (`Edits`, `Floaters`,
+  `Apply`), `templates/editor.html`, `public/Editor.jsx`, `public/editor/viewer.js`, `public/editShapes.js`;
+  tests in `splatme/tests/test_splatme.py` and `public/__tests__/editShapes.test.js`; `docs/editing.md`. Steps
+  2a to 2d in "8. Splat editing".
 - Documentation after the release (2026-11-17): `docs/how-it-works.md` (How It Works: what SplatMe takes from
   WebODM, and how OpenSplat trains a model, from WebODM 4.0.0's `app/splats.py` and OpenSplat e33f9dd), the
   network path from WebODM to a node on another machine in Getting Started's checklist, and the `release-check`
@@ -2451,7 +2451,24 @@ loaded by an import map on the editor page; checked again when upgraded.
   older code could not read the lasso and set the edits aside, which the page would then have overwritten; edits
   that do not read now stay where they are, Apply fails and a training goes on without them, both saying why, and
   the page warns (`unreadable`).
-- 2d. Floaters.
+- 2d. Floaters. Decided with the user 2026-11-18: a floater is a splat far from its neighbours or oversized (no
+  opacity filter: OpenSplat already prunes transparent splats, the check task's least opaque is 0.09); the
+  strength is Light, Medium or Strong, chosen in the list; the page hides them before Apply. Measured on the check
+  task (216,865 splats): a `cKDTree` search of 16 neighbours over all of them takes 0.12 s; far (mean distance over
+  the model's mean plus 3, 2 or 1 standard deviations) 382, 638 or 1,634, oversized (largest axis over 20, 10 or 5%
+  of the largest side of the middle 90% of the centres) 107, 246 or 563.
+  **Done 2026-11-18** (branch `splat-editing-2d`): `{"type": "floaters", "strength"}`, at most one;
+  `edits.floaters` judges the whole trained model (so the shapes do not change which splats are floaters), and
+  `shown_model` removes them with the shapes; the API's `task/<id>/floaters` gives their numbers in the `.ply`,
+  which the page hides (`keepMask`'s `floaters`); `crop_ply`'s rule is given each chunk's first row. A floaters
+  search that fails (an unreadable `.ply`, out of memory) is handled as unreadable edits: Apply fails, a training
+  goes on without the edits, both saying why. Tests: Django (found far and oversized on a planted model, the
+  preview's numbers, Apply and a retraining, refused strengths, the search failing) and Jest. Live (a duplicate
+  of the check task, deleted after): Medium 669 and Strong 1,755 floaters on the whole model, of which 79 and 371
+  inside the boundary; the list said 371 and Apply removed 371 (in 6.4 s); the server's splat numbers are Spark's
+  (300 compared: the same centres within 0.062 m, Spark's precision far out, against 0.31 m to the next splat in
+  the file); Continue From Step still offered. Learned, and changed: the list first counted all the floaters
+  (1,755) while Apply removed 371, the rest being outside the boundary; it now counts those the boundary leaves.
 
 **What can fail, and the tests that make it happen**: edits in the store that do not read (left as they are and skipped, not fatal),
 `splat-tools` failing or running out of time during Apply (the shown model stays), Apply while a training runs

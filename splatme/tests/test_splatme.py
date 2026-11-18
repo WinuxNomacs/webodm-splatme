@@ -1266,6 +1266,85 @@ class TestSplatMe(BootTestCase):
             self.assertEqual(res.status_code, 400, edit)
             self.assertIn(reason, res.data["error"])
 
+    # A 10 x 10 grid a metre apart, and one gaussian 100 m away: a floater at any strength
+    GRID = tuple((x, y) for x in range(10) for y in range(10)) + ((100, 100),)
+
+    def floaters(self, strength="medium"):
+        return {"type": "floaters", "strength": strength}
+
+    def test_floaters_far_from_their_neighbours_or_oversized_are_found_on_the_whole_model(self):
+        names = ("x", "y", "z", "opacity", "scale_0", "scale_1", "scale_2")
+        rows = np.array([(x, y, 5.0, 0.0, np.log(0.1), np.log(0.1), np.log(0.1)) for x, y in self.GRID], dtype="<f4")
+        rows[55, 5] = np.log(5)  # 5 m long, on a scene of about 8 m
+        header = (
+            f"ply\nformat binary_little_endian 1.0\nelement vertex {len(rows)}\n"
+            + "".join(f"property float {name}\n" for name in names)
+            + "end_header\n"
+        ).encode()
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        path = os.path.join(folder, "floaters.ply")
+        with open(path, "wb") as f:
+            f.write(header + rows.tobytes())
+        found = {strength: set(edits.floaters(path, strength).nonzero()[0]) for strength in edits.STRENGTHS}
+        self.assertEqual(found["light"], {55, 100})
+        self.assertEqual(found["medium"], {55, 100})
+        self.assertTrue(found["medium"] <= found["strong"])
+        # A model too small to have neighbours has no floaters
+        with open(path, "wb") as f:
+            f.write(header.replace(b"vertex 101", b"vertex 3") + rows[:3].tobytes())
+        self.assertFalse(edits.floaters(path, "strong").any())
+
+    def test_removing_floaters_is_an_edit_with_a_strength_that_the_page_can_preview(self):
+        task, header, rows = self.trained_task(self.GRID)
+        res = self.client.get(f"{API}/task/{task.id}/floaters", {"strength": "light"})
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data, {"strength": "light", "removed": [100]})
+        res = self.put_edits(task, [self.floaters("light"), self.polygon([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)])])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"][0], {"type": "floaters", "strength": "light"})
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["edited"], 2)
+        self.assertEqual(self.converted, [header.replace(b"vertex 101", b"vertex 99") + rows[1:100].tobytes()])
+        # A retraining removes them again
+        self.converted.clear()
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(self.status(task)["edited"], 2)
+        self.assertEqual(self.converted, [header.replace(b"vertex 101", b"vertex 99") + rows[1:100].tobytes()])
+
+    def test_floaters_with_no_strength_or_twice_are_refused(self):
+        task, _, _ = self.trained_task(self.GRID)
+        for given, reason in [
+            ([{"type": "floaters"}], "Light, Medium or Strong"),
+            ([self.floaters("huge")], "Light, Medium or Strong"),
+            ([self.floaters(), self.floaters("strong")], "only once"),
+        ]:
+            res = self.put_edits(task, given)
+            self.assertEqual(res.status_code, 400, given)
+            self.assertIn(reason, res.data["error"])
+        res = self.client.get(f"{API}/task/{task.id}/floaters", {"strength": "huge"})
+        self.assertEqual(res.status_code, 400)
+        self.client.logout()
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/floaters", {"strength": "light"}).status_code, 404)
+
+    def test_floaters_that_cannot_be_found_fail_apply_and_a_training_goes_on_without_the_edits(self):
+        task, header, rows = self.trained_task(self.GRID)
+        self.put_edits(task, [self.floaters()])
+        with mock.patch.object(edits, "floaters", side_effect=MemoryError()):
+            self.apply(task)
+            apply = self.status(task)["apply"]
+            self.assertEqual(apply["state"], "failed")
+            self.assertIn("floaters could not be found: MemoryError", apply["error"])
+            self.assertEqual(self.converted, [])
+            res = self.client.get(f"{API}/task/{task.id}/floaters", {"strength": "light"})
+            self.assertEqual(res.status_code, 400)
+            self.assertIn("could not be found", res.data["error"])
+            self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertIn("floaters could not be found", status["edits_error"])
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+
     def test_apply_edits_crops_to_the_boundary_first_when_the_model_was_trained_so(self):
         task = make_task(self.user)
         self.with_boundary(task)

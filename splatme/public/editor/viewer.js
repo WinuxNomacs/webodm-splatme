@@ -51,7 +51,7 @@ export function createViewer(container, handlers){
     transform.setSpace("local");
     scene.add(transform.getHelper());
 
-    let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null;
+    let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null, floaters = null;
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
     let lasso = null;  // {points: [[x, y] in pixels], down}
@@ -81,7 +81,7 @@ export function createViewer(container, handlers){
     function applyMask(){
         maskQueued = false;
         if (!mesh) return;
-        keepMask(xs, ys, zs, edits, keep, base);
+        keepMask(xs, ys, zs, edits, keep, base, floaters);
         const packed = mesh.packedSplats.packedArray, encoding = mesh.packedSplats.splatEncoding;
         let changed = false;
         for (let i = 0; i < keep.length; i++){
@@ -154,7 +154,9 @@ export function createViewer(container, handlers){
         transform.detach();
         clearGroup(shapes);
         handles = edits.map(edit => {
-            const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) : polygonObject(edit);
+            // Floaters have no shape: an empty group keeps the handles numbered as the edits
+            const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) :
+                edit.type === "floaters" ? new THREE.Group() : polygonObject(edit);
             object.renderOrder = 10;
             object.traverse(o => { o.renderOrder = 10; });
             shapes.add(object);
@@ -404,6 +406,13 @@ export function createViewer(container, handlers){
             selected = index;
             drawShapes();
             queueMask();
+        },
+        // The splats the edits' floaters are, by their numbers in the model (null: none): answers how many of them
+        // the boundary leaves, which are those Apply removes for them
+        setFloaters(numbers){
+            floaters = numbers;
+            queueMask();
+            return numbers ? numbers.filter(i => !base || base[i]).length : 0;
         },
         // What the handles do: "translate" (move), "scale" (size) or "rotate" (turn, about the vertical only)
         setMode(mode){
