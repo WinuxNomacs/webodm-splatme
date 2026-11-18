@@ -9,29 +9,25 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. SplatMe's entry in WebODM's plugin directory, with 0.2.0 (the rest of "Docs and first release"). 0.2.0 is
-   released (2026-11-17), with node 0.2.2 and the docs on Pages. The user opened the pull request,
-   https://github.com/WebODM/WebODM-Plugins/pull/9 (branch `add-splatme` of their fork, commit f103215): waiting
-   for the maintainer. Once merged, check that Administration → Plugins → Install Plugins lists SplatMe 0.2.0
-   (marked Experimental), then move this phase to Done.
-
-**Then**
-
-2. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
+1. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
    quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
    decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
    (to evaluate before the release after 0.2.0)".
 
+**Then**
+
+(nothing yet)
+
 **Later**
 
-3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 2's quality testing.
+   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 1's quality testing.
 
 **Dropped**
 
@@ -47,6 +43,13 @@ other software. The plugin does that step.
 
 **Done**
 
+- SplatMe in WebODM's plugin directory (2026-11-18): the user's pull request,
+  https://github.com/WebODM/WebODM-Plugins/pull/9, was merged on 2026-11-17. Checked 2026-11-18 in
+  https://plugins.webodm.org/index.json, the list Administration → Plugins → Install Plugins shows: SplatMe
+  0.2.0, `experimental: true`, WebODM 4.0.0 or later. The directory serves its own repack of the release zip
+  (`splatme.zip`, SHA-256 fc6eeabf...): the same files as `splatme-0.2.0.zip` plus a generated
+  `public/webpack.config.js`; it also builds a prebuilt zip for installs that cannot build page scripts. The page
+  itself was not opened in a browser (no admin sign-in was at hand).
 - More splat editing (2026-11-18, asked the same day), on Edit Splats: the Brush, Colour Adjust and Download .ply
   (the edited model as a `.ply`, also on the task's row on SplatMe → Tasks). Code: `splatme/edits.py`,
   `crop.py` (`crop_ply`'s `change`), `training.py` (`shown_model`, `edited_model`), `api.py` (`Download`),
@@ -2186,7 +2189,7 @@ Ways to add it, smallest first:
 - **C. A Caddy sidecar in the node's compose file** (`--tls <domain>`, automatic certificates): needs a domain
   and port 80/443 reachable from the internet for the certificate; more moving parts than B.
 
-Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (Later 3), a
+Decided with the user (2026-11-16): A (docs) goes into 0.2.0 with phase 1; B stays proposed here (Later 2), a
 phase of its own after the directory entry if the user wants it. The recommendation it was decided on: not in 0.2.0. B touches the node's image, the script, the plugin's settings and the upgrade of
 existing nodes: a new node release and its own testing on two machines, which would hold 0.2.0's fixes back.
 0.2.0 can carry A (docs) at no risk; B is a phase of its own after the directory entry.
@@ -2332,7 +2335,7 @@ someone choosing a training.
 **Quality testing first.** On the dev GPU (8 GB), each scored on held-out photos at full resolution, with time
 and peak GPU memory: `--densify-until` later on High and on a continued training; coarse-to-fine at 2,400 px and
 full size; optionally Draft refining every 250. About 12 to 16 trainings (30,000 steps takes about 26 minutes),
-an evening; one night with phase 5's grid. Also a nadir-only task and a small one, which the presets' study
+an evening; one night with phase 4's grid. Also a nadir-only task and a small one, which the presets' study
 lacked.
 
 **What adopting one needs**: new node options (node 0.2.3: a new `VERSION`, as the image is built once per
