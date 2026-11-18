@@ -153,10 +153,12 @@ export function createViewer(container, handlers){
     function drawShapes(){
         transform.detach();
         clearGroup(shapes);
-        handles = edits.map(edit => {
+        handles = edits.map((edit, i) => {
             // Floaters have no shape: an empty group keeps the handles numbered as the edits
             const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) :
                 edit.type === "floaters" ? new THREE.Group() : polygonObject(edit);
+            // Only the edit picked in the list shows its shape: the others show only in what they hide
+            object.visible = i === selected;
             object.renderOrder = 10;
             object.traverse(o => { o.renderOrder = 10; });
             shapes.add(object);
