@@ -96,6 +96,31 @@
         }
     }
 
+    .splatme-editor-colour{
+        margin: 0 0 10px 0;
+
+        label{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0 0 4px 0;
+            font-weight: normal;
+
+            span:first-child{
+                flex: 0 0 6.5em;
+            }
+
+            input{
+                flex: 1 1 auto;
+            }
+        }
+
+        .splatme-editor-colour-value{
+            flex: 0 0 2.5em;
+            text-align: right;
+        }
+    }
+
     .splatme-editor-modes{
         margin-bottom: 6px;
     }

@@ -2,20 +2,20 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { request } from './api';
-import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, addStroke, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES } from './editShapes';
+import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
 const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const AXES = ["X", "Y", "Z"];
-const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom"};
+const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette"};
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 
 // Edit Splats (templates/editor.html, Edit on a task's row in SplatMe → Tasks): the task's trained model in a 3D view
 // (editor/viewer.js, loaded by loadViewer through the page's import map) and this panel beside it, below it on a
 // phone. Box, Polygon and Lasso edits keep or remove the splats inside them, the Brush removes those painted over,
-// Remove Floaters the splats far from the rest or oversized (found by the server); the view hides what they remove as they change, and they are saved as
-// they are made. Apply makes the task's model again from its trained model with them
+// Remove Floaters the splats far from the rest or oversized (found by the server); the view hides what they remove as they change.
+// Colour Adjust changes the whole model's colours, shown as its sliders move. They are saved as they are made. Apply makes the task's model again from its trained model with them
 // (training.py's Apply Edits), which the 3D view, the download and the share links then show.
 export default class Editor extends React.Component {
     static propTypes = {
@@ -187,6 +187,26 @@ export default class Editor extends React.Component {
         this.change([...edits, {type: "floaters", strength: "medium"}], -1);
     };
 
+    addColour = () => {
+        const { edits } = this.state;
+        if (colourEdit(edits) || edits.length >= MAX_EDITS) return;
+        this.change([...edits, newColour()], edits.length);
+    };
+
+    // A Colour Adjust slider moved: one Undo step for each slider's drag, as for a box's
+    setColour(index, name, value){
+        const now = Date.now();
+        const drag = index + name;
+        if (this.colourDrag !== drag || now - this.colourTime > 1000) this.history.push(this.state.edits);
+        this.colourDrag = drag;
+        this.colourTime = now;
+        const edits = this.state.edits.slice();
+        edits[index] = {...edits[index], [name]: value};
+        this.setState({edits});
+        if (this.viewer) this.viewer.setColour(edits[index]);
+        this.queueSave();
+    }
+
     setStrength(index, strength){
         const edits = this.state.edits.slice();
         edits[index] = {...edits[index], strength};
@@ -339,6 +359,24 @@ export default class Editor extends React.Component {
         );
     }
 
+    renderColourFields(index, edit){
+        return (
+            <div className="splatme-editor-colour">
+                {COLOURS.map(([name, label]) => {
+                    const value = Math.round(edit[name] * 100);
+                    return (
+                        <label key={name}>
+                            <span>{_(label)}</span>
+                            <input type="range" min="-100" max="100" value={value}
+                                   onChange={e => this.setColour(index, name, parseInt(e.target.value, 10) / 100)} />
+                            <span className="splatme-editor-colour-value">{value > 0 ? "+" + value : value}</span>
+                        </label>
+                    );
+                })}
+            </div>
+        );
+    }
+
     renderList(){
         const { edits, selected, info } = this.state;
         if (!edits.length) return <p className="splatme-editor-empty">{_("No edits yet. Add a box or draw a polygon around what to keep, or around what to remove.")}</p>;
@@ -346,13 +384,14 @@ export default class Editor extends React.Component {
             <ul className="list-group splatme-editor-list">
                 {edits.map((edit, i) => (
                     <li key={i} className={"list-group-item" + (i === selected ? " active" : "")}>
-                        <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : ""}>
+                        <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : edit.type === "colour" ? _("Show its sliders") : ""}>
                             <i className={"fa fa-fw " + ICONS[edit.type]}></i> {editLabel(edit, this.floatersCount(edit))}
                         </a>
                         {(edit.type === "lasso" || edit.type === "brush") && edit.camera && this.viewer ?
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
                             {edit.type === "brush" ? <span className="splatme-editor-item-note">{_("Removes what it painted over")}</span> :
+                            edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
                             edit.type === "floaters" ?
                                 <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}
                                         aria-label={_("How many floaters to remove")} onChange={e => this.setStrength(i, e.target.value)}>
@@ -393,6 +432,7 @@ export default class Editor extends React.Component {
         const busy = !canEdit || drawing !== null || lassoing || brushing || edits.length >= MAX_EDITS;
         const applying = !!apply && apply.state === "applying";
         const box = selected >= 0 && edits[selected] && edits[selected].type === "box" ? edits[selected] : null;
+        const colour = selected >= 0 && edits[selected] && edits[selected].type === "colour" ? edits[selected] : null;
         return (
             <div className="splatme-editor-panel">
                 {!info.can_edit ? <p className="text-warning">{_("Only those who may change this project edit its splats.")}</p> : ""}
@@ -414,6 +454,10 @@ export default class Editor extends React.Component {
                     <button type="button" className="btn btn-sm btn-default" disabled={busy || !!floatersStrength(edits)}
                             onClick={this.addFloaters} title={_("Remove the splats far from the rest, and the oversized ones")}>
                         <i className="fa fa-broom fa-fw"></i> {_("Remove Floaters")}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy || !!colourEdit(edits)}
+                            onClick={this.addColour} title={_("Change the whole model's brightness, contrast, saturation and warmth")}>
+                        <i className="fa fa-palette fa-fw"></i> {_("Colour Adjust")}
                     </button>
                 </div>
                 {lassoing ?
@@ -458,6 +502,7 @@ export default class Editor extends React.Component {
                 {this.renderList()}
                 {this.state.floatersError ? <p className="text-danger">{_("The floaters could not be found:")} {this.state.floatersError}</p> : ""}
                 {box && canEdit ? this.renderBoxFields(box) : ""}
+                {colour && canEdit ? this.renderColourFields(selected, colour) : ""}
                 {info.can_edit ?
                     <div className="splatme-editor-history">
                         <button type="button" className="btn btn-sm btn-default" disabled={!this.history.length} onClick={this.undo}>

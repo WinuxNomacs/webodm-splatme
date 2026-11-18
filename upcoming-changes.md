@@ -18,7 +18,7 @@ other software. The plugin does that step.
 **Then**
 
 2. More splat editing, asked 2026-11-18, in this order, each planned with the user before it is built: 2a the
-   Brush (built), 2b Colour Adjust, 2c Download Edited Model. See "9. More splat editing (proposed)".
+   Brush (built), 2b Colour Adjust (built), 2c Download Edited Model. See "9. More splat editing (proposed)".
 3. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
    quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
    decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
@@ -2526,14 +2526,30 @@ that would make the edits' order matter); its Size is a slider in screen pixels,
   centres removed 30,284 splats in 86 ms, and Apply removed 30,284 (6.4 s); Continue From Step still offered;
   the edit back after a reload; the panel fits a phone.
 
-**2b. Colour Adjust.** Proposed: one entry in the list, as Remove Floaters (at most one), with sliders for
-Brightness, Contrast, Saturation and Warmth (white balance), seen at once in the view and written into the
-`.ply`'s colours (`f_dc_*`, with `f_rest_*` scaled to match) by Apply and after each retraining.
+**2b. Colour Adjust (built).** Decided with the user (2026-11-18): four sliders, Brightness, Contrast, Saturation
+and Warmth; the whole model only (not inside a shape), one entry in the list, as Remove Floaters.
 
-- Open decision: which sliders (those four, or also Exposure and Tint), and whether it applies to the whole model
-  only or also inside a shape (a box or polygon picked in the list).
-- To check before planning: that the view can change splats' colours as fast as it hides them (Spark's packed
-  splats), and how the view-dependent colours (`f_rest_*`) should follow, measured on the check task.
+- Measured first (2026-11-18, the check task's 216,865 splats in the headless browser): Spark's packed colours
+  rewritten for every splat in 8 to 12 ms, so the view recolours on each slider move, as it hides splats.
+- Stored as `{"type": "colour", brightness, contrast, saturation, warmth}`, each -1 to 1 (two decimals), 0 for no
+  change. The change is one matrix and offset on a colour (`edits.colour_matrix`, `editShapes.colourMatrix`):
+  warmth red times 1 + 0.2w and blue times 1 - 0.2w, brightness a gain of 1 + 0.5b, saturation 1 + s away from
+  the colour's grey (Rec. 709 weights), contrast 2^c away from 0.5. Being linear, it is exact on the view-dependent
+  light too: Apply changes `f_dc_*` by the whole change and each `f_rest_*` triple (red's, green's, blue's) by the
+  matrix. The view changes only the base colours (Spark has no setter for its packed spherical harmonics), which
+  the docs say.
+- Code: `edits.py` (`clean`'s colour, `colour`, `colour_matrix`, `colour_change`), `crop.crop_ply`'s `change` (the
+  kept rows of each chunk, a copy, changed before they are written; written even when every row is kept),
+  `training.shown_model`; `public/editShapes.js` (`colourMatrix`, `colourEdit`, `colourText`, `newColour`),
+  `public/editor/viewer.js` (`recolour`, `setColour`: a slider recolours without hiding again), `public/Editor.jsx`
+  (Colour Adjust button, sliders under the list while it is picked, one Undo step per slider's drag). Tests: 3
+  Django (each slider on f_dc and f_rest, with a brush, no change, a model without colours; refusals), 4 Jest (the
+  same numbers as the Django test, the list's words).
+- Live check (2026-11-18, a copy of the check task, deleted after; `sm-worker` restarted with the user's approval):
+  the view's mean colour went from (52, 48, 42) to (62, 58, 50) at Brightness +40 and to (60, 59, 61) at
+  Saturation -100; Undo took back the saturation drag only; Apply took 6.4 s, Continue From Step still offered;
+  the server's rule on the trained `.ply` gave the same opacity-weighted mean colour as the browser's
+  ((0.523, 0.502, 0.465) from (0.451, 0.413, 0.352)); the edit back after a reload; the panel fits a phone.
 
 **2c. Download Edited Model.** WebODM's own download already serves `model.rad`, which is the edited model, but
 only in that format (`splat-tools` writes `.rad` only: its `--help`, 2026-11-18). Proposed: a Download button on

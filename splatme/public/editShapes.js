@@ -16,6 +16,8 @@
 //   floaters {type: "floaters", strength: "light" | "medium" | "strong"}, at most one, no keep: the splats far from
 //            their neighbours or oversized, which the server finds on the whole model (edits.floaters, the API's
 //            task/<id>/floaters) and the page hides by their numbers
+//   colour   {type: "colour", brightness, contrast, saturation, warmth} (each -1 to 1, 0 for no change), at most one,
+//            no keep: the whole model's colours (colourMatrix, as edits.colour_matrix)
 
 export const MAX_EDITS = 200;
 export const MAX_CORNERS = 2000;
@@ -26,6 +28,9 @@ export const BRUSH_SIZES = [5, 100];
 // Above this the page warns before loading the trained model whole (bytes of the .ply)
 export const LARGE_MODEL = 400 * 1024 * 1024;
 export const STRENGTHS = [["light", "Light"], ["medium", "Medium"], ["strong", "Strong"]];
+// Colour Adjust's sliders: the edit's field and its name in the panel
+export const COLOURS = [["brightness", "Brightness"], ["contrast", "Contrast"], ["saturation", "Saturation"], ["warmth", "Warmth"]];
+const LUMA = [0.2126, 0.7152, 0.0722];
 
 export function insideBox(box, x, y, z){
     const turn = box.turn * Math.PI / 180;
@@ -166,7 +171,7 @@ export function keepMask(xs, ys, zs, edits, out, base, floaters){
         for (const i of floaters) if (i >= 0 && i < n) keep[i] = 0;
     }
     for (const edit of edits){
-        if (edit.type === "floaters") continue;
+        if (edit.type === "floaters" || edit.type === "colour") continue;
         if (edit.type === "brush"){
             brushOut(edit, xs, ys, zs, keep);
             continue;
@@ -231,8 +236,41 @@ export function floatersStrength(edits){
     return edit ? edit.strength : null;
 }
 
+// The edits' Colour Adjust, or null
+export function colourEdit(edits){
+    return edits.find(e => e.type === "colour") || null;
+}
+
+export function newColour(){
+    return {type: "colour", brightness: 0, contrast: 0, saturation: 0, warmth: 0};
+}
+
+// Colour Adjust as a matrix (rows of red, green, blue) and an offset on a colour (0 to 1): c' = m c + t, the same as
+// edits.colour_matrix. Warmth more red and less blue, brightness a gain, saturation away from or towards the
+// colour's grey, contrast away from or towards the middle grey
+export function colourMatrix(edit){
+    const warm = [1 + 0.2 * edit.warmth, 1, 1 - 0.2 * edit.warmth];
+    const gain = 1 + 0.5 * edit.brightness, s = 1 + edit.saturation, k = Math.pow(2, edit.contrast);
+    const m = [];
+    for (let r = 0; r < 3; r++){
+        for (let c = 0; c < 3; c++) m.push(k * gain * ((r === c ? s : 0) + (1 - s) * LUMA[c]) * warm[c]);
+    }
+    const t = 0.5 * (1 - k);
+    return {m, t: [t, t, t]};
+}
+
+// The list's note for a Colour Adjust: its sliders away from 0, as the panel shows them (-100 to 100)
+export function colourText(edit){
+    const changed = COLOURS.filter(([name]) => edit[name]).map(([name, label]) => {
+        const value = Math.round(edit[name] * 100);
+        return label + " " + (value > 0 ? "+" : "") + value;
+    });
+    return changed.length ? changed.join(", ") : "No change yet";
+}
+
 // The list's words for an edit (floaters: with how many splats they are, once known)
 export function editLabel(edit, count){
+    if (edit.type === "colour") return "Colour Adjust";
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
     }
