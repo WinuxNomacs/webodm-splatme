@@ -8,6 +8,7 @@ import { NOT_LISTENING } from './restartText';
 import { request } from './api';
 import { getUnitSystem } from 'webodm/classes/Units';
 import { overallProgress, stageText, panelMode, resultText, autoText } from './trainingView';
+import { applyText } from './editShapes';
 
 // A task's splats on SplatMe's Tasks page (Tasks.jsx): the Train Splats button, while a training runs its stage,
 // a progress bar, Cancel and Show Log, and whether the task is trained when it completes, with Change. The page
@@ -105,21 +106,30 @@ export default class TrainSplats extends React.Component {
 
     renderButton(status, waiting){
         const result = waiting ? "" : resultText(status, getUnitSystem() === "imperial");
+        const applying = !!status.apply && status.apply.state === "applying";
         return (
             <div className="splatme-idle">
-                <button type="button" className="btn btn-sm btn-primary" disabled={waiting} onClick={() => this.setState({dialog: true})}
-                        title={waiting ? _("The task has not completed processing.") : _("Train this task's Gaussian splats on the splat node")}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={waiting || applying} onClick={() => this.setState({dialog: true})}
+                        title={waiting ? _("The task has not completed processing.") : applying ? _("The task's edits are being applied.") : _("Train this task's Gaussian splats on the splat node")}>
                     <i className="fa fa-splat fa-fw"></i> {status.has_splats && !waiting ? _("Train Splats Again") : _("Train Splats")}
                 </button>
                 {status.has_splats && !waiting ?
                     <a className="btn btn-sm btn-default" href={"/3d/project/" + this.props.projectId + "/task/" + this.props.taskId + "/?t=splats"}>
                         <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                     </a> : ""}
+                {status.editable && status.can_train && !waiting ?
+                    <a className="btn btn-sm btn-default" href={"/plugins/splatme/edit/" + this.props.taskId + "/"} title={_("Crop the splat model, and remove splats from it")}>
+                        <i className="fa fa-edit fa-fw"></i> {_("Edit")}
+                    </a> : ""}
                 {status.state === "failed" ?
                     <button type="button" className="btn btn-sm btn-default" onClick={() => this.setState({log: true})}>
                         <i className="fa fa-file-alt fa-fw"></i> {_("Show Log")}
                     </button> : ""}
                 {result ? <span className={"splatme-result" + (status.state === "failed" ? " text-danger" : "")}>{result}</span> : ""}
+                {status.apply && status.apply.state !== "completed" ?
+                    <div className={"splatme-apply" + (status.apply.state === "failed" ? " text-danger" : "")}>
+                        {applying ? <i className="fa fa-circle-notch fa-spin fa-fw"></i> : ""} {applyText(status.apply)}
+                    </div> : ""}
             </div>
         );
     }

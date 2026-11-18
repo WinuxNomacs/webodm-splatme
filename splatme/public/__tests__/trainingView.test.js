@@ -254,6 +254,9 @@ describe("the Tasks page's list", () => {
     test("is asked for often while a task trains, now and then while one processes, and not otherwise", () => {
         expect(nextRefresh(list({status: 40, splats: {active: true}}, {status: 20, splats: {}}))).toBe(FAST);
         expect(nextRefresh(list({status: 40, splats: {}}, {status: 20, splats: {}}))).toBe(SLOW);
+        // Edits being applied are followed as a training is
+        expect(nextRefresh(list({status: 40, splats: {apply: {state: "applying"}}}))).toBe(FAST);
+        expect(nextRefresh(list({status: 40, splats: {apply: {state: "completed"}}}))).toBe(0);
         expect(nextRefresh(list({status: null, splats: {}}))).toBe(SLOW);
         expect(nextRefresh(list({status: 40, splats: {}}, {status: 30, splats: {}}))).toBe(0);
         expect(nextRefresh([])).toBe(0);

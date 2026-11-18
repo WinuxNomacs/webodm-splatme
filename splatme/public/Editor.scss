@@ -1,0 +1,133 @@
+// Edit Splats (Editor.jsx): the 3D view with the panel to its right, below it on a phone. Colours are WebODM's and
+// Bootstrap's own classes: none here.
+.splatme-editor{
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+
+    .splatme-editor-view{
+        position: relative;
+        flex: 1 1 auto;
+        min-width: 0;
+        height: calc(100vh - 220px);
+        min-height: 320px;
+        border-radius: 3px;
+        overflow: hidden;
+        touch-action: none;  // the view's own pinch and drag, not the page's
+
+        canvas{
+            display: block;
+        }
+    }
+
+    .splatme-editor-note{
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        transform: translateY(-50%);
+        padding: 0 16px;
+        text-align: center;
+    }
+
+    .splatme-editor-panel{
+        flex: 0 0 300px;
+        max-height: calc(100vh - 220px);
+        overflow-y: auto;
+
+        h4{
+            margin-top: 14px;
+        }
+    }
+
+    .splatme-editor-tools, .splatme-editor-views, .splatme-editor-history, .splatme-editor-drawing-actions{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .splatme-editor-drawing{
+        padding: 8px;
+    }
+
+    .splatme-editor-drawing-actions{
+        margin: 6px 0 0 0;
+    }
+
+    .splatme-editor-list{
+        margin-bottom: 8px;
+
+        .list-group-item{
+            padding: 6px 8px;
+        }
+
+        .splatme-editor-item-actions{
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+
+            select{
+                flex: 1 1 auto;
+                width: auto;
+            }
+        }
+    }
+
+    .splatme-editor-modes{
+        margin-bottom: 6px;
+    }
+
+    .splatme-editor-fields{
+        width: 100%;
+        margin-bottom: 8px;
+
+        th{
+            padding-right: 6px;
+            font-weight: normal;
+        }
+
+        td{
+            padding: 2px;
+        }
+
+        input{
+            min-width: 0;
+            padding: 2px 4px;
+        }
+    }
+
+    .splatme-editor-save{
+        margin-left: 6px;
+        opacity: 0.7;
+    }
+
+    .splatme-editor-apply{
+        margin-top: 12px;
+
+        p{
+            margin: 6px 0;
+        }
+    }
+}
+
+.splatme-editor-stats{
+    margin-top: 6px;
+    opacity: 0.7;
+}
+
+@media (max-width: 767px){
+    .splatme-editor{
+        flex-direction: column;
+
+        .splatme-editor-view{
+            height: 60vh;
+        }
+
+        .splatme-editor-panel{
+            flex: none;
+            max-height: none;
+        }
+    }
+}

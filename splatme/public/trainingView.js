@@ -312,7 +312,7 @@ export function nextRefresh(projects){
     let wait = 0;
     for (const project of projects || []){
         for (const task of project.tasks || []){
-            if (task.splats && task.splats.active) return FAST;
+            if (task.splats && (task.splats.active || (task.splats.apply && task.splats.apply.state === "applying"))) return FAST;
             if (task.status == null || task.status === TASK_QUEUED || task.status === TASK_RUNNING) wait = SLOW;
         }
     }

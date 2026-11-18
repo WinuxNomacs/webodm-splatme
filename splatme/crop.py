@@ -79,10 +79,16 @@ def inside(x, y, shapes):
     return result
 
 
-def crop_ply(source, dest, rings):
+def within(rings):
+    """A crop_ply rule: the gaussians inside the polygons (boundary's)."""
+    return lambda rows: inside(rows["x"].astype(np.float64), rows["y"].astype(np.float64), rings)
+
+
+def crop_ply(source, dest, keep_rows):
     """
-    Writes the trainer's .ply with only the gaussians inside the polygons (boundary's). Answers (kept, all); nothing is written
-    when none or all of them are inside.
+    Writes the trainer's .ply with only the gaussians keep_rows keeps: a function of a chunk of its rows (a numpy
+    record array, a field per property) that answers which of them stay. Answers (kept, all); nothing is written
+    when it keeps none or all of them.
     """
     with open(source, "rb") as f:
         count, props = splats.parse_ply_header(f)
@@ -94,7 +100,7 @@ def crop_ply(source, dest, rings):
     keep = np.zeros(count, dtype=bool)
     for first in range(0, count, ROWS):
         rows = data[first : first + ROWS]
-        keep[first : first + ROWS] = inside(rows["x"].astype(np.float64), rows["y"].astype(np.float64), rings)
+        keep[first : first + ROWS] = keep_rows(rows)
     kept = int(keep.sum())
     if kept in (0, count):
         return kept, count

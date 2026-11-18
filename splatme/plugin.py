@@ -5,7 +5,21 @@ from django.dispatch import receiver
 from django.shortcuts import render
 
 from . import training
-from .api import Auto, Automation, Cancel, Check, Log, NodeSettings, Revive, SharedAutomation, Status, Tasks, Train
+from .api import (
+    Apply,
+    Auto,
+    Automation,
+    Cancel,
+    Check,
+    Edits,
+    Log,
+    NodeSettings,
+    Revive,
+    SharedAutomation,
+    Status,
+    Tasks,
+    Train,
+)
 
 
 class Plugin(PluginBase):
@@ -22,7 +36,7 @@ class Plugin(PluginBase):
         return ["main.js"]
 
     def build_jsx_components(self):
-        return ["Tasks.jsx", "Dashboard.jsx"]
+        return ["Tasks.jsx", "Dashboard.jsx", "Editor.jsx"]
 
     def app_mount_points(self):
         parts = {"node_part": self.template_path("node.html"), "options_part": self.template_path("options.html")}
@@ -42,7 +56,15 @@ class Plugin(PluginBase):
                 raise PermissionDenied()
             return render(request, self.template_path("admin.html"), {"title": "SplatMe", **parts})
 
-        return [MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page)]
+        # Edit Splats: the API answers whether the user may see and change the task
+        @login_required
+        def editor_page(request, task_id):
+            return render(request, self.template_path("editor.html"), {"title": "Edit Splats", "task_id": task_id})
+
+        return [
+            MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page),
+            MountPoint("edit/(?P<task_id>[0-9a-f-]+)/$", editor_page),
+        ]
 
     def api_mount_points(self):
         return [
@@ -52,6 +74,8 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/cancel$", Cancel.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/log$", Log.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/auto$", Auto.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/edits$", Edits.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/apply$", Apply.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("automation$", Automation.as_view()),
             MountPoint("automation/shared$", SharedAutomation.as_view()),

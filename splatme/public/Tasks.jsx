@@ -99,7 +99,9 @@ export default class Tasks extends React.Component {
         const wait = nextRefresh(projects) || (settling ? FAST : 0);
         if (!wait) return;
         const rows = [].concat(...(projects || []).map(p => p.tasks.map(task => ({project: p.id, task}))));
-        const training = rows.filter(r => r.task.splats && r.task.splats.active).map(r => r.task.id);
+        // Trainings, and edits being applied
+        const training = rows.filter(r => r.task.splats && (r.task.splats.active ||
+            (r.task.splats.apply && r.task.splats.apply.state === "applying"))).map(r => r.task.id);
         const processing = rows.filter(r => r.task.status == null || r.task.status === TASK_QUEUED || r.task.status === TASK_RUNNING)
             .map(r => ({project: r.project, id: r.task.id, status: r.task.status}));
         if ((training.length || processing.length) && !settling && now - this.listed < LIST_EVERY){
