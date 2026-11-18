@@ -52,6 +52,11 @@ export function request(method, path, body){
     return send(method, path, body).then(answer);
 }
 
+// Where the browser downloads the task's model with its saved edits, as a .ply (a link: the server names the file)
+export function downloadUrl(taskId){
+    return BASE + "task/" + encodeURIComponent(taskId) + "/download";
+}
+
 // The same for a URL of WebODM's own API (/api/projects/...), or SplatMe's given whole
 export function webodm(method, url, body){
     return sendTo(url, method, body).then(answer);

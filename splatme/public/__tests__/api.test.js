@@ -1,4 +1,4 @@
-import {readLog, request, webodm} from "../api";
+import {downloadUrl, readLog, request, webodm} from "../api";
 
 const NO_ANSWER = "WebODM did not answer. Check the connection, then try again.";
 
@@ -16,5 +16,11 @@ describe("a request that gets no answer (the network is off)", () => {
     test("has no status, unlike a refusal", async () => {
         const error = await request("GET", "tasks").catch(e => e);
         expect(error.status).toBeUndefined();
+    });
+});
+
+describe("the edited model's download", () => {
+    test("is the task's download under SplatMe's API", () => {
+        expect(downloadUrl("b3a01458-ca71")).toBe("/api/plugins/splatme/task/b3a01458-ca71/download");
     });
 });

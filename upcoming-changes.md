@@ -17,21 +17,19 @@ other software. The plugin does that step.
 
 **Then**
 
-2. More splat editing, asked 2026-11-18, in this order, each planned with the user before it is built: 2a the
-   Brush (built), 2b Colour Adjust (built), 2c Download Edited Model. See "9. More splat editing (proposed)".
-3. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
+2. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
    quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
    decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
    (to evaluate before the release after 0.2.0)".
 
 **Later**
 
-4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 2's quality testing.
 
@@ -49,6 +47,12 @@ other software. The plugin does that step.
 
 **Done**
 
+- More splat editing (2026-11-18, asked the same day), on Edit Splats: the Brush, Colour Adjust and Download .ply
+  (the edited model as a `.ply`, also on the task's row on SplatMe → Tasks). Code: `splatme/edits.py`,
+  `crop.py` (`crop_ply`'s `change`), `training.py` (`shown_model`, `edited_model`), `api.py` (`Download`),
+  `public/Editor.jsx`, `public/editor/viewer.js`, `public/editShapes.js`, `public/TrainSplats.jsx`,
+  `public/api.js`; tests in `splatme/tests/test_splatme.py`, `public/__tests__/editShapes.test.js` and
+  `api.test.js`; `docs/editing.md`, `docs/api.md`. Steps 2a to 2c in "9. More splat editing".
 - Splat editing (2026-11-18, asked the same day): Edit Splats, a page of SplatMe's own (Edit on SplatMe → Tasks),
   on Spark 2.4.0 and three.js 0.187.0 vendored in `splatme/public/vendor`: Box, Polygon, Lasso and Remove
   Floaters, kept as shapes and applied to the trained `.ply` on the server by Apply Edits and after every
@@ -2328,7 +2332,7 @@ someone choosing a training.
 **Quality testing first.** On the dev GPU (8 GB), each scored on held-out photos at full resolution, with time
 and peak GPU memory: `--densify-until` later on High and on a continued training; coarse-to-fine at 2,400 px and
 full size; optionally Draft refining every 250. About 12 to 16 trainings (30,000 steps takes about 26 minutes),
-an evening; one night with phase 6's grid. Also a nadir-only task and a small one, which the presets' study
+an evening; one night with phase 5's grid. Also a nadir-only task and a small one, which the presets' study
 lacked.
 
 **What adopting one needs**: new node options (node 0.2.3: a new `VERSION`, as the image is built once per
@@ -2497,7 +2501,7 @@ loaded by an import map on the editor page; checked again when upgraded.
   behave as for a training), run by `run_function_async`; a training refuses to start while it runs, and Apply is
   refused while a training runs.
 
-### 9. More splat editing (proposed)
+### 9. More splat editing
 
 Asked 2026-11-18, from a list of ideas the user was given: the Brush, Colour Adjust and Download Edited Model, on
 Edit Splats. Builds on splat editing (8, built): edits stored with the task and applied on the server to the
@@ -2551,12 +2555,26 @@ and Warmth; the whole model only (not inside a shape), one entry in the list, as
   the server's rule on the trained `.ply` gave the same opacity-weighted mean colour as the browser's
   ((0.523, 0.502, 0.465) from (0.451, 0.413, 0.352)); the edit back after a reload; the panel fits a phone.
 
-**2c. Download Edited Model.** WebODM's own download already serves `model.rad`, which is the edited model, but
-only in that format (`splat-tools` writes `.rad` only: its `--help`, 2026-11-18). Proposed: a Download button on
-Edit Splats (and the task's row on SplatMe → Tasks) that gives the edited `.ply`, made on request as Apply makes it
-(the trainer's `.ply` cut by the boundary and the edits, then colour-adjusted), so other splat tools can open it.
+**2c. Download Edited Model (built).** WebODM's own download already serves `model.rad`, which is the edited
+model, but only in that format (`splat-tools` writes `.rad` only: its `--help`, 2026-11-18). Decided with the user
+(2026-11-18): the `.ply` only (no `.spz` writer); the edited model only (not the unedited trained one); a
+**Download .ply** button beside Apply on Edit Splats and on the task's row on SplatMe → Tasks.
 
-- Open decision: formats: the `.ply` only (no new dependency), or also a compressed `.spz` (an open format; a
-  small writer of our own with numpy and gzip, vetted against the format's spec, as a dependency is not allowed
-  in the plugin), with the `.ply` of the unedited trained model as a second choice.
-- To decide in planning: made on each request (seconds for a large model) or kept after each Apply.
+- Measured first (2026-11-18, the check task's 216,865 splats in `sm-webapp`): `crop.crop_ply` wrote the cut and
+  recoloured `.ply` (54 MB) in 0.34 s, so the file is made on each request, nothing kept.
+- Made from the task's saved edits (nothing records which edits were last applied), so it is what Apply would
+  make, the same model Edit Splats shows; on Edit Splats the button waits for the edits to be saved. Anyone who
+  may see the task may download it, as WebODM's own download.
+- `GET task/<id>/download` (`api.Download`, `training.edited_model`): `shown_model` into a folder of its own
+  under the plugin's persistent `downloads/`, the file opened and the folder removed before it is sent (Linux
+  keeps the open file), the trained `.ply` itself when nothing changes; folders older than an hour (a server
+  stopped while making one) are removed by the next download. A model that cannot be made answers 400 with the
+  reason as plain text (the browser follows a link). Named `<task name slug>-splats.ply`.
+- Tests: 3 Django (the saved edits cut and recoloured without the task's model or the trained one changing, the
+  leftover folders; refusals: edits removing every splat, unreadable edits, floaters failing, a full disk, a task
+  SplatMe did not train, each leaving no folder; who may download), 1 Jest (the link).
+- Live check (2026-11-18, a copy of the check task, deleted after; no worker restart, the view runs in
+  `sm-webapp`): unedited, 206,837 splats (the boundary cut, as trained with Crop to Boundary); with Remove
+  Floaters (Light) and Brightness +40 saved, not applied, 206,791 splats in 1.1 s, colour means and the
+  view-dependent light 1.2 times the unedited file's; the same file from the Tasks row; the button disabled while
+  a slider's change saved; no folder left; no horizontal scroll on a phone.

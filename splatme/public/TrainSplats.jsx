@@ -5,7 +5,7 @@ import TrainDialog from './TrainDialog';
 import LogDialog from './LogDialog';
 import AutoDialog from './AutoDialog';
 import { NOT_LISTENING } from './restartText';
-import { request } from './api';
+import { request, downloadUrl } from './api';
 import { getUnitSystem } from 'webodm/classes/Units';
 import { overallProgress, stageText, panelMode, resultText, autoText } from './trainingView';
 import { applyText } from './editShapes';
@@ -120,6 +120,11 @@ export default class TrainSplats extends React.Component {
                 {status.editable && status.can_train && !waiting ?
                     <a className="btn btn-sm btn-default" href={"/plugins/splatme/edit/" + this.props.taskId + "/"} title={_("Crop the splat model, and remove splats from it")}>
                         <i className="fa fa-edit fa-fw"></i> {_("Edit")}
+                    </a> : ""}
+                {status.editable && !waiting ?
+                    <a className="btn btn-sm btn-default" href={downloadUrl(this.props.taskId)}
+                       title={_("The splat model with its edits, as a .ply other splat tools open")}>
+                        <i className="fa fa-download fa-fw"></i> {_("Download .ply")}
                     </a> : ""}
                 {status.state === "failed" ?
                     <button type="button" className="btn btn-sm btn-default" onClick={() => this.setState({log: true})}>
