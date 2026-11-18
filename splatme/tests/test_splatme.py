@@ -1143,17 +1143,32 @@ class TestSplatMe(BootTestCase):
             self.assertIn(reason, res.data["error"])
         self.assertEqual(self.client.get(self.edits_url(task)).data["edits"], good)
 
-    def test_edits_in_the_store_that_do_not_read_are_set_aside(self):
+    def test_edits_in_the_store_that_do_not_read_are_left_as_they_are_and_skipped(self):
         task, header, rows = self.trained_task()
-        training.store().set_json(edits.edits_key(task.id), [{"type": "box"}])
-        self.assertEqual(self.client.get(self.edits_url(task)).data["edits"], [])
-        self.assertEqual(training.store().get_json(edits.edits_key(task.id), None), None)
-        self.assertEqual(training.store().get_json(edits.unreadable_key(task.id)), [{"type": "box"}])
-        # Nor do they stop a training
-        training.store().set_json(edits.edits_key(task.id), "junk")
+        newer = [{"type": "brush", "keep": False}]  # as a later version of SplatMe might write
+        training.store().set_json(edits.edits_key(task.id), newer)
+        data = self.client.get(self.edits_url(task)).data
+        self.assertEqual(data["edits"], [])
+        self.assertIn("could not be read", data["unreadable"])
+        # Apply fails and keeps the shown model; the edits stay for the version that reads them
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        self.apply(task)
+        status = self.status(task)
+        self.assertEqual(status["apply"]["state"], "failed")
+        self.assertIn("could not be read", status["apply"]["error"])
+        self.assertEqual(self.model(task), b"shown before")
+        self.assertEqual(training.store().get_json(edits.edits_key(task.id)), newer)
+        # A training imports its model without them, and says why
         self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
-        self.assertEqual(self.status(task)["state"], "completed")
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertIn("could not be read", status["edits_error"])
         self.assertEqual(self.converted, [header + rows.tobytes()])
+        self.assertEqual(training.store().get_json(edits.edits_key(task.id)), newer)
+        # Saving edits on the page replaces them
+        self.assertEqual(self.put_edits(task, []).data["unreadable"], None)
+        self.assertIsNone(training.store().get_json(edits.edits_key(task.id), None))
 
     def test_apply_edits_makes_the_shown_model_again_from_the_trained_model(self):
         task, header, rows = self.trained_task()
@@ -1185,6 +1200,71 @@ class TestSplatMe(BootTestCase):
         self.apply(task)
         self.assertEqual(self.converted, [header + rows.tobytes()])
         self.assertIsNone(self.status(task)["apply"]["edited"])
+
+    def lasso(self, ring, view=None, keep=False, camera=None):
+        """A Lasso; the default view sees x and y as they are (an identity matrix: w is 1, in front)."""
+        identity = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
+        edit = {"type": "lasso", "keep": keep, "ring": [list(p) for p in ring], "view": view or identity}
+        if camera:
+            edit["camera"] = camera
+        return edit
+
+    def test_a_lasso_removes_what_falls_inside_it_on_screen_in_front_of_the_camera(self):
+        task, header, rows = self.trained_task()
+        square = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+        self.assertEqual(self.put_edits(task, [self.lasso(square)]).status_code, 200)
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["edited"], 2)
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 2") + rows[[1, 3]].tobytes()])
+        # Seen from behind (w = -z, the gaussians are 5 m up): nothing is in front of that camera
+        self.converted.clear()
+        behind = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, -1.0, 0, 0, 0, 0]
+        self.put_edits(task, [self.lasso(square, view=behind)])
+        self.apply(task)
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+        # In perspective (w = z, so x / 5): (3, 0) projects to 0.6, inside a lasso from 0.5 to 0.7
+        self.converted.clear()
+        perspective = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0]
+        self.put_edits(task, [self.lasso([(0.5, -0.1), (0.7, -0.1), (0.7, 0.1), (0.5, 0.1)], view=perspective)])
+        self.apply(task)
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 3") + rows[[0, 2, 3]].tobytes()])
+
+    def test_a_lasso_is_kept_in_the_tasks_projection_and_cuts_the_same_after_the_offset_changes(self):
+        task, header, rows = self.trained_task()
+        self.with_offset(task, 1000, 2000)
+        camera = {"position": [1, 2, 30], "target": [1, 2, 5]}
+        given = self.lasso([(-1, -1), (1, -1), (1, 1), (-1, 1)], camera=camera)
+        res = self.put_edits(task, [given])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"][0]["camera"], camera)
+        for a, b in zip(res.data["edits"][0]["view"], given["view"], strict=True):
+            self.assertAlmostEqual(a, b, places=9)
+        stored = training.store().get_json(edits.edits_key(task.id))[0]
+        self.assertEqual(stored["view"][12:14], [-1000, -2000])
+        self.assertEqual(stored["camera"]["position"], [1001, 2002, 30])
+        # Processed again with an offset 10 m less: the lasso stays on the ground, which is now at x 9 to 11 in the
+        # model's frame, where no gaussian is. Removing inside removes nothing; keeping inside would keep none
+        self.with_offset(task, 990, 2000)
+        self.converted.clear()
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["state"], "completed")
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+        self.put_edits(task, [{**self.client.get(self.edits_url(task)).data["edits"][0], "keep": True}])
+        self.apply(task)
+        self.assertIn("remove every splat", self.status(task)["apply"]["error"])
+
+    def test_a_lasso_without_its_view_or_with_a_bad_camera_is_refused(self):
+        task, _, _ = self.trained_task()
+        square = [(-1, -1), (1, -1), (1, 1)]
+        for edit, reason in [
+            ({**self.lasso(square), "view": [1, 0, 0]}, "must be 16 numbers"),
+            ({**self.lasso(square), "view": None}, "must be 16 numbers"),
+            (self.lasso(square, camera="here"), "position and a target"),
+            (self.lasso(square, camera={"position": [0, 0, 1]}), "camera target"),
+        ]:
+            res = self.put_edits(task, [edit])
+            self.assertEqual(res.status_code, 400, edit)
+            self.assertIn(reason, res.data["error"])
 
     def test_apply_edits_crops_to_the_boundary_first_when_the_model_was_trained_so(self):
         task = make_task(self.user)

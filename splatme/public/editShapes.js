@@ -5,6 +5,9 @@
 //
 //   box      {type: "box", keep, center: [x, y, z], size: [x, y, z] (whole lengths), turn: degrees about the vertical}
 //   polygon  {type: "polygon", keep, ring: [[x, y], ...]} seen from above, all heights
+//   lasso    {type: "lasso", keep, ring: [[x, y], ...] on the screen (-1 to 1), view: the camera's view-projection
+//            matrix (16 numbers, column-major), camera: {position, target}}: what is in front of that camera and
+//            falls inside the ring, through to the back
 //   keep     true keeps what is inside and removes the rest; false removes what is inside
 
 export const MAX_EDITS = 200;
@@ -33,8 +36,17 @@ export function insideRing(ring, x, y){
     return within;
 }
 
+export function insideLasso(lasso, x, y, z){
+    const m = lasso.view;
+    const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+    if (!(w > 0)) return false;  // behind the camera a point projects mirrored: never inside
+    return insideRing(lasso.ring, (m[0] * x + m[4] * y + m[8] * z + m[12]) / w, (m[1] * x + m[5] * y + m[9] * z + m[13]) / w);
+}
+
 export function inside(edit, x, y, z){
-    return edit.type === "box" ? insideBox(edit, x, y, z) : insideRing(edit.ring, x, y);
+    if (edit.type === "box") return insideBox(edit, x, y, z);
+    if (edit.type === "lasso") return insideLasso(edit, x, y, z);
+    return insideRing(edit.ring, x, y);
 }
 
 // Which of the points are inside one of the polygons, each a list of rings (its outline, then its holes), as
@@ -126,7 +138,23 @@ export function editLabel(edit){
         const [x, y, z] = edit.size.map(v => Number(v.toFixed(1)).toLocaleString("en-US"));
         return "Box, " + x + " × " + y + " × " + z + " m";
     }
-    return "Polygon, " + edit.ring.length + " corners";
+    return (edit.type === "lasso" ? "Lasso, " : "Polygon, ") + edit.ring.length + " corners";
+}
+
+// A freehand stroke as a lasso's ring: a corner only once the pointer has moved minPixels from the last one
+// (points in pixels, the ring in -1 to 1 of a view width x height), at most MAX_CORNERS of them
+export function strokeRing(points, width, height, minPixels){
+    const kept = [];
+    for (const p of points){
+        const last = kept[kept.length - 1];
+        if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) >= minPixels) kept.push(p);
+    }
+    const step = Math.ceil(kept.length / MAX_CORNERS);
+    return kept.filter((_p, i) => i % step === 0).map(([x, y]) => [round4(x / width * 2 - 1), round4(1 - y / height * 2)]);
+}
+
+function round4(v){
+    return Math.round(v * 10000) / 10000;
 }
 
 // The size of a file in words: "54 MB"

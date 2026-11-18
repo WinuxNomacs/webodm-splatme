@@ -10,6 +10,10 @@ x and y (get_rtc_offset). Heights are not offset.
 
     box      center [x, y, z], size [x, y, z] (whole lengths), turn (degrees about the vertical, counter-clockwise)
     polygon  ring [[x, y], ...] seen from above, all heights
+    lasso    ring [[x, y], ...] drawn on the screen (normalised device coordinates, -1 to 1) and view, the camera's
+             view-projection matrix then (16 numbers, column-major): every gaussian in front of the camera whose
+             centre falls inside the ring, through to the back; camera {position, target}, for the page to go back
+             to that view
     each     keep: true keeps what is inside and removes the rest, false removes what is inside
 """
 import logging
@@ -39,10 +43,6 @@ def store():
 
 def edits_key(task_id):
     return f"edits::{task_id}"
-
-
-def unreadable_key(task_id):
-    return f"edits-unreadable::{task_id}"
 
 
 def number(value, what, positive=False):
@@ -82,13 +82,21 @@ def clean(given):
                 "size": numbers(edit.get("size"), 3, f"Edit {i}'s size", positive=True),
                 "turn": number(edit.get("turn", 0), f"Edit {i}'s turn") % 360,
             })  # fmt: skip
-        elif kind == "polygon":
+        elif kind in ("polygon", "lasso"):
             ring = edit.get("ring")
             if not isinstance(ring, list) or not 3 <= len(ring) <= MAX_CORNERS:
                 raise EditsError(f"Edit {i} must have from 3 to {MAX_CORNERS} corners.")
-            out.append({
-                "type": "polygon", "keep": keep, "ring": [numbers(p, 2, f"Edit {i}'s corners") for p in ring],
-            })  # fmt: skip
+            clean_edit = {"type": kind, "keep": keep, "ring": [numbers(p, 2, f"Edit {i}'s corners") for p in ring]}
+            if kind == "lasso":
+                clean_edit["view"] = numbers(edit.get("view"), 16, f"Edit {i}'s view")
+                camera = edit.get("camera")
+                if camera is not None:
+                    if not isinstance(camera, dict):
+                        raise EditsError(f"Edit {i}'s camera must have a position and a target.")
+                    clean_edit["camera"] = {
+                        name: numbers(camera.get(name), 3, f"Edit {i}'s camera {name}") for name in ("position", "target")
+                    }
+            out.append(clean_edit)
         else:
             raise EditsError(f"Edit {i} is of an unknown kind.")
     return out
@@ -108,6 +116,14 @@ def shift(edits, dx, dy):
             edit["center"] = [*move(x, y), z]
         elif edit["type"] == "polygon":
             edit["ring"] = [move(x, y) for x, y in edit["ring"]]
+        elif edit["type"] == "lasso":
+            # The same view of the moved scene: the matrix times a translation back by dx, dy (its last column)
+            m = list(edit["view"])
+            for row in range(4):
+                m[12 + row] -= dx * m[row] + dy * m[4 + row]
+            edit["view"] = m
+            if "camera" in edit:
+                edit["camera"] = {name: [*move(*point[:2]), point[2]] for name, point in edit["camera"].items()}
         out.append(edit)
     return out
 
@@ -119,8 +135,9 @@ def offset(task):
 
 def get(task):
     """
-    The task's edits in its .ply's frame. Edits in the store that do not read are set aside under another key (for
-    an administrator to look at) and the task has none: they never stop a training's import.
+    The task's edits in its .ply's frame. Raises EditsError for edits in the store that do not read, which stay
+    there untouched: written by another version of SplatMe (a worker that has not restarted since an upgrade, or a
+    downgrade), they read again with the right one. Their callers go on without them and say why.
     """
     stored = store().get_json(edits_key(task.id), None)
     if stored is None:
@@ -128,10 +145,8 @@ def get(task):
     try:
         edits = clean(stored)
     except EditsError as e:
-        logger.warning(f"SplatMe: task {task.id}'s edits do not read and were set aside: {e}")
-        store().set_json(unreadable_key(task.id), stored)
-        store().del_key(edits_key(task.id))
-        return []
+        logger.warning(f"SplatMe: task {task.id}'s edits do not read: {e}")
+        raise EditsError(f"The task's saved edits could not be read ({e}) and were left as they are.") from None
     dx, dy = offset(task)
     return shift(edits, -dx, -dy)
 
@@ -149,7 +164,6 @@ def save(task, given):
 
 def forget(task_id):
     store().del_key(edits_key(task_id))
-    store().del_key(unreadable_key(task_id))
 
 
 def inside(edit, x, y, z):
@@ -163,6 +177,14 @@ def inside(edit, x, y, z):
         # In the box's own axes: turned back by its turn
         u, v = dx * c + dy * s, -dx * s + dy * c
         return (np.abs(u) <= sx / 2) & (np.abs(v) <= sy / 2) & (np.abs(z - cz) <= sz / 2)
+    if edit["type"] == "lasso":
+        m = edit["view"]
+        cx = m[0] * x + m[4] * y + m[8] * z + m[12]
+        cy = m[1] * x + m[5] * y + m[9] * z + m[13]
+        w = m[3] * x + m[7] * y + m[11] * z + m[15]
+        front = w > 0  # behind the camera, a point projects mirrored: never inside
+        safe = np.where(front, w, 1)
+        return front & crop.inside(cx / safe, cy / safe, [[edit["ring"]]])
     return crop.inside(x, y, [[edit["ring"]]])
 
 

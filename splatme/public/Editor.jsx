@@ -26,7 +26,7 @@ export default class Editor extends React.Component {
         this.state = {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
-            starting: false, drafts: {}
+            starting: false, drafts: {}, lassoing: false
         };
     }
 
@@ -67,7 +67,9 @@ export default class Editor extends React.Component {
             this.viewer = m.createViewer(this.view, {
                 onBoxChange: this.handleBoxChange,
                 onPolygon: this.handlePolygon,
-                onCorners: count => this.setState({drawing: count})
+                onCorners: count => this.setState({drawing: count}),
+                onLasso: this.handleLasso,
+                onLassoEnd: () => this.setState({lassoing: false})
             });
             this.viewer.setMode(this.state.mode);
             return this.viewer.load(info.model.url, e => {
@@ -108,6 +110,17 @@ export default class Editor extends React.Component {
         this.setState({drawing: null});
         if (clean.length < 3) return;
         this.change([...this.state.edits, {type: "polygon", keep: true, ring: clean}], this.state.edits.length);
+    };
+
+    handleLasso = ({ring, view, camera}) => {
+        this.setState({lassoing: false});
+        this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera}], this.state.edits.length);
+    };
+
+    lasso = () => {
+        if (!this.viewer || this.state.edits.length >= MAX_EDITS) return;
+        this.setState({selected: -1, lassoing: true});
+        this.viewer.startLasso();
     };
 
     queueSave(){
@@ -264,8 +277,10 @@ export default class Editor extends React.Component {
                 {edits.map((edit, i) => (
                     <li key={i} className={"list-group-item" + (i === selected ? " active" : "")}>
                         <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : ""}>
-                            <i className={"fa fa-fw " + (edit.type === "box" ? "fa-cube" : "fa-draw-polygon")}></i> {editLabel(edit)}
+                            <i className={"fa fa-fw " + (edit.type === "box" ? "fa-cube" : edit.type === "lasso" ? "fa-pencil-alt" : "fa-draw-polygon")}></i> {editLabel(edit)}
                         </a>
+                        {edit.type === "lasso" && edit.camera && this.viewer ?
+                            <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
                             <select className="form-control input-sm" value={edit.keep ? "keep" : "remove"} disabled={!info.can_edit}
                                     aria-label={_("What this edit does")} onChange={e => this.setKeep(i, e.target.value === "keep")}>
@@ -291,7 +306,7 @@ export default class Editor extends React.Component {
     }
 
     renderPanel(){
-        const { info, edits, selected, loaded, drawing, apply, applyError, starting } = this.state;
+        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing } = this.state;
         const canEdit = info.can_edit && !!loaded;
         const applying = !!apply && apply.state === "applying";
         const box = selected >= 0 && edits[selected] && edits[selected].type === "box" ? edits[selected] : null;
@@ -299,13 +314,24 @@ export default class Editor extends React.Component {
             <div className="splatme-editor-panel">
                 {!info.can_edit ? <p className="text-warning">{_("Only those who may change this project edit its splats.")}</p> : ""}
                 <div className="splatme-editor-tools">
-                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || edits.length >= MAX_EDITS} onClick={this.addBox}>
+                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.addBox}>
                         <i className="fa fa-cube fa-fw"></i> {_("Add Box")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || edits.length >= MAX_EDITS} onClick={this.drawPolygon}>
+                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.drawPolygon}>
                         <i className="fa fa-draw-polygon fa-fw"></i> {_("Draw Polygon")}
                     </button>
+                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.lasso}
+                            title={_("Draw around what to remove: everything inside on screen goes, through to the back")}>
+                        <i className="fa fa-pencil-alt fa-fw"></i> {_("Lasso")}
+                    </button>
                 </div>
+                {lassoing ?
+                    <div className="alert alert-info splatme-editor-drawing">
+                        {_("Drag around what to remove. Everything inside on screen goes, through to the back: turn the view first to see it apart.")}
+                        <div className="splatme-editor-drawing-actions">
+                            <button type="button" className="btn btn-sm btn-default" onClick={() => this.viewer.cancelLasso()}>{_("Cancel")}</button>
+                        </div>
+                    </div> : ""}
                 {drawing !== null ?
                     <div className="alert alert-info splatme-editor-drawing">
                         {_("Click the polygon's corners in the view from above. Click the first corner, or double-click, to close it.")}
@@ -323,6 +349,8 @@ export default class Editor extends React.Component {
                     </button>
                 </div>
                 <h4>{_("Edits")}</h4>
+                {info.unreadable ?
+                    <p className="text-warning">{info.unreadable} {_("They may be from another version of SplatMe: ask an administrator to restart WebODM. A change here replaces them.")}</p> : ""}
                 {this.renderList()}
                 {box && canEdit ? this.renderBoxFields(box) : ""}
                 {info.can_edit ?

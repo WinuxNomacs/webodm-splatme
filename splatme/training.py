@@ -1160,10 +1160,10 @@ def import_model(task_id, run, node, node_job, work):
     options = job.get("options", {})
     try:
         shown, cut = shown_model(task, trained, work, options.get("crop", True), lambda text: update(task_id, run, status=text))
-    except EditsRemoveAll:
+    except (EditsRemoveAll, edits.EditsError) as e:
         # Only the model the task shows is cut: a later training continues from all the trainer made
         shown, cut = shown_model(task, trained, work, options.get("crop", True), use_edits=False)
-        cut["edits_error"] = EditsRemoveAll.text
+        cut["edits_error"] = str(e)
     update(task_id, run, status="Converting the model", cropped=cut["boundary"], edited=cut["edits"],
            edits_error=cut.get("edits_error"))
     model = os.path.join(work, "model.rad")
@@ -1204,7 +1204,7 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     nothing; edits that would leave nothing raise EditsRemoveAll, and nothing is written.
     """
     rings = crop.boundary(task) if use_boundary else []
-    shapes = edits.get(task) if use_edits else []
+    shapes = edits.get(task) if use_edits else []  # EditsError: the caller goes on without them, or fails
     dest = os.path.join(work, "shown.ply")
 
     def cut(rings):
@@ -1385,7 +1385,7 @@ def apply(task_id, run):
         )  # fmt: skip
     except Superseded:
         pass
-    except (TrainingError, ValueError, OSError, Task.DoesNotExist) as e:
+    except (TrainingError, edits.EditsError, ValueError, OSError, Task.DoesNotExist) as e:
         logger.warning(f"SplatMe: applying task {task_id}'s edits failed: {e}")
         finish_apply(task_id, run, str(e))
     except Exception as e:

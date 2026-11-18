@@ -31,6 +31,9 @@ splats right on an edge may end up on the other side when applied.
 - **Draw Polygon**: the view turns to look straight down. Click the corners, then click the first corner, or
   double-click, or press **Finish** (Enter) to close it. Escape or **Cancel** stops. A polygon cuts at every
   height.
+- **Lasso**: drag around what to remove, in any view (one finger on a phone); letting go closes it. It removes
+  everything inside it on screen, through to the back, so turn the view first until what you want gone is apart
+  from what you keep. **Go to Its View**, beside it in the list, turns the view back to where it was drawn.
 
 Pick an edit in the list to show a box's handles and fields. **Undo** takes back the last change, and **Clear
 Edits** removes them all. **Top View** and **Side View** frame the model again.
@@ -45,6 +48,10 @@ as long as the end of a training (the conversion of the model). WebODM's 3D view
 then show the edited model. **SplatMe → Tasks** shows the Apply while it runs.
 
 To make the model whole again, **Clear Edits**, then **Apply**.
+
+Edits saved by a newer SplatMe (or read by a WebODM not restarted since an upgrade) may not read: the page says
+so, **Apply** and trainings leave them as they are and go on without them, and a change on the page replaces
+them.
 
 **Apply** is refused while the task's splats train, and a training is refused while edits are applied. Edits
 that together remove every splat are not applied, and the model stays as it was. A training whose edits would

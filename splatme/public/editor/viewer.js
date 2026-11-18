@@ -6,10 +6,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
-import { keepMask, boundaryMask, framing, round } from "../editShapes.js";
+import { keepMask, boundaryMask, framing, round, strokeRing } from "../editShapes.js";
 
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
+const STROKE_PIXELS = 3;  // a lasso's corners at least this far apart
 
 // A colour of WebODM's theme (theme.css), read from an element given one of its classes: no colour is set here
 function themeColor(container, className, property){
@@ -28,7 +29,7 @@ function lineMaterial(color){
 }
 
 // handlers: onBoxChange(index, box) while a box is dragged, onPolygon(ring) when one is closed, onCorners(count)
-// while one is drawn
+// while one is drawn, onLasso({ring, view, camera}) when a lasso is drawn, onLassoEnd() when lasso drawing stops
 export function createViewer(container, handlers){
     const colors = {
         keep: themeColor(container, "theme-background-success", "backgroundColor"),
@@ -53,6 +54,11 @@ export function createViewer(container, handlers){
     let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null;
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
+    let lasso = null;  // {points: [[x, y] in pixels], down}
+    // The lasso's stroke, drawn on a flat canvas over the view
+    const overlay = document.createElement("canvas");
+    overlay.style.cssText = "position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; display: none;";
+    container.appendChild(overlay);
 
     function resize(){
         const width = container.clientWidth, height = container.clientHeight;
@@ -111,6 +117,16 @@ export function createViewer(container, handlers){
         return object;
     }
 
+    // A lasso: its ring where it meets the depth of the model's middle, seen from its view
+    function lassoObject(edit){
+        const view = new THREE.Matrix4().fromArray(edit.view);
+        const back = view.clone().invert();
+        const middle = frame ? new THREE.Vector3(...frame.center) : new THREE.Vector3();
+        const depth = middle.applyMatrix4(view).z;
+        const points = edit.ring.map(([x, y]) => new THREE.Vector3(x, y, depth).applyMatrix4(back));
+        return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), lineMaterial(edit.keep ? colors.keep : colors.remove));
+    }
+
     // A polygon: its ring drawn at the bottom and the top of the model, joined at each corner
     function polygonObject(edit){
         const [low, high] = heights();
@@ -138,7 +154,7 @@ export function createViewer(container, handlers){
         transform.detach();
         clearGroup(shapes);
         handles = edits.map(edit => {
-            const object = edit.type === "box" ? boxObject(edit) : polygonObject(edit);
+            const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) : polygonObject(edit);
             object.renderOrder = 10;
             object.traverse(o => { o.renderOrder = 10; });
             shapes.add(object);
@@ -201,12 +217,60 @@ export function createViewer(container, handlers){
         shapes.add(drawing.line);
         if (handlers.onCorners) handlers.onCorners(drawing.corners.length);
     }
+    function drawStroke(){
+        const rect = canvas.getBoundingClientRect();
+        overlay.width = rect.width;
+        overlay.height = rect.height;
+        const context = overlay.getContext("2d");
+        context.clearRect(0, 0, overlay.width, overlay.height);
+        if (!lasso || lasso.points.length < 2) return;
+        context.strokeStyle = "#" + colors.remove.getHexString();
+        context.lineWidth = 2;
+        context.beginPath();
+        lasso.points.forEach(([x, y], i) => (i ? context.lineTo(x, y) : context.moveTo(x, y)));
+        context.closePath();
+        context.stroke();
+    }
+    function strokePoint(event){
+        const rect = canvas.getBoundingClientRect();
+        return [event.clientX - rect.left, event.clientY - rect.top];
+    }
+    function onPointerMove(event){
+        if (!lasso || !lasso.down) return;
+        lasso.points.push(strokePoint(event));
+        drawStroke();
+    }
+    function endStroke(){
+        const rect = canvas.getBoundingClientRect();
+        const ring = strokeRing(lasso.points, rect.width, rect.height, STROKE_PIXELS);
+        if (ring.length < 3){
+            lasso.points = [];
+            lasso.down = false;
+            drawStroke();
+            return;  // a click, not a loop: draw again
+        }
+        camera.updateMatrixWorld();
+        const view = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).toArray();
+        const shot = {position: camera.position.toArray().map(round), target: controls.target.toArray().map(round)};
+        cancelLasso();
+        if (handlers.onLasso) handlers.onLasso({ring, view, camera: shot});
+    }
     function onPointerDown(event){
+        if (lasso){
+            lasso.down = true;
+            lasso.points = [strokePoint(event)];
+            canvas.setPointerCapture(event.pointerId);
+            return;
+        }
         pointer.x = event.clientX;
         pointer.y = event.clientY;
         pointer.down = true;
     }
     function onPointerUp(event){
+        if (lasso && lasso.down){
+            endStroke();
+            return;
+        }
         if (!pointer.down || !drawing) return;
         pointer.down = false;
         if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > CLICK_PIXELS) return;  // the view turned
@@ -225,16 +289,45 @@ export function createViewer(container, handlers){
         if (drawing && drawing.corners.length >= 3) finishPolygon();
     }
     function onKey(event){
+        if (lasso && event.key === "Escape") cancelLasso();
         if (!drawing) return;
         if (event.key === "Escape") cancelPolygon();
         else if (event.key === "Enter") finishPolygon();
     }
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("dblclick", onDoubleClick);
     window.addEventListener("keydown", onKey);
 
+    // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
+    function startLasso(){
+        cancelPolygon();
+        cancelLasso();
+        transform.detach();
+        controls.enabled = false;
+        lasso = {points: [], down: false};
+        overlay.style.display = "block";
+        drawStroke();
+    }
+    function cancelLasso(){
+        if (!lasso) return;
+        lasso = null;
+        controls.enabled = true;
+        overlay.style.display = "none";
+        drawShapes();
+        if (handlers.onLassoEnd) handlers.onLassoEnd();
+    }
+    // The camera back where a lasso was drawn
+    function goTo(shot){
+        if (!shot) return;
+        camera.position.set(...shot.position);
+        controls.target.set(...shot.target);
+        controls.update();
+    }
+
     function startPolygon(){
+        cancelLasso();
         cancelPolygon();
         transform.detach();
         drawing = {corners: [], line: null};
@@ -321,12 +414,13 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
             observer.disconnect();
             canvas.removeEventListener("pointerdown", onPointerDown);
             canvas.removeEventListener("pointerup", onPointerUp);
+            canvas.removeEventListener("pointermove", onPointerMove);
             canvas.removeEventListener("dblclick", onDoubleClick);
             window.removeEventListener("keydown", onKey);
             transform.dispose();
@@ -335,6 +429,7 @@ export function createViewer(container, handlers){
             if (mesh) mesh.dispose();
             renderer.dispose();
             if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
         }
     };
 }

@@ -20,7 +20,7 @@ other software. The plugin does that step.
    behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
    converted again; a retraining applies them again. In steps: 2a the renderer test (done 2026-11-18: it works,
    branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (done
-   2026-11-18, branch `splat-editing-2b`), 2c Lasso (planned 2026-11-18, being built), 2d Floaters. See "8. Splat editing".
+   2026-11-18, branch `splat-editing-2b`), 2c Lasso (done 2026-11-18, branch `splat-editing-2c`), 2d Floaters (next: plan it). See "8. Splat editing".
 
 **Then**
 
@@ -2443,9 +2443,17 @@ loaded by an import map on the editor page; checked again when upgraded.
   splat in front of the camera whose projection falls inside the ring (Keep Inside also offered, as for the
   others). Kept in the task's projection: the matrix times a translation by the offset. In the list "Lasso, N
   corners" with Go to Its View (the camera where it was drawn); drawn in 3D at the depth of that view's target.
+  **Done 2026-11-18** (branch `splat-editing-2c`): `edits.py`'s lasso, `editShapes.js`'s `insideLasso` and
+  `strokeRing`, the viewer's lasso mode (a flat canvas over the view for the stroke; the outline in 3D at the depth
+  of the model's middle) and Go to Its View; tests in Django (the projection rule, behind the camera, perspective,
+  the offset round trip, bad input) and Jest. Live (a duplicate of the check task, deleted after): a 125-corner
+  lasso removed 64,429 splats through to the ground, Apply in 3.2 s. Learned, and changed: a worker running
+  older code could not read the lasso and set the edits aside, which the page would then have overwritten; edits
+  that do not read now stay where they are, Apply fails and a training goes on without them, both saying why, and
+  the page warns (`unreadable`).
 - 2d. Floaters.
 
-**What can fail, and the tests that make it happen**: edits in the store that do not read (set aside, not fatal),
+**What can fail, and the tests that make it happen**: edits in the store that do not read (left as they are and skipped, not fatal),
 `splat-tools` failing or running out of time during Apply (the shown model stays), Apply while a training runs
 (refused), an edit that removes everything (refused, nothing written), the `.ply` missing (Edit Splats not shown).
 
