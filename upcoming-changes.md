@@ -21,15 +21,17 @@ other software. The plugin does that step.
    quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
    decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
    (to evaluate before the release after 0.2.0)".
+3. More splat editing, asked 2026-11-18, in this order, each planned with the user before it is built: 3a the
+   Brush, 3b Colour Adjust, 3c Download Edited Model. See "9. More splat editing (proposed)".
 
 **Later**
 
-3. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+4. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-4. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+5. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-5. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+6. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 2's quality testing.
 
@@ -2494,3 +2496,40 @@ loaded by an import map on the editor page; checked again when upgraded.
 - The job: a new state `applying` in the task's record (an active state, so Train Splats, Cancel and Show Log
   behave as for a training), run by `run_function_async`; a training refuses to start while it runs, and Apply is
   refused while a training runs.
+
+### 9. More splat editing (proposed)
+
+Asked 2026-11-18, from a list of ideas the user was given: the Brush, Colour Adjust and Download Edited Model, on
+Edit Splats. Builds on splat editing (8, built): edits stored with the task and applied on the server to the
+trainer's `.ply` (`edits.py`, `crop.crop_ply`, `training.shown_model`, Apply Edits), previewed in the browser
+(`public/editor/viewer.js`, `editShapes.js`), and Spark's splat numbers matching the `.ply`'s rows (checked in 2d).
+Each step on its own branch, merged when tested, the Edit Splats docs page updated with it.
+
+**3a. Brush** (the remover the Lasso was planned with, deferred in 2c). Proposed: a Brush button; dragging paints
+a circle the size of a Size slider, and letting go makes one edit (Remove Inside), shown and listed like a lasso,
+with Go to Its View.
+
+- Open decision: what a stroke removes. (a) Everything under it, through the model, as the Lasso: stored as
+  geometry (the stroke's circles in the view's screen coordinates and the view), so it is applied again after a
+  retraining; or (b) only the splats seen on the surface under it: precise, but stored as splat numbers, which a
+  retraining makes meaningless (the edit is then dropped, with a note).
+- Open decision: whether it also paints back (Restore), and a Size range.
+
+**3b. Colour Adjust.** Proposed: one entry in the list, as Remove Floaters (at most one), with sliders for
+Brightness, Contrast, Saturation and Warmth (white balance), seen at once in the view and written into the
+`.ply`'s colours (`f_dc_*`, with `f_rest_*` scaled to match) by Apply and after each retraining.
+
+- Open decision: which sliders (those four, or also Exposure and Tint), and whether it applies to the whole model
+  only or also inside a shape (a box or polygon picked in the list).
+- To check before planning: that the view can change splats' colours as fast as it hides them (Spark's packed
+  splats), and how the view-dependent colours (`f_rest_*`) should follow, measured on the check task.
+
+**3c. Download Edited Model.** WebODM's own download already serves `model.rad`, which is the edited model, but
+only in that format (`splat-tools` writes `.rad` only: its `--help`, 2026-11-18). Proposed: a Download button on
+Edit Splats (and the task's row on SplatMe → Tasks) that gives the edited `.ply`, made on request as Apply makes it
+(the trainer's `.ply` cut by the boundary and the edits, then colour-adjusted), so other splat tools can open it.
+
+- Open decision: formats: the `.ply` only (no new dependency), or also a compressed `.spz` (an open format; a
+  small writer of our own with numpy and gzip, vetted against the format's spec, as a dependency is not allowed
+  in the plugin), with the `.ply` of the unedited trained model as a second choice.
+- To decide in planning: made on each request (seconds for a large model) or kept after each Apply.
