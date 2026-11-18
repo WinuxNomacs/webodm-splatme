@@ -66,6 +66,15 @@ then show the edited model. **SplatMe → Tasks** shows the Apply while it runs.
 
 To make the model whole again, **Clear Edits**, then **Apply**.
 
+## Downloading the Edited Model
+
+WebODM's own download gives the task's model in its `.rad` format, which few other tools open. **Download .ply**,
+beside **Apply** on **Edit Splats** and on the task's row on **SplatMe → Tasks**, gives it as a `.ply`, the
+format the trainer writes and most splat tools open. The file is made when you ask, as **Apply** would make the
+model, with the task's saved edits, so it has them even before they are applied; on **Edit Splats** the button
+waits until the edits are saved. The `.ply` is up to about 250 bytes a splat (50 MB for 200,000) and takes about a
+second to make. Anyone who may see the task may download it.
+
 Edits saved by a newer SplatMe (or read by a WebODM not restarted since an upgrade) may not read: the page says
 so, **Apply** and trainings leave them as they are and go on without them, and a change on the page replaces
 them.

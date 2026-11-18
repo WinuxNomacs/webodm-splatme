@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { request } from './api';
+import { request, downloadUrl } from './api';
 import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
 import './Editor.scss';
 
@@ -426,6 +426,23 @@ export default class Editor extends React.Component {
         return <div className="splatme-editor-save">{_("Saved")}</div>;
     }
 
+    renderDownload(){
+        const { saving, saved, saveError } = this.state;
+        const title = _("The trained model with these edits, as Apply makes it, in the .ply format other splat tools open");
+        if (saving || !saved || saveError){
+            return (
+                <button type="button" className="btn btn-sm btn-default splatme-editor-download" disabled title={_("The edits must be saved first")}>
+                    <i className="fa fa-download fa-fw"></i> {_("Download .ply")}
+                </button>
+            );
+        }
+        return (
+            <a className="btn btn-sm btn-default splatme-editor-download" href={downloadUrl(this.props.taskId)} title={title}>
+                <i className="fa fa-download fa-fw"></i> {_("Download .ply")}
+            </a>
+        );
+    }
+
     renderPanel(){
         const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize } = this.state;
         const canEdit = info.can_edit && !!loaded;
@@ -519,6 +536,7 @@ export default class Editor extends React.Component {
                                 title={_("Make the task's splat model again from its trained model, with these edits")} onClick={this.apply}>
                             <i className={(applying || starting ? "fa fa-circle-notch fa-spin" : "fa fa-check") + " fa-fw"}></i> {_("Apply")}
                         </button>
+                        {this.renderDownload()}
                         {info.training ? <p className="text-warning">{_("The task's splats are being trained: apply the edits when the training is done.")}</p> : ""}
                         {apply ? <p className={apply.state === "failed" ? "text-danger" : ""}>{applyText(apply)}</p> : ""}
                         {applyError ? <p className="text-danger">{applyError}</p> : ""}
@@ -526,7 +544,7 @@ export default class Editor extends React.Component {
                             <a className="btn btn-sm btn-default" href={"/3d/project/" + info.project + "/task/" + this.props.taskId + "/?t=splats"}>
                                 <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                             </a> : ""}
-                    </div> : ""}
+                    </div> : <div className="splatme-editor-apply">{this.renderDownload()}</div>}
             </div>
         );
     }

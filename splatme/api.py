@@ -23,6 +23,7 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/floaters  which splats of its trained model are floaters at ?strength= (light, medium or strong):
                              their numbers in the .ply (removed), for the page to hide them
     POST task/<id>/apply     makes the task's shown model again from its trained model and its edits
+    GET  task/<id>/download  the task's model with its saved edits, as Apply makes it, as a .ply (training.edited_model)
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
                              them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
@@ -33,7 +34,8 @@ Starting, canceling, editing and applying need the right to change the task's pr
 from app.api.common import check_project_perms
 from app.models import Project
 from app.plugins.views import TaskView
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
+from django.utils.text import slugify
 from guardian.shortcuts import get_objects_for_user
 from rest_framework import exceptions, status
 from rest_framework.permissions import IsAuthenticated
@@ -246,6 +248,19 @@ class Apply(TaskView):
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe(request, task, training.get_job(task.id)))
+
+
+class Download(TaskView):
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        try:
+            model = training.edited_model(task)
+        except (training.TrainingError, edits.EditsError, OSError) as e:
+            # A link the browser follows: the reason as a page of text
+            text = f"The edited model could not be made: {str(e) or type(e).__name__}"
+            return HttpResponse(text, status=status.HTTP_400_BAD_REQUEST, content_type="text/plain; charset=utf-8")
+        name = f"{slugify(task.name or '') or task.id}-splats.ply"
+        return FileResponse(model, as_attachment=True, filename=name, content_type="application/octet-stream")
 
 
 class Automation(APIView):

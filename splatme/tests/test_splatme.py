@@ -1498,6 +1498,93 @@ class TestSplatMe(BootTestCase):
         self.client.logout()
         self.assertEqual(self.client.get(f"{API}/task/{task.id}/floaters", {"strength": "light"}).status_code, 404)
 
+    def download(self, task, client=None):
+        """The response to a download of the task's edited model, its content read and the file closed."""
+        res = (client or self.client).get(f"{API}/task/{task.id}/download")
+        res.body = b"".join(res.streaming_content) if res.streaming else res.content
+        for close in res._resource_closers:  # the file; res.close() would close the test's database connection too
+            close()
+        return res
+
+    def downloads(self):
+        path = training.get_plugins_persistent_path(training.NAME, training.DOWNLOADS)
+        return sorted(os.listdir(path)) if os.path.isdir(path) else []
+
+    def test_download_gives_the_model_with_the_saved_edits_and_changes_nothing(self):
+        task, header, rows = self.coloured_task()
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        # No edits: the trained model as it is
+        res = self.download(task)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.body, header + rows.tobytes())
+        self.assertIn('attachment; filename="', res["Content-Disposition"])
+        self.assertIn('-splats.ply"', res["Content-Disposition"])
+        # Saved, not applied: cut and recoloured as Apply would, the task's model and the trained one unchanged
+        self.put_edits(task, [self.brush([self.line()]), self.colour(contrast=-1)])
+        res = self.download(task)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.body.startswith(header.replace(b"vertex 4", b"vertex 2")))
+        out = np.frombuffer(res.body[len(header):], dtype=rows.dtype)
+        np.testing.assert_allclose(out["x"], rows["x"][[1, 3]])
+        expect = 0.5 * (0.5 + edits.SH_C0 * rows["f_dc_0"][[1, 3]].astype(np.float64) - 0.5) + 0.5
+        np.testing.assert_allclose(0.5 + edits.SH_C0 * out["f_dc_0"].astype(np.float64), expect, atol=1e-5)
+        np.testing.assert_allclose(out["f_rest_0"], 0.5 * rows["f_rest_0"][[1, 3]], atol=1e-6)
+        self.assertEqual(self.converted, [])
+        self.assertEqual(self.model(task), b"shown before")
+        with open(training.trained_model(task), "rb") as f:
+            self.assertEqual(f.read(), header + rows.tobytes())
+        self.assertEqual(self.downloads(), [])
+        self.assertIsNone(training.get_apply(task.id))
+        # A folder a stopped server left is removed by the next download; one being made now stays
+        parent = training.get_plugins_persistent_path(training.NAME, training.DOWNLOADS)
+        self.addCleanup(shutil.rmtree, parent, ignore_errors=True)
+        for name in ("old", "new"):
+            os.makedirs(os.path.join(parent, name))
+        old = time.time() - training.DOWNLOAD_LEFTOVER - 10
+        os.utime(os.path.join(parent, "old"), (old, old))
+        self.assertEqual(self.download(task).status_code, 200)
+        self.assertEqual(self.downloads(), ["new"])
+
+    def test_a_download_that_cannot_be_made_says_why_and_leaves_nothing(self):
+        task, _, _ = self.trained_task(self.GRID)
+        for setup, reason in [
+            (lambda: self.put_edits(task, [self.box((100, 100, 0), (1, 1, 1))]), "remove every splat"),
+            (lambda: training.store().set_json(edits.edits_key(task.id), [{"type": "brush"}]), "could not be read"),
+        ]:
+            setup()
+            res = self.download(task)
+            self.assertEqual(res.status_code, 400, reason)
+            self.assertTrue(res["Content-Type"].startswith("text/plain"))
+            self.assertIn(reason, res.body.decode())
+        self.put_edits(task, [self.floaters()])
+        with mock.patch.object(edits, "floaters", side_effect=MemoryError()):
+            res = self.download(task)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("floaters could not be found: MemoryError", res.body.decode())
+        with mock.patch.object(training.crop, "crop_ply", side_effect=OSError(28, "No space left on device")):
+            self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+            res = self.download(task)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("No space left on device", res.body.decode())
+        self.assertEqual(self.downloads(), [])
+        self.assertEqual(self.converted, [])
+        # A task whose model SplatMe did not train
+        res = self.download(make_task(self.user))
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("no splat model", res.body.decode())
+
+    def test_those_who_may_see_the_task_may_download_its_edited_model(self):
+        task, header, rows = self.trained_task()
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        self.assertEqual(self.download(task, client=other).status_code, 404)
+        self.assertEqual(self.download(task, client=APIClient()).status_code, 404)
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        res = self.download(task, client=other)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.body, header + rows.tobytes())
+
     def test_floaters_that_cannot_be_found_fail_apply_and_a_training_goes_on_without_the_edits(self):
         task, header, rows = self.trained_task(self.GRID)
         self.put_edits(task, [self.floaters()])

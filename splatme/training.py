@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -1270,6 +1271,36 @@ def model_info(task):
     relative = os.path.relpath(path, task.assets_path())
     url = f"/api/projects/{task.project.id}/tasks/{task.id}/assets/{relative}"
     return {"url": url, "size": os.path.getsize(path), "splats": count}
+
+
+DOWNLOADS = "downloads"  # in the plugin's persistent folder: each download's model while it is made
+DOWNLOAD_LEFTOVER = 3600  # seconds after which a download's folder is a leftover of a stopped server
+
+
+def edited_model(task):
+    """
+    The task's model with its saved edits, as Apply makes it, open for a download: the trained .ply cut by the
+    boundary and the edits, its colours adjusted (the trained .ply itself when nothing changes). The file made has
+    no name left once it is open, so it is gone when closed. Raises TrainingError or edits.EditsError with why not.
+    """
+    reason = editable(task)
+    if reason:
+        raise TrainingError(reason)
+    parent = get_plugins_persistent_path(NAME, DOWNLOADS)
+    os.makedirs(parent, exist_ok=True)
+    for name in os.listdir(parent):
+        path = os.path.join(parent, name)
+        try:
+            if time.time() - os.path.getmtime(path) > DOWNLOAD_LEFTOVER:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+    work = tempfile.mkdtemp(dir=parent)
+    try:
+        shown, _ = shown_model(task, trained_model(task), work, trained_with_crop(task))
+        return open(shown, "rb")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 APPLYING = "applying"
