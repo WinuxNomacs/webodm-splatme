@@ -186,8 +186,12 @@ class Auto(TaskView):
 class Edits(TaskView):
     def describe(self, request, task):
         reason, job = training.editable(task), training.get_job(task.id)
+        try:
+            saved, unreadable = edits.get(task), None
+        except edits.EditsError as e:
+            saved, unreadable = [], str(e)
         out = {
-            "edits": edits.get(task), "editable": reason, "can_edit": can_train(request, task), "name": task.name,
+            "edits": saved, "unreadable": unreadable, "editable": reason, "can_edit": can_train(request, task), "name": task.name,
             "project": task.project.id, "apply": describe_apply(training.get_apply(task.id)), "model": None,
             "boundary": [],
             "training": bool(job) and job["state"] in training.ACTIVE,

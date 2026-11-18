@@ -1,4 +1,4 @@
-import { keepMask, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -113,5 +113,40 @@ describe("the boundary", () => {
         expect(boundaryMask(xs, ys, [[[[50, 50], [51, 50], [51, 51]]]])).toBeNull();
         expect(boundaryMask(xs, ys, [[[[-9, -9], [9, -9], [9, 9], [-9, 9]]]])).toBeNull();
         expect(boundaryMask(xs, ys, [])).toBeNull();
+    });
+});
+
+describe("the lasso", () => {
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const square = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+    test("removes what falls inside it on screen, as the server's test does", () => {
+        expect(kept([{type: "lasso", keep: false, ring: square, view: identity}])).toEqual([0, 1, 0, 1]);
+    });
+
+    test("leaves what is behind the camera", () => {
+        const behind = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0];
+        expect(kept([{type: "lasso", keep: false, ring: square, view: behind}])).toEqual([1, 1, 1, 1]);
+    });
+
+    test("divides by the perspective's w, as the server's test does", () => {
+        const perspective = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+        const ring = [[0.5, -0.1], [0.7, -0.1], [0.7, 0.1], [0.5, 0.1]];
+        expect(insideLasso({ring, view: perspective}, 3, 0, 5)).toBe(true);
+        expect(kept([{type: "lasso", keep: false, ring, view: perspective}])).toEqual([1, 0, 1, 1]);
+    });
+
+    test("is words in the list", () => {
+        expect(editLabel({type: "lasso", ring: square})).toBe("Lasso, 4 corners");
+    });
+
+    test("a stroke keeps a corner every few pixels, in -1 to 1 with y up", () => {
+        const points = [[0, 0], [1, 0], [5, 0], [5, 1], [100, 50], [200, 100]];
+        expect(strokeRing(points, 200, 100, 3)).toEqual([[-1, 1], [-0.95, 1], [0, 0], [1, -1]]);
+    });
+
+    test("a long stroke is thinned to the most corners an edit may have", () => {
+        const points = Array.from({length: 5000}, (_, i) => [i, 0]);
+        expect(strokeRing(points, 5000, 100, 1).length).toBeLessThanOrEqual(2000);
     });
 });
