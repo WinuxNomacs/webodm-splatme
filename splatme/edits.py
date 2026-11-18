@@ -14,11 +14,17 @@ x and y (get_rtc_offset). Heights are not offset.
              view-projection matrix then (16 numbers, column-major): every gaussian in front of the camera whose
              centre falls inside the ring, through to the back; camera {position, target}, for the page to go back
              to that view
+    brush    strokes [{size, points [[x, y], ...]}, ...] painted on the screen (normalised device coordinates) in one
+             view (as a lasso's, with its camera), aspect (the screen's width over its height), no keep: removes every
+             gaussian in front of the camera whose centre falls within size of a stroke's line, through to the back.
+             Distances are in units of half the screen's height: x is multiplied by aspect first, so a stroke's
+             size is the same across and up the screen
     each     keep: true keeps what is inside and removes the rest, false removes what is inside
     floaters strength ("light", "medium" or "strong"), at most one, no keep: removes the gaussians far from their
              neighbours or oversized, judged on the whole trained model (floaters()), so the shapes do not change
              which ones they are
 """
+import itertools
 import logging
 import math
 
@@ -33,6 +39,9 @@ logger = logging.getLogger("app.logger")
 NAME = __name__.split(".")[-2]
 MAX_EDITS = 200
 MAX_CORNERS = 2000
+MAX_STROKES = 500  # a Brush edit's strokes
+MAX_BRUSH_POINTS = 20000  # a Brush edit's points, all its strokes together
+MAX_BRUSH_SIZE = 4  # half the screen's height is 1
 MAX_COORDINATE = 1e9  # metres, or degrees in a task without a projection: anything beyond is a mistake
 # Floaters, by strength: a gaussian is one when the mean distance to its NEIGHBOURS nearest is more than the
 # model's mean of it plus this many standard deviations, or when its largest axis is more than this share of the
@@ -89,6 +98,9 @@ def clean(given):
                 raise EditsError("Floaters can be removed only once.")
             out.append({"type": "floaters", "strength": edit["strength"]})
             continue
+        if kind == "brush":
+            out.append(clean_brush(edit, i))
+            continue
         keep = edit.get("keep")
         if not isinstance(keep, bool):
             raise EditsError(f"Edit {i} must say whether it keeps or removes what is inside.")
@@ -104,18 +116,44 @@ def clean(given):
                 raise EditsError(f"Edit {i} must have from 3 to {MAX_CORNERS} corners.")
             clean_edit = {"type": kind, "keep": keep, "ring": [numbers(p, 2, f"Edit {i}'s corners") for p in ring]}
             if kind == "lasso":
-                clean_edit["view"] = numbers(edit.get("view"), 16, f"Edit {i}'s view")
-                camera = edit.get("camera")
-                if camera is not None:
-                    if not isinstance(camera, dict):
-                        raise EditsError(f"Edit {i}'s camera must have a position and a target.")
-                    clean_edit["camera"] = {
-                        name: numbers(camera.get(name), 3, f"Edit {i}'s camera {name}") for name in ("position", "target")
-                    }
+                clean_view(edit, clean_edit, i)
             out.append(clean_edit)
         else:
             raise EditsError(f"Edit {i} is of an unknown kind.")
     return out
+
+
+def clean_view(edit, clean_edit, i):
+    """A lasso's or a brush's view, and its camera when given, into clean_edit."""
+    clean_edit["view"] = numbers(edit.get("view"), 16, f"Edit {i}'s view")
+    camera = edit.get("camera")
+    if camera is not None:
+        if not isinstance(camera, dict):
+            raise EditsError(f"Edit {i}'s camera must have a position and a target.")
+        clean_edit["camera"] = {
+            name: numbers(camera.get(name), 3, f"Edit {i}'s camera {name}") for name in ("position", "target")
+        }
+
+
+def clean_brush(edit, i):
+    strokes = edit.get("strokes")
+    if not isinstance(strokes, list) or not 1 <= len(strokes) <= MAX_STROKES:
+        raise EditsError(f"Edit {i} must have from 1 to {MAX_STROKES} strokes.")
+    clean_edit = {"type": "brush", "aspect": number(edit.get("aspect"), f"Edit {i}'s aspect", positive=True), "strokes": []}
+    total = 0
+    for stroke in strokes:
+        points = stroke.get("points") if isinstance(stroke, dict) else None
+        if not isinstance(points, list) or not points:
+            raise EditsError(f"Edit {i}'s strokes must each have points.")
+        total += len(points)
+        if total > MAX_BRUSH_POINTS:
+            raise EditsError(f"Edit {i} must have at most {MAX_BRUSH_POINTS} points in its strokes.")
+        size = number(stroke.get("size"), f"Edit {i}'s brush size", positive=True)
+        if size > MAX_BRUSH_SIZE:
+            raise EditsError(f"Edit {i}'s brush size is out of range.")
+        clean_edit["strokes"].append({"size": size, "points": [numbers(p, 2, f"Edit {i}'s points") for p in points]})
+    clean_view(edit, clean_edit, i)
+    return clean_edit
 
 
 def shift(edits, dx, dy):
@@ -132,7 +170,7 @@ def shift(edits, dx, dy):
             edit["center"] = [*move(x, y), z]
         elif edit["type"] == "polygon":
             edit["ring"] = [move(x, y) for x, y in edit["ring"]]
-        elif edit["type"] == "lasso":
+        elif edit["type"] in ("lasso", "brush"):
             # The same view of the moved scene: the matrix times a translation back by dx, dy (its last column)
             m = list(edit["view"])
             for row in range(4):
@@ -182,8 +220,51 @@ def forget(task_id):
     store().del_key(edits_key(task_id))
 
 
+def screen(edit, x, y, z):
+    """Where the points are on a lasso's or a brush's screen (-1 to 1), and which are in front of its camera."""
+    m = edit["view"]
+    cx = m[0] * x + m[4] * y + m[8] * z + m[12]
+    cy = m[1] * x + m[5] * y + m[9] * z + m[13]
+    w = m[3] * x + m[7] * y + m[11] * z + m[15]
+    front = w > 0  # behind the camera, a point projects mirrored: never inside
+    safe = np.where(front, w, 1)
+    return cx / safe, cy / safe, front
+
+
+def brushed(edit, x, y, z):
+    """
+    Which of the points a brush's strokes paint over: within a stroke's size of the line through its points (of
+    its one point), on the screen, in front of the camera. The points sorted across the screen once, so each piece
+    of a line looks only at those beside it.
+    """
+    u, v, front = screen(edit, x, y, z)
+    u = u * edit["aspect"]
+    hit = np.zeros(len(u), dtype=bool)
+    order = np.nonzero(front)[0]
+    order = order[np.argsort(u[order], kind="stable")]
+    across = u[order]
+    for stroke in edit["strokes"]:
+        r = stroke["size"]
+        points = [(px * edit["aspect"], py) for px, py in stroke["points"]]
+        pieces = list(itertools.pairwise(points)) or [(points[0], points[0])]
+        for (ax, ay), (bx, by) in pieces:
+            first = np.searchsorted(across, min(ax, bx) - r, side="left")
+            last = np.searchsorted(across, max(ax, bx) + r, side="right")
+            near = order[first:last]
+            near = near[(v[near] >= min(ay, by) - r) & (v[near] <= max(ay, by) + r)]
+            if not len(near):
+                continue
+            dx, dy = bx - ax, by - ay
+            length = dx * dx + dy * dy
+            pu, pv = u[near] - ax, v[near] - ay
+            t = np.clip((pu * dx + pv * dy) / length, 0, 1) if length > 0 else 0
+            ex, ey = pu - t * dx, pv - t * dy
+            hit[near[ex * ex + ey * ey <= r * r]] = True
+    return hit
+
+
 def inside(edit, x, y, z):
-    """Which of the points are inside the shape."""
+    """Which of the points are inside the shape (for a brush, under its strokes)."""
     if edit["type"] == "box":
         cx, cy, cz = edit["center"]
         sx, sy, sz = edit["size"]
@@ -194,13 +275,10 @@ def inside(edit, x, y, z):
         u, v = dx * c + dy * s, -dx * s + dy * c
         return (np.abs(u) <= sx / 2) & (np.abs(v) <= sy / 2) & (np.abs(z - cz) <= sz / 2)
     if edit["type"] == "lasso":
-        m = edit["view"]
-        cx = m[0] * x + m[4] * y + m[8] * z + m[12]
-        cy = m[1] * x + m[5] * y + m[9] * z + m[13]
-        w = m[3] * x + m[7] * y + m[11] * z + m[15]
-        front = w > 0  # behind the camera, a point projects mirrored: never inside
-        safe = np.where(front, w, 1)
-        return front & crop.inside(cx / safe, cy / safe, [[edit["ring"]]])
+        sx, sy, front = screen(edit, x, y, z)
+        return front & crop.inside(sx, sy, [[edit["ring"]]])
+    if edit["type"] == "brush":
+        return brushed(edit, x, y, z)
     return crop.inside(x, y, [[edit["ring"]]])
 
 
@@ -212,7 +290,7 @@ def keep_mask(rows, edits):
         if edit["type"] == "floaters":
             continue
         within = inside(edit, x, y, z)
-        keep &= within if edit["keep"] else ~within
+        keep &= within if edit.get("keep", False) else ~within  # a brush has no keep: it removes
     return keep
 
 

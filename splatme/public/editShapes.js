@@ -8,6 +8,10 @@
 //   lasso    {type: "lasso", keep, ring: [[x, y], ...] on the screen (-1 to 1), view: the camera's view-projection
 //            matrix (16 numbers, column-major), camera: {position, target}}: what is in front of that camera and
 //            falls inside the ring, through to the back
+//   brush    {type: "brush", strokes: [{size, points: [[x, y], ...]}] on the screen (-1 to 1), view and camera as a
+//            lasso's, aspect: the screen's width over its height}, no keep: removes what is in front of that camera
+//            within size of a stroke's line, through to the back; distances in half the screen's height (x times
+//            aspect first)
 //   keep     true keeps what is inside and removes the rest; false removes what is inside
 //   floaters {type: "floaters", strength: "light" | "medium" | "strong"}, at most one, no keep: the splats far from
 //            their neighbours or oversized, which the server finds on the whole model (edits.floaters, the API's
@@ -15,6 +19,10 @@
 
 export const MAX_EDITS = 200;
 export const MAX_CORNERS = 2000;
+export const MAX_STROKES = 500;
+export const MAX_BRUSH_POINTS = 20000;
+// The Brush's size on the screen, in pixels across its middle
+export const BRUSH_SIZES = [5, 100];
 // Above this the page warns before loading the trained model whole (bytes of the .ply)
 export const LARGE_MODEL = 400 * 1024 * 1024;
 export const STRENGTHS = [["light", "Light"], ["medium", "Medium"], ["strong", "Strong"]];
@@ -47,8 +55,80 @@ export function insideLasso(lasso, x, y, z){
     return insideRing(lasso.ring, (m[0] * x + m[4] * y + m[8] * z + m[12]) / w, (m[1] * x + m[5] * y + m[9] * z + m[13]) / w);
 }
 
+// Where a point is on a lasso's or a brush's screen (-1 to 1), or null behind its camera (it projects mirrored)
+function onScreen(view, x, y, z){
+    const m = view;
+    const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+    if (!(w > 0)) return null;
+    return [(m[0] * x + m[4] * y + m[8] * z + m[12]) / w, (m[1] * x + m[5] * y + m[9] * z + m[13]) / w];
+}
+
+// How far (squared) u, v is from the piece of line a to b
+function distance2(u, v, ax, ay, bx, by){
+    const dx = bx - ax, dy = by - ay, length = dx * dx + dy * dy;
+    const pu = u - ax, pv = v - ay;
+    const t = length > 0 ? Math.min(Math.max((pu * dx + pv * dy) / length, 0), 1) : 0;
+    const ex = pu - t * dx, ey = pv - t * dy;
+    return ex * ex + ey * ey;
+}
+
+// The pieces of a stroke's line, x times aspect: a stroke of one point is a piece from it to itself
+function pieces(stroke, aspect){
+    const points = stroke.points.map(([x, y]) => [x * aspect, y]);
+    if (points.length === 1) return [[points[0], points[0]]];
+    return points.slice(1).map((q, i) => [points[i], q]);
+}
+
+// Whether a brush paints over a point, as edits.brushed answers for many
+export function insideBrush(brush, x, y, z){
+    const p = onScreen(brush.view, x, y, z);
+    if (!p) return false;
+    const u = p[0] * brush.aspect, v = p[1];
+    return brush.strokes.some(stroke => pieces(stroke, brush.aspect).some(([a, b]) =>
+        distance2(u, v, a[0], a[1], b[0], b[1]) <= stroke.size * stroke.size));
+}
+
+// Which splats (of those keep still keeps) a brush paints over, set to 0 in keep: the splats sorted across its
+// screen once, so each piece of a stroke looks only at those beside it (edits.brushed's way)
+function brushOut(brush, xs, ys, zs, keep){
+    const us = new Float64Array(xs.length), vs = new Float64Array(xs.length);
+    const order = [];
+    for (let i = 0; i < xs.length; i++){
+        if (!keep[i]) continue;
+        const p = onScreen(brush.view, xs[i], ys[i], zs[i]);
+        if (!p) continue;
+        us[i] = p[0] * brush.aspect;
+        vs[i] = p[1];
+        order.push(i);
+    }
+    order.sort((a, b) => us[a] - us[b]);
+    const across = Float64Array.from(order, i => us[i]);
+    // The first of the sorted at or after value
+    const firstFrom = value => {
+        let lo = 0, hi = across.length;
+        while (lo < hi){
+            const mid = (lo + hi) >> 1;
+            if (across[mid] < value) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    };
+    for (const stroke of brush.strokes){
+        const r = stroke.size, r2 = r * r;
+        for (const [a, b] of pieces(stroke, brush.aspect)){
+            const top = Math.max(a[1], b[1]) + r, bottom = Math.min(a[1], b[1]) - r, right = Math.max(a[0], b[0]) + r;
+            for (let k = firstFrom(Math.min(a[0], b[0]) - r); k < across.length && across[k] <= right; k++){
+                const i = order[k];
+                if (!keep[i] || vs[i] < bottom || vs[i] > top) continue;
+                if (distance2(us[i], vs[i], a[0], a[1], b[0], b[1]) <= r2) keep[i] = 0;
+            }
+        }
+    }
+}
+
 export function inside(edit, x, y, z){
     if (edit.type === "box") return insideBox(edit, x, y, z);
+    if (edit.type === "brush") return insideBrush(edit, x, y, z);
     if (edit.type === "lasso") return insideLasso(edit, x, y, z);
     return insideRing(edit.ring, x, y);
 }
@@ -87,6 +167,10 @@ export function keepMask(xs, ys, zs, edits, out, base, floaters){
     }
     for (const edit of edits){
         if (edit.type === "floaters") continue;
+        if (edit.type === "brush"){
+            brushOut(edit, xs, ys, zs, keep);
+            continue;
+        }
         // A polygon's bounding box first: most splats are far from it
         let minX = -Infinity, maxX = Infinity, minY = -Infinity, maxY = Infinity;
         if (edit.type === "polygon"){
@@ -152,6 +236,7 @@ export function editLabel(edit, count){
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
     }
+    if (edit.type === "brush") return "Brush, " + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
     if (edit.type === "box"){
         const [x, y, z] = edit.size.map(v => Number(v.toFixed(1)).toLocaleString("en-US"));
         return "Box, " + x + " × " + y + " × " + z + " m";
@@ -169,6 +254,36 @@ export function strokeRing(points, width, height, minPixels){
     }
     const step = Math.ceil(kept.length / MAX_CORNERS);
     return kept.filter((_p, i) => i % step === 0).map(([x, y]) => [round4(x / width * 2 - 1), round4(1 - y / height * 2)]);
+}
+
+// A brush stroke as kept: its points (pixels of a view width x height) a point only once the pointer has moved
+// minPixels from the last one, in -1 to 1 with y up, and its size (pixels across its middle) in half the view's
+// height; at most MAX_BRUSH_POINTS points
+export function brushStroke(points, width, height, sizePixels, minPixels){
+    const kept = [];
+    for (const p of points){
+        const last = kept[kept.length - 1];
+        if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) >= minPixels) kept.push(p);
+    }
+    // The last point where the pointer let go, so the stroke ends under it
+    const end = points[points.length - 1];
+    if (kept.length && end !== kept[kept.length - 1]) kept.push(end);
+    const step = Math.ceil(kept.length / MAX_BRUSH_POINTS);
+    return {
+        size: round4(sizePixels / 2 / (height / 2)),
+        points: kept.filter((_p, i) => i % step === 0).map(([x, y]) => [round4(x / width * 2 - 1), round4(1 - y / height * 2)])
+    };
+}
+
+// The stroke added to the Brush session's edit, the last of edits, when it was painted in the same view and has
+// room for it; else a new brush edit after them (the session's first stroke: fresh). Answers the edits
+export function addStroke(edits, stroke, view, aspect, camera, fresh){
+    const last = edits[edits.length - 1];
+    const same = !fresh && last && last.type === "brush" && last.aspect === aspect && last.view.length === view.length &&
+        last.view.every((v, i) => v === view[i]) && last.strokes.length < MAX_STROKES &&
+        last.strokes.reduce((n, s) => n + s.points.length, 0) + stroke.points.length <= MAX_BRUSH_POINTS;
+    if (same) return [...edits.slice(0, -1), {...last, strokes: [...last.strokes, stroke]}];
+    return [...edits, {type: "brush", strokes: [stroke], view, aspect, camera}];
 }
 
 function round4(v){

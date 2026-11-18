@@ -1,4 +1,4 @@
-import { keepMask, strokeRing, insideLasso, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -148,6 +148,75 @@ describe("the lasso", () => {
     test("a long stroke is thinned to the most corners an edit may have", () => {
         const points = Array.from({length: 5000}, (_, i) => [i, 0]);
         expect(strokeRing(points, 5000, 100, 1).length).toBeLessThanOrEqual(2000);
+    });
+});
+
+describe("the brush", () => {
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const brush = (strokes, aspect = 1, view = identity) => ({type: "brush", strokes, view, aspect});
+    const line = {size: 0.6, points: [[-0.2, 0], [0.2, 0]]};
+
+    test("removes what is within its size of a stroke's line on screen, as the server's test does", () => {
+        expect(kept([brush([line])])).toEqual([0, 1, 0, 1]);
+    });
+
+    test("measures across the screen in the screen's height: a wider screen stretches x", () => {
+        expect(kept([brush([line], 2)])).toEqual([0, 1, 1, 1]);
+    });
+
+    test("a stroke of one point is a circle", () => {
+        expect(kept([brush([{size: 0.1, points: [[3, 0]]}])])).toEqual([1, 0, 1, 1]);
+    });
+
+    test("leaves what is behind the camera", () => {
+        const behind = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0];
+        expect(kept([brush([line], 1, behind)])).toEqual([1, 1, 1, 1]);
+    });
+
+    test("the whole view's quick rule removes the same splats as the rule for one splat", () => {
+        const n = 3000;
+        const rx = new Float32Array(n), ry = new Float32Array(n), rz = new Float32Array(n);
+        let seed = 7;
+        const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+        for (let i = 0; i < n; i++){
+            rx[i] = random() * 4 - 2;
+            ry[i] = random() * 4 - 2;
+            rz[i] = random() * 4 + 1;
+        }
+        const perspective = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0.1, -0.2, 0, 0];
+        const edit = brush([{size: 0.15, points: [[-0.5, -0.5], [0, 0.1], [0.4, 0.3]]}, {size: 0.05, points: [[0.6, -0.6]]}], 1.5, perspective);
+        const mask = keepMask(rx, ry, rz, [edit]);
+        let removed = 0;
+        for (let i = 0; i < n; i++){
+            expect(mask[i]).toBe(insideBrush(edit, rx[i], ry[i], rz[i]) ? 0 : 1);
+            removed += 1 - mask[i];
+        }
+        expect(removed).toBeGreaterThan(50);
+    });
+
+    test("is words in the list", () => {
+        expect(editLabel(brush([line]))).toBe("Brush, 1 stroke");
+        expect(editLabel(brush([line, line]))).toBe("Brush, 2 strokes");
+    });
+
+    test("a stroke keeps a point every few pixels and where it let go, its size in half the view's height", () => {
+        const points = [[0, 0], [1, 0], [5, 0], [6, 0], [200, 100]];
+        expect(brushStroke(points, 200, 100, 20, 3)).toEqual({size: 0.2, points: [[-1, 1], [-0.95, 1], [1, -1]]});
+        expect(brushStroke([[100, 50]], 200, 100, 20, 3).points).toEqual([[0, 0]]);
+        expect(brushStroke(Array.from({length: 30000}, (_, i) => [i, 0]), 30000, 100, 20, 1).points.length).toBeLessThanOrEqual(MAX_BRUSH_POINTS);
+    });
+
+    test("a session's strokes in one view go into one edit; a new session or another view starts another", () => {
+        const box = {type: "box", keep: true, center: [0, 0, 0], size: [1, 1, 1], turn: 0};
+        const camera = {position: [0, 0, 1], target: [0, 0, 0]};
+        let edits = addStroke([box], line, identity, 1, camera, true);
+        expect(edits.length).toBe(2);
+        edits = addStroke(edits, line, identity.slice(), 1, camera, false);
+        expect(edits.length).toBe(2);
+        expect(edits[1].strokes.length).toBe(2);
+        expect(addStroke(edits, line, identity, 1.5, camera, false).length).toBe(3);
+        expect(addStroke(edits, line, identity, 1, camera, true).length).toBe(3);
+        expect(edits[0]).toBe(box);
     });
 });
 

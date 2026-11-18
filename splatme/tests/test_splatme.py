@@ -1266,6 +1266,80 @@ class TestSplatMe(BootTestCase):
             self.assertEqual(res.status_code, 400, edit)
             self.assertIn(reason, res.data["error"])
 
+    IDENTITY = (1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0)
+
+    def line(self):
+        """A stroke from (-0.2, 0) to (0.2, 0) on the screen, 0.6 wide either side."""
+        return {"size": 0.6, "points": [[-0.2, 0], [0.2, 0]]}
+
+    def brush(self, strokes, aspect=1, view=None, camera=None):
+        """A Brush; the default view sees x and y as they are (an identity matrix: w is 1, in front)."""
+        edit = {"type": "brush", "strokes": strokes, "aspect": aspect, "view": view or list(self.IDENTITY)}
+        if camera:
+            edit["camera"] = camera
+        return edit
+
+    def test_a_brush_removes_what_falls_within_its_size_of_a_stroke_on_screen_in_front_of_the_camera(self):
+        task, header, rows = self.trained_task()
+        res = self.put_edits(task, [self.brush([self.line()])])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["edited"], 2)
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 2") + rows[[1, 3]].tobytes()])
+        # A wider screen stretches x: (0.5, -0.5) is then 0.78 from the stroke, beyond its 0.6
+        self.converted.clear()
+        self.put_edits(task, [self.brush([self.line()], aspect=2)])
+        self.apply(task)
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 3") + rows[[1, 2, 3]].tobytes()])
+        # A stroke of one point is a circle; two strokes in one edit both remove
+        self.converted.clear()
+        self.put_edits(task, [self.brush([{"size": 0.1, "points": [[3, 0]]}, {"size": 0.1, "points": [[0, -1.5]]}])])
+        self.apply(task)
+        self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 2") + rows[[0, 2]].tobytes()])
+        # Seen from behind (w = -z): nothing is in front of that camera
+        self.converted.clear()
+        behind = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, -1.0, 0, 0, 0, 0]
+        self.put_edits(task, [self.brush([self.line()], view=behind)])
+        self.apply(task)
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+
+    def test_a_brush_is_kept_in_the_tasks_projection_and_cuts_the_same_after_the_offset_changes(self):
+        task, header, rows = self.trained_task()
+        self.with_offset(task, 1000, 2000)
+        camera = {"position": [1, 2, 30], "target": [1, 2, 5]}
+        res = self.put_edits(task, [self.brush([self.line()], camera=camera)])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"][0]["camera"], camera)
+        self.assertEqual(res.data["edits"][0]["strokes"], [self.line()])
+        stored = training.store().get_json(edits.edits_key(task.id))[0]
+        self.assertEqual(stored["view"][12:14], [-1000, -2000])
+        self.assertEqual(stored["camera"]["position"], [1001, 2002, 30])
+        # Processed again with an offset 10 m less: the stroke stays on the ground, now at x 9.8 to 10.2 in the
+        # model's frame, where no gaussian is
+        self.with_offset(task, 990, 2000)
+        self.converted.clear()
+        self.apply(task)
+        self.assertEqual(self.converted, [header + rows.tobytes()])
+
+    def test_a_brush_with_bad_strokes_size_or_view_is_refused(self):
+        task, _, _ = self.trained_task()
+        for edit, reason in [
+            ({**self.brush([self.line()]), "strokes": []}, "from 1 to 500 strokes"),
+            ({**self.brush([self.line()]), "strokes": [self.line()] * 501}, "from 1 to 500 strokes"),
+            (self.brush([{"size": 0.1, "points": []}]), "must each have points"),
+            (self.brush(["here"]), "must each have points"),
+            (self.brush([{"size": 0, "points": [[0, 0]]}]), "brush size must be more than 0"),
+            (self.brush([{"size": 5, "points": [[0, 0]]}]), "brush size is out of range"),
+            (self.brush([{"size": 0.1, "points": [[0, 0, 0]]}]), "points must be 2 numbers"),
+            (self.brush([{"size": 0.1, "points": [[0, 0]] * 20001}]), "at most 20000 points"),
+            (self.brush([self.line()], aspect=0), "aspect must be more than 0"),
+            ({**self.brush([self.line()]), "view": [1, 0]}, "must be 16 numbers"),
+            (self.brush([self.line()], camera="here"), "position and a target"),
+        ]:
+            res = self.put_edits(task, [edit])
+            self.assertEqual(res.status_code, 400, edit)
+            self.assertIn(reason, res.data["error"])
+
     # A 10 x 10 grid a metre apart, and one gaussian 100 m away: a floater at any strength
     GRID = tuple((x, y) for x in range(10) for y in range(10)) + ((100, 100),)
 

@@ -2,18 +2,19 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { request } from './api';
-import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, LARGE_MODEL, MAX_EDITS, STRENGTHS } from './editShapes';
+import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, addStroke, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES } from './editShapes';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
 const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const AXES = ["X", "Y", "Z"];
-const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", floaters: "fa-broom"};
+const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom"};
+const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 
 // Edit Splats (templates/editor.html, Edit on a task's row in SplatMe → Tasks): the task's trained model in a 3D view
 // (editor/viewer.js, loaded by loadViewer through the page's import map) and this panel beside it, below it on a
-// phone. Box, Polygon and Lasso edits keep or remove the splats inside them, Remove Floaters the splats far from the
-// rest or oversized (found by the server); the view hides what they remove as they change, and they are saved as
+// phone. Box, Polygon and Lasso edits keep or remove the splats inside them, the Brush removes those painted over,
+// Remove Floaters the splats far from the rest or oversized (found by the server); the view hides what they remove as they change, and they are saved as
 // they are made. Apply makes the task's model again from its trained model with them
 // (training.py's Apply Edits), which the 3D view, the download and the share links then show.
 export default class Editor extends React.Component {
@@ -29,7 +30,8 @@ export default class Editor extends React.Component {
         this.state = {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
-            starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null
+            starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
+            brushing: false, brushSize: BRUSH_SIZE
         };
     }
 
@@ -98,7 +100,10 @@ export default class Editor extends React.Component {
                 onPolygon: this.handlePolygon,
                 onCorners: count => this.setState({drawing: count}),
                 onLasso: this.handleLasso,
-                onLassoEnd: () => this.setState({lassoing: false})
+                onLassoEnd: () => this.setState({lassoing: false}),
+                onBrushStroke: this.handleBrushStroke,
+                onBrushSize: brushSize => this.setState({brushSize}),
+                onBrushEnd: () => this.setState({brushing: false})
             });
             this.viewer.setMode(this.state.mode);
             return this.viewer.load(info.model.url, e => {
@@ -151,6 +156,30 @@ export default class Editor extends React.Component {
         this.setState({selected: -1, lassoing: true});
         this.viewer.startLasso();
     };
+
+    // Painting: the session's strokes go into one edit (Undo takes back the last), until Done
+    brush = () => {
+        if (!this.viewer || this.state.edits.length >= MAX_EDITS) return;
+        this.freshBrush = true;
+        this.setState({selected: -1, brushing: true});
+        this.viewer.startBrush(this.state.brushSize);
+    };
+
+    handleBrushStroke = ({stroke, view, aspect, camera}) => {
+        const { edits } = this.state;
+        const next = addStroke(edits, stroke, view, aspect, camera, this.freshBrush);
+        if (next.length > edits.length && edits.length >= MAX_EDITS){
+            this.viewer.endBrush();
+            return;
+        }
+        this.freshBrush = false;
+        this.change(next, -1);
+    };
+
+    setBrushSize(brushSize){
+        this.setState({brushSize});
+        if (this.viewer) this.viewer.setBrushSize(brushSize);
+    }
 
     addFloaters = () => {
         const { edits } = this.state;
@@ -320,10 +349,11 @@ export default class Editor extends React.Component {
                         <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : ""}>
                             <i className={"fa fa-fw " + ICONS[edit.type]}></i> {editLabel(edit, this.floatersCount(edit))}
                         </a>
-                        {edit.type === "lasso" && edit.camera && this.viewer ?
+                        {(edit.type === "lasso" || edit.type === "brush") && edit.camera && this.viewer ?
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
-                            {edit.type === "floaters" ?
+                            {edit.type === "brush" ? <span className="splatme-editor-item-note">{_("Removes what it painted over")}</span> :
+                            edit.type === "floaters" ?
                                 <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}
                                         aria-label={_("How many floaters to remove")} onChange={e => this.setStrength(i, e.target.value)}>
                                     {STRENGTHS.map(([value, label]) => <option key={value} value={value}>{_(label)}</option>)}
@@ -358,25 +388,30 @@ export default class Editor extends React.Component {
     }
 
     renderPanel(){
-        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing } = this.state;
+        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize } = this.state;
         const canEdit = info.can_edit && !!loaded;
+        const busy = !canEdit || drawing !== null || lassoing || brushing || edits.length >= MAX_EDITS;
         const applying = !!apply && apply.state === "applying";
         const box = selected >= 0 && edits[selected] && edits[selected].type === "box" ? edits[selected] : null;
         return (
             <div className="splatme-editor-panel">
                 {!info.can_edit ? <p className="text-warning">{_("Only those who may change this project edit its splats.")}</p> : ""}
                 <div className="splatme-editor-tools">
-                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.addBox}>
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.addBox}>
                         <i className="fa fa-cube fa-fw"></i> {_("Add Box")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.drawPolygon}>
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.drawPolygon}>
                         <i className="fa fa-draw-polygon fa-fw"></i> {_("Draw Polygon")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.lasso}
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.lasso}
                             title={_("Draw around what to remove: everything inside on screen goes, through to the back")}>
                         <i className="fa fa-pencil-alt fa-fw"></i> {_("Lasso")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS || !!floatersStrength(edits)}
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.brush}
+                            title={_("Paint over what to remove: everything under the brush on screen goes, through to the back")}>
+                        <i className="fa fa-paint-brush fa-fw"></i> {_("Brush")}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy || !!floatersStrength(edits)}
                             onClick={this.addFloaters} title={_("Remove the splats far from the rest, and the oversized ones")}>
                         <i className="fa fa-broom fa-fw"></i> {_("Remove Floaters")}
                     </button>
@@ -386,6 +421,19 @@ export default class Editor extends React.Component {
                         {_("Drag around what to remove. Everything inside on screen goes, through to the back: turn the view first to see it apart.")}
                         <div className="splatme-editor-drawing-actions">
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.viewer.cancelLasso()}>{_("Cancel")}</button>
+                        </div>
+                    </div> : ""}
+                {brushing ?
+                    <div className="alert alert-info splatme-editor-drawing">
+                        {_("Paint over what to remove. Everything under the brush on screen goes, through to the back. The view holds still while you paint: press Done to turn it.")}
+                        <label className="splatme-editor-brush-size">
+                            {_("Size")}
+                            <input type="range" min={BRUSH_SIZES[0]} max={BRUSH_SIZES[1]} value={brushSize}
+                                   onChange={e => this.setBrushSize(parseInt(e.target.value, 10))} />
+                            <span>{brushSize} px</span>
+                        </label>
+                        <div className="splatme-editor-drawing-actions">
+                            <button type="button" className="btn btn-sm btn-primary" onClick={() => this.viewer.endBrush()}>{_("Done")}</button>
                         </div>
                     </div> : ""}
                 {drawing !== null ?

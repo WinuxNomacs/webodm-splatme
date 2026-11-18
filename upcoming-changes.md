@@ -17,12 +17,12 @@ other software. The plugin does that step.
 
 **Then**
 
-2. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
+2. More splat editing, asked 2026-11-18, in this order, each planned with the user before it is built: 2a the
+   Brush (built), 2b Colour Adjust, 2c Download Edited Model. See "9. More splat editing (proposed)".
+3. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
    quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
    decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
    (to evaluate before the release after 0.2.0)".
-3. More splat editing, asked 2026-11-18, in this order, each planned with the user before it is built: 3a the
-   Brush, 3b Colour Adjust, 3c Download Edited Model. See "9. More splat editing (proposed)".
 
 **Later**
 
@@ -2505,17 +2505,28 @@ trainer's `.ply` (`edits.py`, `crop.crop_ply`, `training.shown_model`, Apply Edi
 (`public/editor/viewer.js`, `editShapes.js`), and Spark's splat numbers matching the `.ply`'s rows (checked in 2d).
 Each step on its own branch, merged when tested, the Edit Splats docs page updated with it.
 
-**3a. Brush** (the remover the Lasso was planned with, deferred in 2c). Proposed: a Brush button; dragging paints
-a circle the size of a Size slider, and letting go makes one edit (Remove Inside), shown and listed like a lasso,
-with Go to Its View.
+**2a. Brush (built).** Decided with the user (2026-11-18): a stroke removes everything under it on screen,
+through to the back, as the Lasso (stored as geometry, so a retraining applies it again); the strokes painted in one
+session (until Done) are one edit, "Brush, N strokes", Undo taking back the last stroke; it only removes (no Restore:
+that would make the edits' order matter); its Size is a slider in screen pixels, 5 to 100, with the [ and ] keys.
 
-- Open decision: what a stroke removes. (a) Everything under it, through the model, as the Lasso: stored as
-  geometry (the stroke's circles in the view's screen coordinates and the view), so it is applied again after a
-  retraining; or (b) only the splats seen on the surface under it: precise, but stored as splat numbers, which a
-  retraining makes meaningless (the edit is then dropped, with a note).
-- Open decision: whether it also paints back (Restore), and a Size range.
+- Stored as `{"type": "brush", strokes: [{size, points}], view, aspect, camera}`: points on the screen (-1 to 1),
+  size in half the screen's height, distances with x times the aspect, so the brush is round on screen. Rule in
+  `edits.brushed` and `editShapes.js` (`insideBrush`, and a quick pass over the whole view for the preview): the
+  points sorted across the screen once, each piece of a stroke looking only at those beside it. Limits: 500
+  strokes and 20,000 points an edit, size at most 4.
+- Code: `edits.py` (`clean_brush`, `brushed`, the view shared with the lasso), `public/editShapes.js`
+  (`insideBrush`, `brushStroke`, `addStroke`), `public/editor/viewer.js` (`startBrush`, `setBrushSize`,
+  `endBrush`, the stroke and circle on the overlay, the strokes' lines when picked), `public/Editor.jsx` (Brush
+  button, Size slider, Done). Tests: 3 Django (what it removes, the aspect, a one-point stroke, behind the camera;
+  the projection and offset; 11 refusals), 8 Jest (the same cases, the quick pass against the one-splat rule on
+  3,000 random splats in perspective, the stroke's points and size, the session's strokes in one edit).
+- Live check (2026-11-18, on a copy of the check task, deleted after; `sm-worker` restarted with the user's
+  approval): two strokes kept in one edit after a third was undone; the browser's rule on the `.ply`'s own
+  centres removed 30,284 splats in 86 ms, and Apply removed 30,284 (6.4 s); Continue From Step still offered;
+  the edit back after a reload; the panel fits a phone.
 
-**3b. Colour Adjust.** Proposed: one entry in the list, as Remove Floaters (at most one), with sliders for
+**2b. Colour Adjust.** Proposed: one entry in the list, as Remove Floaters (at most one), with sliders for
 Brightness, Contrast, Saturation and Warmth (white balance), seen at once in the view and written into the
 `.ply`'s colours (`f_dc_*`, with `f_rest_*` scaled to match) by Apply and after each retraining.
 
@@ -2524,7 +2535,7 @@ Brightness, Contrast, Saturation and Warmth (white balance), seen at once in the
 - To check before planning: that the view can change splats' colours as fast as it hides them (Spark's packed
   splats), and how the view-dependent colours (`f_rest_*`) should follow, measured on the check task.
 
-**3c. Download Edited Model.** WebODM's own download already serves `model.rad`, which is the edited model, but
+**2c. Download Edited Model.** WebODM's own download already serves `model.rad`, which is the edited model, but
 only in that format (`splat-tools` writes `.rad` only: its `--help`, 2026-11-18). Proposed: a Download button on
 Edit Splats (and the task's row on SplatMe → Tasks) that gives the edited `.ply`, made on request as Apply makes it
 (the trainer's `.ply` cut by the boundary and the edits, then colour-adjusted), so other splat tools can open it.
