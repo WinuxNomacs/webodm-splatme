@@ -20,7 +20,7 @@ other software. The plugin does that step.
    behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
    converted again; a retraining applies them again. In steps: 2a the renderer test (done 2026-11-18: it works,
    branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (done
-   2026-11-18, branch `splat-editing-2b`), 2c Lasso, 2d Floaters. See "8. Splat editing".
+   2026-11-18, branch `splat-editing-2b`), 2c Lasso (planned 2026-11-18, being built), 2d Floaters. See "8. Splat editing".
 
 **Then**
 
@@ -2436,7 +2436,14 @@ loaded by an import map on the editor page; checked again when upgraded.
   less precisely); a WebODM duplicate hard-links the task's files (Apply touches the `.ply`'s time, harmless); the
   worker must be restarted to run a new job function (`apply_job` failed until it was). The large-model limit is
   400 MB, not measured on a large model yet.
-- 2c. Lasso. 2d. Floaters.
+- 2c. Lasso. Decided with the user 2026-11-18: drawn freehand (a drag, one finger on a phone; letting go closes
+  it; the view does not turn while drawing), the Lasso only (a brush later, if the Lasso feels coarse). Stored as
+  `{"type": "lasso", "keep": false, "view": [16 numbers: the camera's view-projection matrix, column-major],
+  "ring": [[x, y], ...] in normalised device coordinates, "camera": {"position", "target"}}`; it removes every
+  splat in front of the camera whose projection falls inside the ring (Keep Inside also offered, as for the
+  others). Kept in the task's projection: the matrix times a translation by the offset. In the list "Lasso, N
+  corners" with Go to Its View (the camera where it was drawn); drawn in 3D at the depth of that view's target.
+- 2d. Floaters.
 
 **What can fail, and the tests that make it happen**: edits in the store that do not read (set aside, not fatal),
 `splat-tools` failing or running out of time during Apply (the shown model stays), Apply while a training runs
