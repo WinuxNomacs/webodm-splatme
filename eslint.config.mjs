@@ -3,7 +3,7 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
-    {ignores: ["**/node_modules/", "**/build/", "**/dist/", "ignored/", "splatme/public/webpack.config.js"]},
+    {ignores: ["**/node_modules/", "**/build/", "**/dist/", "ignored/", "splatme/public/webpack.config.js", "splatme/public/vendor/"]},
     {
         // Loaded on every page by a <script> tag: plain ES5, with WebODM's React and PluginsAPI
         files: ["splatme/public/main.js"],

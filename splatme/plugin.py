@@ -36,7 +36,7 @@ class Plugin(PluginBase):
         return ["main.js"]
 
     def build_jsx_components(self):
-        return ["Tasks.jsx", "Dashboard.jsx"]
+        return ["Tasks.jsx", "Dashboard.jsx", "Editor.jsx"]
 
     def app_mount_points(self):
         parts = {"node_part": self.template_path("node.html"), "options_part": self.template_path("options.html")}
@@ -56,7 +56,15 @@ class Plugin(PluginBase):
                 raise PermissionDenied()
             return render(request, self.template_path("admin.html"), {"title": "SplatMe", **parts})
 
-        return [MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page)]
+        # Edit Splats: the API answers whether the user may see and change the task
+        @login_required
+        def editor_page(request, task_id):
+            return render(request, self.template_path("editor.html"), {"title": "Edit Splats", "task_id": task_id})
+
+        return [
+            MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page),
+            MountPoint("edit/(?P<task_id>[0-9a-f-]+)/$", editor_page),
+        ]
 
     def api_mount_points(self):
         return [

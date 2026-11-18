@@ -1,0 +1,38 @@
+{% extends "app/plugins/templates/base.html" %}
+
+{% block content %}
+{% comment %}
+Edit Splats, from Edit on a task's row in SplatMe → Tasks: the task's trained model in a 3D view with the edits'
+panel (public/Editor.jsx, built by WebODM's webpack). The 3D view is a plain ES module (public/editor/viewer.js)
+that imports three.js and Spark, vendored in public/vendor (see its README), through this import map.
+{% endcomment %}
+<script type="importmap">
+{
+    "imports": {
+        "three": "/plugins/splatme/vendor/three/three.module.js",
+        "three/addons/controls/OrbitControls.js": "/plugins/splatme/vendor/three/OrbitControls.js",
+        "three/addons/controls/TransformControls.js": "/plugins/splatme/vendor/three/TransformControls.js",
+        "three/addons/postprocessing/Pass.js": "/plugins/splatme/vendor/three/Pass.js",
+        "@sparkjsdev/spark": "/plugins/splatme/vendor/spark/spark.module.min.js"
+    }
+}
+</script>
+<div id="splatme-editor" data-task="{{ task_id }}"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading</div>
+
+<script>
+(function(){
+    var place = document.getElementById("splatme-editor");
+    var taskId = place.getAttribute("data-task");
+    function loadViewer(){
+        return import("/plugins/splatme/editor/viewer.js");
+    }
+    PluginsAPI.SystemJS.import("splatme/build/Editor.css");
+    PluginsAPI.SystemJS.import("splatme/build/Editor.js").then(function(m){
+        place.innerHTML = "";
+        ReactDOM.render(React.createElement(m["default"] || m, {taskId: taskId, loadViewer: loadViewer}), place);
+    }, function(){
+        place.textContent = "SplatMe's page did not load. Reload the page; if it stays like this, ask an administrator.";
+    });
+})();
+</script>
+{% endblock %}

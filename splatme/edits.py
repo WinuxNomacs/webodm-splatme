@@ -95,15 +95,19 @@ def clean(given):
 
 
 def shift(edits, dx, dy):
-    """The edits moved by dx, dy (copies)."""
+    """The edits moved by dx, dy (copies), to the micrometre: the offset's sums leave no noise in what a page shows."""
+
+    def move(x, y):
+        return [round(x + dx, 6), round(y + dy, 6)]
+
     out = []
     for edit in edits:
         edit = dict(edit)
         if edit["type"] == "box":
             x, y, z = edit["center"]
-            edit["center"] = [x + dx, y + dy, z]
+            edit["center"] = [*move(x, y), z]
         elif edit["type"] == "polygon":
-            edit["ring"] = [[x + dx, y + dy] for x, y in edit["ring"]]
+            edit["ring"] = [move(x, y) for x, y in edit["ring"]]
         out.append(edit)
     return out
 
