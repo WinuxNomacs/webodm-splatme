@@ -20,7 +20,8 @@ replaced there since its training: only a model SplatMe trained can be edited.
 
 ## The Edits
 
-Each edit **Keeps Inside** (removes everything outside it) or **Removes Inside**. A splat stays only when every
+Each shape **Keeps Inside** (removes everything outside it) or **Removes Inside**; the **Brush** and **Remove
+Floaters** only remove. A splat stays only when every
 edit keeps it. The view hides what the edits remove as you change them, by the same rule **Apply** uses. It also
 hides what lies outside the task's boundary when the model was trained with **Crop to Boundary**, as the task's
 model leaves it out. The view holds splat positions a little less precisely than the trained model, so a few
@@ -34,6 +35,11 @@ splats right on an edge may end up on the other side when applied.
 - **Lasso**: drag around what to remove, in any view (one finger on a phone); letting go closes it. It removes
   everything inside it on screen, through to the back, so turn the view first until what you want gone is apart
   from what you keep. **Go to Its View**, beside it in the list, turns the view back to where it was drawn.
+- **Brush**: paint over what to remove (one finger on a phone). Like the Lasso, it removes everything under the
+  brush on screen, through to the back. The view holds still while you paint, so every stroke until **Done** (or
+  Escape) is one edit in the list ("Brush, 3 strokes"), and **Undo** takes back the last stroke; turn the view
+  between sessions. **Size** sets the brush's width on screen, from 5 to 100 pixels; the [ and ] keys change it
+  too. **Go to Its View** works as for a lasso.
 - **Remove Floaters**: removes the splats far from the rest and the oversized ones (the smears and streaks across
   the sky), judged on the whole trained model, so the other edits don't change which ones they are. Its strength,
   in the list, is **Light**, **Medium** (the start) or **Strong**; the list says how many splats it removes besides

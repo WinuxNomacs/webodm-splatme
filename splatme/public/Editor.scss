@@ -56,6 +56,22 @@
         margin: 6px 0 0 0;
     }
 
+    .splatme-editor-brush-size{
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 6px 0 0 0;
+        font-weight: normal;
+
+        input{
+            flex: 1 1 auto;
+        }
+
+        span{
+            white-space: nowrap;
+        }
+    }
+
     .splatme-editor-list{
         margin-bottom: 8px;
 
@@ -67,6 +83,11 @@
             display: flex;
             gap: 4px;
             margin-top: 4px;
+            align-items: center;
+
+            .splatme-editor-item-note{
+                flex: 1 1 auto;
+            }
 
             select{
                 flex: 1 1 auto;

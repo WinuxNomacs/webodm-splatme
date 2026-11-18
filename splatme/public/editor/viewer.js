@@ -6,11 +6,12 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
-import { keepMask, boundaryMask, framing, round, strokeRing } from "../editShapes.js";
+import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, BRUSH_SIZES } from "../editShapes.js";
 
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
 const STROKE_PIXELS = 3;  // a lasso's corners at least this far apart
+const BRUSH_STEP = 1.25;  // the [ and ] keys' change of the brush's size
 
 // A colour of WebODM's theme (theme.css), read from an element given one of its classes: no colour is set here
 function themeColor(container, className, property){
@@ -29,7 +30,9 @@ function lineMaterial(color){
 }
 
 // handlers: onBoxChange(index, box) while a box is dragged, onPolygon(ring) when one is closed, onCorners(count)
-// while one is drawn, onLasso({ring, view, camera}) when a lasso is drawn, onLassoEnd() when lasso drawing stops
+// while one is drawn, onLasso({ring, view, camera}) when a lasso is drawn, onLassoEnd() when lasso drawing stops,
+// onBrushStroke({stroke, view, aspect, camera}) for each brush stroke, onBrushSize(pixels) when a key changes the
+// brush's size, onBrushEnd() when painting stops
 export function createViewer(container, handlers){
     const colors = {
         keep: themeColor(container, "theme-background-success", "backgroundColor"),
@@ -55,6 +58,7 @@ export function createViewer(container, handlers){
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
     let lasso = null;  // {points: [[x, y] in pixels], down}
+    let brush = null;  // {size: pixels across, points: [[x, y] in pixels], down, at: [x, y] the pointer, or null}
     // The lasso's stroke, drawn on a flat canvas over the view
     const overlay = document.createElement("canvas");
     overlay.style.cssText = "position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; display: none;";
@@ -127,6 +131,30 @@ export function createViewer(container, handlers){
         return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), lineMaterial(edit.keep ? colors.keep : colors.remove));
     }
 
+    // A brush: each stroke's line where it meets the depth of the model's middle, seen from its view (a stroke of
+    // one point: its circle)
+    function brushObject(edit){
+        const view = new THREE.Matrix4().fromArray(edit.view);
+        const back = view.clone().invert();
+        const middle = frame ? new THREE.Vector3(...frame.center) : new THREE.Vector3();
+        const depth = middle.applyMatrix4(view).z;
+        const group = new THREE.Group();
+        for (const stroke of edit.strokes){
+            let points = stroke.points;
+            if (points.length === 1){
+                const [x, y] = points[0];
+                points = Array.from({length: 24}, (_v, k) => {
+                    const a = k / 24 * Math.PI * 2;
+                    return [x + Math.cos(a) * stroke.size / edit.aspect, y + Math.sin(a) * stroke.size];
+                });
+            }
+            const line = points.map(([x, y]) => new THREE.Vector3(x, y, depth).applyMatrix4(back));
+            const geometry = new THREE.BufferGeometry().setFromPoints(line);
+            group.add(stroke.points.length === 1 ? new THREE.LineLoop(geometry, lineMaterial(colors.remove)) : new THREE.Line(geometry, lineMaterial(colors.remove)));
+        }
+        return group;
+    }
+
     // A polygon: its ring drawn at the bottom and the top of the model, joined at each corner
     function polygonObject(edit){
         const [low, high] = heights();
@@ -156,7 +184,7 @@ export function createViewer(container, handlers){
         handles = edits.map((edit, i) => {
             // Floaters have no shape: an empty group keeps the handles numbered as the edits
             const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) :
-                edit.type === "floaters" ? new THREE.Group() : polygonObject(edit);
+                edit.type === "brush" ? brushObject(edit) : edit.type === "floaters" ? new THREE.Group() : polygonObject(edit);
             // Only the edit picked in the list shows its shape: the others show only in what they hide
             object.visible = i === selected;
             object.renderOrder = 10;
@@ -235,11 +263,57 @@ export function createViewer(container, handlers){
         context.closePath();
         context.stroke();
     }
+    // The brush's stroke as it is painted, and its circle under the pointer
+    function drawBrush(){
+        const rect = canvas.getBoundingClientRect();
+        overlay.width = rect.width;
+        overlay.height = rect.height;
+        const context = overlay.getContext("2d");
+        context.clearRect(0, 0, overlay.width, overlay.height);
+        if (!brush) return;
+        const color = "#" + colors.remove.getHexString();
+        if (brush.points.length){
+            context.globalAlpha = 0.4;
+            context.strokeStyle = color;
+            context.lineWidth = brush.size;
+            context.lineCap = "round";
+            context.lineJoin = "round";
+            context.beginPath();
+            brush.points.forEach(([x, y], i) => (i ? context.lineTo(x, y) : context.moveTo(x, y)));
+            if (brush.points.length === 1) context.lineTo(brush.points[0][0] + 0.01, brush.points[0][1]);
+            context.stroke();
+            context.globalAlpha = 1;
+        }
+        if (brush.at){
+            context.strokeStyle = color;
+            context.lineWidth = 1.5;
+            context.beginPath();
+            context.arc(brush.at[0], brush.at[1], brush.size / 2, 0, Math.PI * 2);
+            context.stroke();
+        }
+    }
+    function endBrushStroke(){
+        const rect = canvas.getBoundingClientRect();
+        const stroke = brushStroke(brush.points, rect.width, rect.height, brush.size, Math.max(2, brush.size / 8));
+        brush.points = [];
+        brush.down = false;
+        drawBrush();
+        camera.updateMatrixWorld();
+        const view = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).toArray();
+        const shot = {position: camera.position.toArray().map(round), target: controls.target.toArray().map(round)};
+        if (handlers.onBrushStroke) handlers.onBrushStroke({stroke, view, aspect: Math.round(rect.width / rect.height * 1e6) / 1e6, camera: shot});
+    }
     function strokePoint(event){
         const rect = canvas.getBoundingClientRect();
         return [event.clientX - rect.left, event.clientY - rect.top];
     }
     function onPointerMove(event){
+        if (brush){
+            brush.at = strokePoint(event);
+            if (brush.down) brush.points.push(brush.at);
+            drawBrush();
+            return;
+        }
         if (!lasso || !lasso.down) return;
         lasso.points.push(strokePoint(event));
         drawStroke();
@@ -260,6 +334,14 @@ export function createViewer(container, handlers){
         if (handlers.onLasso) handlers.onLasso({ring, view, camera: shot});
     }
     function onPointerDown(event){
+        if (brush){
+            brush.down = true;
+            brush.at = strokePoint(event);
+            brush.points = [brush.at];
+            canvas.setPointerCapture(event.pointerId);
+            drawBrush();
+            return;
+        }
         if (lasso){
             lasso.down = true;
             lasso.points = [strokePoint(event)];
@@ -271,6 +353,10 @@ export function createViewer(container, handlers){
         pointer.down = true;
     }
     function onPointerUp(event){
+        if (brush){
+            if (brush.down) endBrushStroke();
+            return;
+        }
         if (lasso && lasso.down){
             endStroke();
             return;
@@ -292,8 +378,22 @@ export function createViewer(container, handlers){
     function onDoubleClick(){
         if (drawing && drawing.corners.length >= 3) finishPolygon();
     }
+    function onPointerLeave(){
+        if (brush && !brush.down){
+            brush.at = null;
+            drawBrush();
+        }
+    }
     function onKey(event){
         if (lasso && event.key === "Escape") cancelLasso();
+        if (brush){
+            if (event.key === "Escape") endBrush();
+            else if (event.key === "[" || event.key === "]"){
+                const size = Math.round(Math.min(Math.max(brush.size * (event.key === "]" ? BRUSH_STEP : 1 / BRUSH_STEP), BRUSH_SIZES[0]), BRUSH_SIZES[1]));
+                setBrushSize(size);
+                if (handlers.onBrushSize) handlers.onBrushSize(size);
+            }
+        }
         if (!drawing) return;
         if (event.key === "Escape") cancelPolygon();
         else if (event.key === "Enter") finishPolygon();
@@ -302,10 +402,12 @@ export function createViewer(container, handlers){
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("dblclick", onDoubleClick);
+    canvas.addEventListener("pointerleave", onPointerLeave);
     window.addEventListener("keydown", onKey);
 
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
     function startLasso(){
+        endBrush();
         cancelPolygon();
         cancelLasso();
         transform.detach();
@@ -322,7 +424,34 @@ export function createViewer(container, handlers){
         drawShapes();
         if (handlers.onLassoEnd) handlers.onLassoEnd();
     }
-    // The camera back where a lasso was drawn
+    // Painting with the brush: the view holds still while strokes are painted, each letting go one stroke, until
+    // endBrush (Done or Escape)
+    function startBrush(size){
+        cancelPolygon();
+        cancelLasso();
+        endBrush();
+        transform.detach();
+        controls.enabled = false;
+        brush = {size, points: [], down: false, at: null};
+        overlay.style.display = "block";
+        canvas.style.cursor = "crosshair";
+        drawBrush();
+    }
+    function setBrushSize(size){
+        if (!brush) return;
+        brush.size = size;
+        drawBrush();
+    }
+    function endBrush(){
+        if (!brush) return;
+        brush = null;
+        controls.enabled = true;
+        overlay.style.display = "none";
+        canvas.style.cursor = "";
+        drawShapes();
+        if (handlers.onBrushEnd) handlers.onBrushEnd();
+    }
+    // The camera back where a lasso or a brush was drawn
     function goTo(shot){
         if (!shot) return;
         camera.position.set(...shot.position);
@@ -331,6 +460,7 @@ export function createViewer(container, handlers){
     }
 
     function startPolygon(){
+        endBrush();
         cancelLasso();
         cancelPolygon();
         transform.detach();
@@ -425,7 +555,7 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, goTo, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startBrush, setBrushSize, endBrush, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
             observer.disconnect();
@@ -433,6 +563,7 @@ export function createViewer(container, handlers){
             canvas.removeEventListener("pointerup", onPointerUp);
             canvas.removeEventListener("pointermove", onPointerMove);
             canvas.removeEventListener("dblclick", onDoubleClick);
+            canvas.removeEventListener("pointerleave", onPointerLeave);
             window.removeEventListener("keydown", onKey);
             transform.dispose();
             controls.dispose();
