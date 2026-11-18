@@ -19,8 +19,8 @@ other software. The plugin does that step.
    Spark 2.4.0 and three.js 0.187.0 vendored in the plugin: Box and Polygon crop, a Lasso that removes what is
    behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
    converted again; a retraining applies them again. In steps: 2a the renderer test (done 2026-11-18: it works,
-   branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (next: plan it in
-   detail with the user), 2c Lasso, 2d Floaters. See "8. Splat editing".
+   branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (planned in
+   detail 2026-11-18, being built), 2c Lasso, 2d Floaters. See "8. Splat editing".
 
 **Then**
 
@@ -2430,6 +2430,23 @@ loaded by an import map on the editor page; checked again when upgraded.
 `splat-tools` failing or running out of time during Apply (the shown model stays), Apply while a training runs
 (refused), an edit that removes everything (refused, nothing written), the `.ply` missing (Edit Splats not shown).
 
-Open decisions (with the user, when 2b is planned in detail, after 2a's measurements): the page's layout (the panel
-beside or over the view, on a phone), the box's handles (drag handles or number fields), and what a model too large
-for the browser gets.
+**2b in detail (decided with the user 2026-11-18)**:
+
+- The page, Edit Splats (`templates/editor.html`, mount point `edit/<task id>/`): WebODM's own page (top bar and
+  menu, as SplatMe → Tasks), the 3D view with the tools panel to its right, below it on a phone. Panel: Box,
+  Polygon, the list of edits (each with Keep Inside or Remove Inside, and Delete), Undo, Clear Edits, Apply. Edits
+  are saved as they are made; Apply starts the job and shows its progress, as a training's.
+- Box: drag handles in the 3D view (three.js's `TransformControls`, from the vetted 0.187.0: move, scale, turn
+  about the vertical) and number fields for its centre, size and turn. Polygon: drawn in a view from above, a
+  click a corner, closed on the first corner or a double click.
+- A large model: loaded whole, after a warning with its size and splat count, above a limit measured in 2b (a High
+  training on the check task, and a phone if one is at hand).
+- Edits are stored in the task's projection (as the boundary is), so they line up again after the task is
+  processed again; converted to the `.ply`'s frame with `get_rtc_offset` when applied and when the page loads.
+- Edit is offered only when the shown model was made from the kept `.ply` (the check `trained_steps` makes:
+  a model uploaded in WebODM's Splats dialog is newer). Apply Edits writes only `model.rad` and then touches the
+  `.ply`'s time, so Continue From Step still works; it applies the boundary first when the model was trained with
+  Crop to Boundary (`splatme-model.json`).
+- The job: a new state `applying` in the task's record (an active state, so Train Splats, Cancel and Show Log
+  behave as for a training), run by `run_function_async`; a training refuses to start while it runs, and Apply is
+  refused while a training runs.
