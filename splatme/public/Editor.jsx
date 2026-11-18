@@ -2,17 +2,19 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { request } from './api';
-import { newBox, cleanRing, editLabel, sizeText, applyText, LARGE_MODEL, MAX_EDITS } from './editShapes';
+import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, LARGE_MODEL, MAX_EDITS, STRENGTHS } from './editShapes';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
 const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const AXES = ["X", "Y", "Z"];
+const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", floaters: "fa-broom"};
 
 // Edit Splats (templates/editor.html, Edit on a task's row in SplatMe → Tasks): the task's trained model in a 3D view
 // (editor/viewer.js, loaded by loadViewer through the page's import map) and this panel beside it, below it on a
-// phone. Box and Polygon edits keep or remove the splats inside them; the view hides what they remove as they
-// change, and they are saved as they are made. Apply makes the task's model again from its trained model with them
+// phone. Box, Polygon and Lasso edits keep or remove the splats inside them, Remove Floaters the splats far from the
+// rest or oversized (found by the server); the view hides what they remove as they change, and they are saved as
+// they are made. Apply makes the task's model again from its trained model with them
 // (training.py's Apply Edits), which the 3D view, the download and the share links then show.
 export default class Editor extends React.Component {
     static propTypes = {
@@ -23,10 +25,11 @@ export default class Editor extends React.Component {
     constructor(props){
         super(props);
         this.history = [];  // the edits before each change, for Undo
+        this.floaters = {};  // the server's floaters by strength: a promise of the splats' numbers
         this.state = {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
-            starting: false, drafts: {}, lassoing: false
+            starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null
         };
     }
 
@@ -40,6 +43,32 @@ export default class Editor extends React.Component {
             if (info.apply && info.apply.state === "applying") this.poll();
         }).catch(e => {
             if (this._mounted) this.setState({error: e.message});
+        });
+    }
+
+    componentDidUpdate(_props, prev){
+        if (prev.edits !== this.state.edits || prev.loaded !== this.state.loaded) this.showFloaters();
+    }
+
+    // The edits' floaters hidden in the view, asked of the server once for each strength
+    showFloaters(){
+        const strength = floatersStrength(this.state.edits);
+        if (!strength){
+            if (this.viewer) this.viewer.setFloaters(null);
+            if (this.state.floaters || this.state.floatersError) this.setState({floaters: null, floatersError: null});
+            return;
+        }
+        if (!this.state.loaded || (this.state.floaters && this.state.floaters.strength === strength)) return;
+        if (!this.floaters[strength]){
+            this.floaters[strength] = request("GET", "task/" + this.props.taskId + "/floaters?strength=" + strength);
+            this.floaters[strength].catch(() => { delete this.floaters[strength]; });  // asked again on the next change
+        }
+        this.floaters[strength].then(found => {
+            if (!this._mounted || floatersStrength(this.state.edits) !== strength) return;
+            const count = this.viewer.setFloaters(found.removed);
+            this.setState({floaters: {strength, count}, floatersError: null});
+        }).catch(e => {
+            if (this._mounted && floatersStrength(this.state.edits) === strength) this.setState({floatersError: e.message});
         });
     }
 
@@ -122,6 +151,18 @@ export default class Editor extends React.Component {
         this.setState({selected: -1, lassoing: true});
         this.viewer.startLasso();
     };
+
+    addFloaters = () => {
+        const { edits } = this.state;
+        if (floatersStrength(edits) || edits.length >= MAX_EDITS) return;
+        this.change([...edits, {type: "floaters", strength: "medium"}], -1);
+    };
+
+    setStrength(index, strength){
+        const edits = this.state.edits.slice();
+        edits[index] = {...edits[index], strength};
+        this.change(edits, this.state.selected);
+    }
 
     queueSave(){
         clearTimeout(this.saveTimer);
@@ -277,16 +318,21 @@ export default class Editor extends React.Component {
                 {edits.map((edit, i) => (
                     <li key={i} className={"list-group-item" + (i === selected ? " active" : "")}>
                         <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : ""}>
-                            <i className={"fa fa-fw " + (edit.type === "box" ? "fa-cube" : edit.type === "lasso" ? "fa-pencil-alt" : "fa-draw-polygon")}></i> {editLabel(edit)}
+                            <i className={"fa fa-fw " + ICONS[edit.type]}></i> {editLabel(edit, this.floatersCount(edit))}
                         </a>
                         {edit.type === "lasso" && edit.camera && this.viewer ?
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
-                            <select className="form-control input-sm" value={edit.keep ? "keep" : "remove"} disabled={!info.can_edit}
-                                    aria-label={_("What this edit does")} onChange={e => this.setKeep(i, e.target.value === "keep")}>
-                                <option value="keep">{_("Keep Inside")}</option>
-                                <option value="remove">{_("Remove Inside")}</option>
-                            </select>
+                            {edit.type === "floaters" ?
+                                <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}
+                                        aria-label={_("How many floaters to remove")} onChange={e => this.setStrength(i, e.target.value)}>
+                                    {STRENGTHS.map(([value, label]) => <option key={value} value={value}>{_(label)}</option>)}
+                                </select> :
+                                <select className="form-control input-sm" value={edit.keep ? "keep" : "remove"} disabled={!info.can_edit}
+                                        aria-label={_("What this edit does")} onChange={e => this.setKeep(i, e.target.value === "keep")}>
+                                    <option value="keep">{_("Keep Inside")}</option>
+                                    <option value="remove">{_("Remove Inside")}</option>
+                                </select>}
                             {info.can_edit ?
                                 <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
                                     <i className="fa fa-trash fa-fw"></i>
@@ -296,6 +342,12 @@ export default class Editor extends React.Component {
                 ))}
             </ul>
         );
+    }
+
+    // How many splats the floaters edit is, once the server has said (null before)
+    floatersCount(edit){
+        const { floaters } = this.state;
+        return edit.type === "floaters" && floaters && floaters.strength === edit.strength ? floaters.count : null;
     }
 
     renderSaveState(){
@@ -323,6 +375,10 @@ export default class Editor extends React.Component {
                     <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS} onClick={this.lasso}
                             title={_("Draw around what to remove: everything inside on screen goes, through to the back")}>
                         <i className="fa fa-pencil-alt fa-fw"></i> {_("Lasso")}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-default" disabled={!canEdit || drawing !== null || lassoing || edits.length >= MAX_EDITS || !!floatersStrength(edits)}
+                            onClick={this.addFloaters} title={_("Remove the splats far from the rest, and the oversized ones")}>
+                        <i className="fa fa-broom fa-fw"></i> {_("Remove Floaters")}
                     </button>
                 </div>
                 {lassoing ?
@@ -352,6 +408,7 @@ export default class Editor extends React.Component {
                 {info.unreadable ?
                     <p className="text-warning">{info.unreadable} {_("They may be from another version of SplatMe: ask an administrator to restart WebODM. A change here replaces them.")}</p> : ""}
                 {this.renderList()}
+                {this.state.floatersError ? <p className="text-danger">{_("The floaters could not be found:")} {this.state.floatersError}</p> : ""}
                 {box && canEdit ? this.renderBoxFields(box) : ""}
                 {info.can_edit ?
                     <div className="splatme-editor-history">

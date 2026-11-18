@@ -9,11 +9,15 @@
 //            matrix (16 numbers, column-major), camera: {position, target}}: what is in front of that camera and
 //            falls inside the ring, through to the back
 //   keep     true keeps what is inside and removes the rest; false removes what is inside
+//   floaters {type: "floaters", strength: "light" | "medium" | "strong"}, at most one, no keep: the splats far from
+//            their neighbours or oversized, which the server finds on the whole model (edits.floaters, the API's
+//            task/<id>/floaters) and the page hides by their numbers
 
 export const MAX_EDITS = 200;
 export const MAX_CORNERS = 2000;
 // Above this the page warns before loading the trained model whole (bytes of the .ply)
 export const LARGE_MODEL = 400 * 1024 * 1024;
+export const STRENGTHS = [["light", "Light"], ["medium", "Medium"], ["strong", "Strong"]];
 
 export function insideBox(box, x, y, z){
     const turn = box.turn * Math.PI / 180;
@@ -71,13 +75,18 @@ export function boundaryMask(xs, ys, shapes){
 }
 
 // Which splats the edits keep (1) or remove (0), for centres given as three arrays; into out when given; of those
-// base keeps when given (the boundary's)
-export function keepMask(xs, ys, zs, edits, out, base){
+// base keeps when given (the boundary's); less the splats numbered in floaters when given (the server's answer for
+// the edits' floaters)
+export function keepMask(xs, ys, zs, edits, out, base, floaters){
     const n = xs.length;
     const keep = out || new Uint8Array(n);
     if (base) keep.set(base);
     else keep.fill(1);
+    if (floaters){
+        for (const i of floaters) if (i >= 0 && i < n) keep[i] = 0;
+    }
     for (const edit of edits){
+        if (edit.type === "floaters") continue;
         // A polygon's bounding box first: most splats are far from it
         let minX = -Infinity, maxX = Infinity, minY = -Infinity, maxY = Infinity;
         if (edit.type === "polygon"){
@@ -132,8 +141,17 @@ export function cleanRing(ring){
     return out;
 }
 
-// The list's words for an edit
-export function editLabel(edit){
+// The edits' floaters strength, or null when they keep them
+export function floatersStrength(edits){
+    const edit = edits.find(e => e.type === "floaters");
+    return edit ? edit.strength : null;
+}
+
+// The list's words for an edit (floaters: with how many splats they are, once known)
+export function editLabel(edit, count){
+    if (edit.type === "floaters"){
+        return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
+    }
     if (edit.type === "box"){
         const [x, y, z] = edit.size.map(v => Number(v.toFixed(1)).toLocaleString("en-US"));
         return "Box, " + x + " × " + y + " × " + z + " m";

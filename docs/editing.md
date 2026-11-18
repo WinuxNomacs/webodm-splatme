@@ -34,6 +34,10 @@ splats right on an edge may end up on the other side when applied.
 - **Lasso**: drag around what to remove, in any view (one finger on a phone); letting go closes it. It removes
   everything inside it on screen, through to the back, so turn the view first until what you want gone is apart
   from what you keep. **Go to Its View**, beside it in the list, turns the view back to where it was drawn.
+- **Remove Floaters**: removes the splats far from the rest and the oversized ones (the smears and streaks across
+  the sky), judged on the whole trained model, so the other edits don't change which ones they are. Its strength,
+  in the list, is **Light**, **Medium** (the start) or **Strong**; the list says how many splats it removes besides
+  those **Crop to Boundary** already leaves out. A task has one.
 
 Pick an edit in the list to show a box's handles and fields. **Undo** takes back the last change, and **Clear
 Edits** removes them all. **Top View** and **Side View** frame the model again.

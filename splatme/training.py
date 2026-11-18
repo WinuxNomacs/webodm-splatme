@@ -1207,17 +1207,29 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     shapes = edits.get(task) if use_edits else []  # EditsError: the caller goes on without them, or fails
     dest = os.path.join(work, "shown.ply")
 
+    floaters = None
+    if edits.strength(shapes):
+        if report:
+            report("Finding the floaters")
+        try:
+            floaters = edits.floaters(trained, edits.strength(shapes))
+        except (ValueError, KeyError, MemoryError) as e:
+            # As for edits that do not read: a training goes on without the edits, Apply fails, both saying why
+            raise edits.EditsError(f"The trained model's floaters could not be found: {str(e) or type(e).__name__}") from None
+
     def cut(rings):
         counts = {"boundary": 0, "edits": 0}
         inside = crop.within(rings) if rings else None
 
-        def keep(rows):
+        def keep(rows, first):
             kept = np.ones(len(rows), dtype=bool)
             if inside:
-                kept &= inside(rows)
+                kept &= inside(rows, first)
                 counts["boundary"] += int(len(rows) - kept.sum())
             if shapes:
                 by_edits = edits.keep_mask(rows, shapes)
+                if floaters is not None:
+                    by_edits &= ~floaters[first : first + len(rows)]
                 counts["edits"] += int((kept & ~by_edits).sum())
                 kept &= by_edits
             return kept

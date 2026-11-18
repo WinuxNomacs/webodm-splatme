@@ -36,8 +36,9 @@ it short; edit in place.
 - **The plugin's code**: `training.py` (a task's job and its record, automatic training and its settings),
   `sky.py` (Ignore Sky: masks of the sky in a training's photos, made with ODX's sky model),
   `crop.py` (Crop to Boundary: the trained model cut to the task's boundary GeoJSON),
-  `edits.py` (a task's splat edits: Box and Polygon shapes, kept in the task's projection, that cut the shown
-  model after a training and in Apply Edits, `training.apply`),
+  `edits.py` (a task's splat edits: Box, Polygon and Lasso shapes, kept in the task's projection, and Remove
+  Floaters, found on the whole trained model with scipy's `cKDTree`; they cut the shown model after a training
+  and in Apply Edits, `training.apply`),
   `thermal.py` (DJI Thermal Analyzer's TIFFs drawn in a palette, one range for the task),
   `node.py` (the splat node's API as the plugin uses it), `api.py` (the views), `plugin.py` (the mount points,
   the menu item, the scripts, the signal receivers). State is
