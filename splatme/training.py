@@ -1243,6 +1243,11 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     return dest, removed
 
 
+def trained_with_crop(task):
+    """Whether the task's trained model was trained with Crop to Boundary (the default; a model of SplatMe 0.1 was)."""
+    return (trained_options(task) or {}).get("crop", True)
+
+
 def model_info(task):
     """The trained model as the Edit Splats page loads it: its URL (WebODM's own for a task's assets), size and splats."""
     path = trained_model(task)
@@ -1354,9 +1359,8 @@ def apply(task_id, run):
             if reason:
                 raise TrainingError(reason)
             trained, steps = trained_model(task), trained_steps(task)
-            options = trained_options(task) or {}
             shown, cut = shown_model(
-                task, trained, work, options.get("crop", True), lambda text: update_apply(task_id, run, status=text)
+                task, trained, work, trained_with_crop(task), lambda text: update_apply(task_id, run, status=text)
             )
             update_apply(task_id, run, status="Converting the model")
             model = os.path.join(work, "model.rad")

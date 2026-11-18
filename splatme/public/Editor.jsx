@@ -72,7 +72,7 @@ export default class Editor extends React.Component {
             this.viewer.setMode(this.state.mode);
             return this.viewer.load(info.model.url, e => {
                 if (this._mounted && e && e.total) this.setState({progress: Math.round(e.loaded / e.total * 100)});
-            });
+            }, info.boundary);
         }).then(loaded => {
             if (!this._mounted || !loaded) return;
             this.setState({loading: false, loaded});
@@ -384,7 +384,8 @@ export default class Editor extends React.Component {
                         </div>
                         {this.renderPanel()}
                     </div>}
-                {loaded ? <p className="splatme-editor-stats">{Number(loaded.splats).toLocaleString("en-US")} {_("splats")}</p> : ""}
+                {loaded ? <p className="splatme-editor-stats">{Number(loaded.splats).toLocaleString("en-US")} {_("splats")}
+                    {loaded.outside ? ", " + Number(loaded.outside).toLocaleString("en-US") + " " + _("of them hidden for being outside the task's boundary (the model was trained with Crop to Boundary)") : ""}.</p> : ""}
             </div>
         );
     }

@@ -189,10 +189,13 @@ class Edits(TaskView):
         out = {
             "edits": edits.get(task), "editable": reason, "can_edit": can_train(request, task), "name": task.name,
             "project": task.project.id, "apply": describe_apply(training.get_apply(task.id)), "model": None,
+            "boundary": [],
             "training": bool(job) and job["state"] in training.ACTIVE,
         }  # fmt: skip
         if reason is None:
             out["model"] = training.model_info(task)
+            # What the shown model leaves out of it, which the page hides too
+            out["boundary"] = crop.boundary(task) if training.trained_with_crop(task) else []
         return out
 
     def get(self, request, pk=None):

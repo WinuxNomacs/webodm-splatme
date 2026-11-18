@@ -1190,7 +1190,13 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         self.with_boundary(task)
         header, rows = self.node_model([(0, 0), (3, 0), (0.5, -0.5), (0, -1.5)])
+        self.train(task, steps=10, image_size=16, crop="false")
+        # The page hides what the shown model leaves out: nothing, for a model trained without the crop
+        self.assertEqual(self.client.get(self.edits_url(task)).data["boundary"], [])
         self.train(task, steps=10, image_size=16)
+        boundary = self.client.get(self.edits_url(task)).data["boundary"]
+        self.assertEqual(len(boundary), 1)
+        self.assertEqual(len(boundary[0][0]), 5)
         self.converted.clear()
         self.put_edits(task, [self.box((0, 0, 5), (0.2, 0.2, 1), keep=False)])
         self.apply(task)

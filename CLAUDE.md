@@ -36,6 +36,8 @@ it short; edit in place.
 - **The plugin's code**: `training.py` (a task's job and its record, automatic training and its settings),
   `sky.py` (Ignore Sky: masks of the sky in a training's photos, made with ODX's sky model),
   `crop.py` (Crop to Boundary: the trained model cut to the task's boundary GeoJSON),
+  `edits.py` (a task's splat edits: Box and Polygon shapes, kept in the task's projection, that cut the shown
+  model after a training and in Apply Edits, `training.apply`),
   `thermal.py` (DJI Thermal Analyzer's TIFFs drawn in a palette, one range for the task),
   `node.py` (the splat node's API as the plugin uses it), `api.py` (the views), `plugin.py` (the mount points,
   the menu item, the scripts, the signal receivers). State is
@@ -48,7 +50,10 @@ it short; edit in place.
   Splats: `SplatMePanel.jsx` above WebODM's own `NewTaskPanel` (imported from WebODM, as webodm-dji-thermal
   does), then `newTask.js`, the upload through WebODM's task API), `templates/settings.html`
   (SplatMe → Settings) and `templates/admin.html` (its page under Administration, whose item `main.js` adds),
-  both from `node.html` and `options.html` (plain script). `public/main.js` (ES5, on every page) starts
+  both from `node.html` and `options.html` (plain script), and `templates/editor.html` (Edit Splats, from Edit on
+  a task's row: `public/Editor.jsx`, the panel, and `public/editor/viewer.js`, the 3D view, a plain ES module
+  loaded through the page's import map with three.js and Spark vendored in `public/vendor` (its README has their
+  versions and hashes); `public/editShapes.js`, the shapes' rule shared by both and Jest). `public/main.js` (ES5, on every page) starts
   `public/Dashboard.jsx` on the Dashboard, which puts in the page what WebODM has no hook for:
   `NewTaskButton.jsx` (the New Task With Splats button, a link to the Tasks page's new task for the project
   WebODM's page names) and `TaskLine.jsx` (the task panel's Splats line, found by its

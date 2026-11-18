@@ -19,8 +19,8 @@ other software. The plugin does that step.
    Spark 2.4.0 and three.js 0.187.0 vendored in the plugin: Box and Polygon crop, a Lasso that removes what is
    behind it, Floater removal. Edits are kept as shapes and applied to the trained `.ply` on the server, then
    converted again; a retraining applies them again. In steps: 2a the renderer test (done 2026-11-18: it works,
-   branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (planned in
-   detail 2026-11-18, being built), 2c Lasso, 2d Floaters. See "8. Splat editing".
+   branch `spike-editor-renderer`, not merged), 2b the edits' pipeline with Box and Polygon (done
+   2026-11-18, branch `splat-editing-2b`), 2c Lasso, 2d Floaters. See "8. Splat editing".
 
 **Then**
 
@@ -2424,6 +2424,18 @@ loaded by an import map on the editor page; checked again when upgraded.
   Headless Chromium draws nothing at a usable speed with its software renderer; live checks need the GPU.
 - 2b. The edits' pipeline, Apply Edits, the API, edits applied again after a training, the page with Box and
   Polygon, a docs page "Editing Splats".
+  **Done 2026-11-18** (branch `splat-editing-2b`): `edits.py`, `training.py`'s `shown_model` and Apply Edits (its
+  own record, `apply::<task>`, not the training's, so a failed Apply does not show as a failed training; no log of
+  its own), the API (`task/<id>/edits`, `task/<id>/apply`), the page (`templates/editor.html`, `Editor.jsx`,
+  `editor/viewer.js`, `editShapes.js`), Edit on SplatMe → Tasks, `docs/editing.md`. Tests: Django (each edit kind,
+  the boundary first, re-applied by a training, edits removing everything, splat-tools failing, Apply and a
+  training refusing each other, a lost Apply, unreadable stored edits, permissions, deletion), Jest (the shapes'
+  rule, matching the server's tests). Live (a duplicate of the check task, deleted after): loads in 1.0 to 1.6 s,
+  box and polygon hide live, Apply removed 203,204 of 216,865 splats in 0.25 s, Continue From Step still offered.
+  Learned: the view hides what Crop to Boundary removes (10,030 against the server's 10,028: Spark keeps centres
+  less precisely); a WebODM duplicate hard-links the task's files (Apply touches the `.ply`'s time, harmless); the
+  worker must be restarted to run a new job function (`apply_job` failed until it was). The large-model limit is
+  400 MB, not measured on a large model yet.
 - 2c. Lasso. 2d. Floaters.
 
 **What can fail, and the tests that make it happen**: edits in the store that do not read (set aside, not fatal),

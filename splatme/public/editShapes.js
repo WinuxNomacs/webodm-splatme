@@ -37,11 +37,34 @@ export function inside(edit, x, y, z){
     return edit.type === "box" ? insideBox(edit, x, y, z) : insideRing(edit.ring, x, y);
 }
 
-// Which splats the edits keep (1) or remove (0), for centres given as three arrays; into out when given
-export function keepMask(xs, ys, zs, edits, out){
+// Which of the points are inside one of the polygons, each a list of rings (its outline, then its holes), as
+// crop.inside answers for the task's boundary
+export function insideShapes(shapes, x, y){
+    return shapes.some(rings => rings.reduce((within, ring) => within !== insideRing(ring, x, y), false));
+}
+
+// Which splats the task's boundary keeps, for a model trained with Crop to Boundary, or null when it keeps them all,
+// or none (then it crops nothing, as on the server)
+export function boundaryMask(xs, ys, shapes){
+    if (!shapes || !shapes.length) return null;
+    const keep = new Uint8Array(xs.length);
+    let kept = 0;
+    for (let i = 0; i < xs.length; i++){
+        if (insideShapes(shapes, xs[i], ys[i])){
+            keep[i] = 1;
+            kept++;
+        }
+    }
+    return kept === 0 || kept === xs.length ? null : keep;
+}
+
+// Which splats the edits keep (1) or remove (0), for centres given as three arrays; into out when given; of those
+// base keeps when given (the boundary's)
+export function keepMask(xs, ys, zs, edits, out, base){
     const n = xs.length;
     const keep = out || new Uint8Array(n);
-    keep.fill(1);
+    if (base) keep.set(base);
+    else keep.fill(1);
     for (const edit of edits){
         // A polygon's bounding box first: most splats are far from it
         let minX = -Infinity, maxX = Infinity, minY = -Infinity, maxY = Infinity;

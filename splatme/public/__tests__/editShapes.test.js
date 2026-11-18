@@ -1,4 +1,4 @@
-import { keepMask, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText } from '../editShapes';
+import { keepMask, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -89,5 +89,29 @@ describe("applyText", () => {
         expect(applyText({state: "completed", edited: 1234})).toBe("Edits applied. 1,234 splats removed.");
         expect(applyText({state: "completed", edited: 1})).toBe("Edits applied. 1 splat removed.");
         expect(applyText({state: "completed", edited: null})).toBe("Edits applied. No splat removed.");
+    });
+});
+
+describe("the boundary", () => {
+    const square = [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]];
+    test("keeps what is inside one of its polygons and outside their holes", () => {
+        const holed = [square[0], [[-0.25, -0.25], [0.25, -0.25], [0.25, 0.25], [-0.25, 0.25]]];
+        expect(insideShapes([holed], 0.5, 0.5)).toBe(true);
+        expect(insideShapes([holed], 0, 0)).toBe(false);
+        expect(insideShapes([holed, [[[-0.1, -0.1], [0.1, -0.1], [0, 0.1]]]], 0, 0)).toBe(true);
+    });
+
+    test("hides the splats outside it, under the edits", () => {
+        const base = boundaryMask(xs, ys, [square]);
+        expect(Array.from(base)).toEqual([1, 0, 1, 0]);
+        expect(Array.from(keepMask(xs, ys, zs, [], null, base))).toEqual([1, 0, 1, 0]);
+        const removeMiddle = {type: "box", keep: false, center: [0, 0, 5], size: [0.2, 0.2, 1], turn: 0};
+        expect(Array.from(keepMask(xs, ys, zs, [removeMiddle], null, base))).toEqual([0, 0, 1, 0]);
+    });
+
+    test("crops nothing when it has nothing of the model inside, or all of it, or is not there", () => {
+        expect(boundaryMask(xs, ys, [[[[50, 50], [51, 50], [51, 51]]]])).toBeNull();
+        expect(boundaryMask(xs, ys, [[[[-9, -9], [9, -9], [9, 9], [-9, 9]]]])).toBeNull();
+        expect(boundaryMask(xs, ys, [])).toBeNull();
     });
 });

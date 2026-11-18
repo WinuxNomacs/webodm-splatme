@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
-import { keepMask, framing, round } from "../editShapes.js";
+import { keepMask, boundaryMask, framing, round } from "../editShapes.js";
 
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
@@ -33,7 +33,6 @@ export function createViewer(container, handlers){
     const colors = {
         keep: themeColor(container, "theme-background-success", "backgroundColor"),
         remove: themeColor(container, "theme-background-failed", "backgroundColor"),
-        drawing: themeColor(container, "theme-color-primary", "color")
     };
     const renderer = new THREE.WebGLRenderer({antialias: false});
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -51,7 +50,7 @@ export function createViewer(container, handlers){
     transform.setSpace("local");
     scene.add(transform.getHelper());
 
-    let mesh = null, xs, ys, zs, opacity, shown, keep, frame = null;
+    let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null;
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
 
@@ -76,7 +75,7 @@ export function createViewer(container, handlers){
     function applyMask(){
         maskQueued = false;
         if (!mesh) return;
-        keepMask(xs, ys, zs, edits, keep);
+        keepMask(xs, ys, zs, edits, keep, base);
         const packed = mesh.packedSplats.packedArray, encoding = mesh.packedSplats.splatEncoding;
         let changed = false;
         for (let i = 0; i < keep.length; i++){
@@ -194,9 +193,10 @@ export function createViewer(container, handlers){
             drawing.line.geometry.dispose();
             drawing.line.material.dispose();
         }
-        const z = heights()[1];
+        // On the plane the clicks meet, so that it is under the pointer from any side
+        const z = frame ? frame.center[2] : 0;
         const geometry = new THREE.BufferGeometry().setFromPoints(drawing.corners.map(p => new THREE.Vector3(p[0], p[1], z)));
-        drawing.line = new THREE.Line(geometry, lineMaterial(colors.drawing));
+        drawing.line = new THREE.Line(geometry, lineMaterial(colors.keep));
         drawing.line.renderOrder = 11;
         shapes.add(drawing.line);
         if (handlers.onCorners) handlers.onCorners(drawing.corners.length);
@@ -278,8 +278,9 @@ export function createViewer(container, handlers){
     }
 
     return {
-        // The model at url, loaded whole: answers {splats, frame}
-        async load(url, onProgress){
+        // The model at url, loaded whole, with what the task's boundary leaves out hidden (boundary: polygons of
+        // rings, empty for none): answers {splats, frame, outside} (outside: how many the boundary hides)
+        async load(url, onProgress, boundary){
             mesh = new SplatMesh({url, onProgress});
             scene.add(mesh);
             await mesh.initialized;
@@ -296,11 +297,13 @@ export function createViewer(container, handlers){
             });
             shown = new Uint8Array(n).fill(1);
             keep = new Uint8Array(n);
+            base = boundaryMask(xs, ys, boundary);
+            const outside = base ? n - base.reduce((a, b) => a + b, 0) : 0;
             frame = framing(xs, ys, zs);
             frameView();
             drawShapes();
             queueMask();
-            return {splats: n, frame};
+            return {splats: n, frame, outside};
         },
         // The edits to show, and which one has the handles (-1: none)
         setEdits(list, index){
