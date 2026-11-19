@@ -9,10 +9,11 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The 0.3.0 release: built and checked (`release/0.3.0` merged into `main`: manifest 0.3.0, the changelog,
-   Cancel for Apply in the docs, the release check's finding fixed and the check run again; see "Release check of
-   0.3.0 (done)"). Left: the user's push and tag `v0.3.0`, then the directory entry (a branch on the user's fork,
-   with their approval). The node is unchanged (0.2.2).
+1. The 0.3.0 directory entry: SplatMe 0.3.0 was released 2026-11-19 (tag `v0.3.0` on 9d4fee8; the release's
+   `splatme-0.3.0.zip`, SHA-256 `092648bf4bc0fe13435ccbb63bf69e721b578af391672cb3b244c6f99eb2a52b`, has the same
+   files as the zip the release check ran on, its timestamps the tag's commit time; node 0.2.2 not built again; the
+   docs site published). Left: its entry in WebODM-Plugins' `directory.json`, a branch on the user's fork from
+   upstream's `main`, pushed with their approval.
 
 The rest of the UX review, "10. UX review", is possible for later.
 
