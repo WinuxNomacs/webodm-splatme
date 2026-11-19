@@ -10,7 +10,7 @@ other software. The plugin does that step.
 **Up next**
 
 1. A UX review of SplatMe's pages and of the editing tools (asked 2026-11-19): findings and proposals for the
-   user to choose from, then phases for what they pick.
+   user to choose from, then phases for what they pick. Findings recorded: see "10. UX review".
 
 **Then**
 
@@ -2592,3 +2592,62 @@ model, but only in that format (`splat-tools` writes `.rad` only: its `--help`, 
   Floaters (Light) and Brightness +40 saved, not applied, 206,791 splats in 1.1 s, colour means and the
   view-dependent light 1.2 times the unedited file's; the same file from the Tasks row; the button disabled while
   a slider's change saved; no folder left; no horizontal scroll on a phone.
+
+### 10. UX review (asked 2026-11-19)
+
+Asked by the user: review SplatMe's UI with a UX designer's eye (more intuitive, easier to use) and propose
+editing tools for a polished product. Looked at on 2026-11-19 in the dev stack (headless, writes blocked):
+SplatMe → Tasks, its Train Splats and Change dialogs and New Task With Splats, SplatMe → Settings, the
+administrators' page, Edit Splats with each tool, the Dashboard, and both pages at phone width.
+
+**Findings, most important first:**
+
+1. Edit Splats does not say whether the task's model matches the edits. "Edits applied. 34,308 splats removed."
+   stays after the edits change, even with "No edits yet" above it (`applyText(apply)` is the last Apply's result).
+   Saved and applied are two states the user must track. Proposal: a line under Apply that says "The 3D view shows
+   these edits" or "Changed since the last Apply", and Apply named "Update the Model".
+2. Side View (`frameView`) is the starting oblique view, not a side view: rename to Reset View, and add a real side
+   view or leave it out. There is no way to set the orbit's centre (double-click to focus) and no hint of how to
+   orbit, pan and zoom.
+3. While a tool is active, every tool button looks disabled, and the active one is not marked. Proposal: the
+   active tool highlighted (btn-primary or `active`), the others plainly available or hidden behind its panel.
+4. Add Box starts as Keep Inside: a small box in the middle, so almost the whole model disappears on one click.
+   Proposal: a box sized to the view's middle third, or Remove Inside first.
+5. Edit Splats has Undo but no Redo, and keyboard shortcuts only inside a tool (Esc, Enter, `[` `]`). Proposal:
+   Ctrl+Z, Ctrl+Shift+Z, Delete for the selected edit, B, L, P for the tools, shown in the buttons' titles.
+6. SplatMe → Tasks: View in 3D, Edit and Download .ply are WebODM's grey buttons, which read as disabled next to
+   the dark Train Splats Again; the status sentence wraps beside them. Proposal: the row as a header line (name,
+   state, photos), a status line, then the buttons; Edit as the second strong action; a dropdown for the rest
+   on a phone.
+7. The training summary is hard to trust: "60,000 steps in 2 min 38 s" (ThermalTest) and "7,000 steps in 44 min
+   27 s" (HomerunObliqueII9, where 7,000 steps takes about 4.5 min). Not checked: probably the last continuation's
+   time, and time spent waiting or finding the sky. Proposal: the total steps, the date trained and the training's
+   own time, with Ignore Sky's and waiting time apart.
+8. Continue in the Train Splats dialog shows the stages table at Warm-up 0%, Growing 0% and 0 rounds, which reads
+   as an error. Proposal: hide the table when continuing; the sentence below already explains.
+9. Pages open with long paragraphs (Tasks, Settings, the administrators' page) that repeat the docs. Proposal: one
+   sentence and a "Learn more" link into the docs.
+10. Settings: Image Size shows `0` for "keep the photos as they are"; Max Gaussians already uses a placeholder.
+    Proposal: an empty field with the placeholder "Full size".
+11. Three ways to start New Task With Splats on the Tasks page (the top button, each project's button, the
+    inline panel) and one on the Dashboard; at phone width the projects' buttons are icons with no label.
+    Proposal: keep the top button and the Dashboard's, drop the per-project ones or label them.
+12. No picture of the model on the Tasks rows. Proposal: a thumbnail, taken from Edit Splats' view after an Apply
+    or a training.
+
+**Editing tools proposed for a polished product** (from what splat editors commonly offer, training knowledge,
+not checked against a specific tool):
+
+- Highlight before removing: the splats a shape or the brush would remove shown in colour, with a count, before
+  the edit is kept; and a Before/After toggle that shows the trained model without the edits.
+- Restore Brush: paint back what the Brush, the Lasso or a shape removed.
+- Front-only brush: an option to remove only the surface under the brush, not through to the back.
+- Select by size and opacity: remove nearly transparent or very large splats (the haze and the blobs), with sliders
+  and a live count.
+- Hide and isolate (view only): hide what is in front to reach what is behind it, without editing.
+- Local Colour Adjust: Colour Adjust inside a box or polygon, not only the whole model.
+- Set the ground level and north: level a model whose ground is tilted, and turn it, for the 3D view and the
+  download.
+- Saved views: a start view for the task's 3D view and share links.
+
+Open decisions (with the user): which findings to fix and which tools to build, and in what order.
