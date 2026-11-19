@@ -12,8 +12,10 @@ other software. The plugin does that step.
 1. The 0.3.0 directory entry: SplatMe 0.3.0 was released 2026-11-19 (tag `v0.3.0` on 9d4fee8; the release's
    `splatme-0.3.0.zip`, SHA-256 `092648bf4bc0fe13435ccbb63bf69e721b578af391672cb3b244c6f99eb2a52b`, has the same
    files as the zip the release check ran on, its timestamps the tag's commit time; node 0.2.2 not built again; the
-   docs site published). Left: its entry in WebODM-Plugins' `directory.json`, a branch on the user's fork from
-   upstream's `main`, pushed with their approval.
+   docs site published). Its entry in WebODM-Plugins' `directory.json` (SplatMe's line moved from 0.2.0 to 0.3.0,
+   the hash checked against the release's download) is branch `splatme-0.3.0` on the user's fork, from upstream's
+   `main` at 28e61d0, pushed 2026-11-19 with their approval. Left: the user's pull request, then a look at
+   https://plugins.webodm.org/index.json once it is merged.
 
 The rest of the UX review, "10. UX review", is possible for later.
 
