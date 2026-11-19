@@ -9,8 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Release review of 0.3.0: the user chooses which findings are fixed before the tag; then the fixes, the
-   release branch, the release check. See "Release review of 0.3.0".
+1. Fixes from the release review of 0.3.0, then the release branch and the release check. See "Fixes from
+   the release review of 0.3.0".
 
 The rest of the UX review, "10. UX review", is possible for later.
 
@@ -743,7 +743,52 @@ Each with a test seen failing first, then passing (Django 99, Jest 75 with `__te
   and v0.2.1).
 - **The documentation**: the corrections and removals listed in the review, and `admin.png` retaken (node 0.2.2).
 
-### Release review of 0.3.0 (found, waiting for the user's choice)
+### Fixes from the release review of 0.3.0 (planned)
+
+**Decided with the user (2026-11-19):** the recommended set: A, B, C, M, N, O, P, the low E, G, I, Q, R, S, T, U,
+V and the documentation; D measured first, then decided with the user; F, H, J, K, W and X wait. The check task
+restored the same day (an Apply of its empty edits: 10,028 splats left out by its boundary, as trained). For A,
+Edit Splats and its model only for those who may change the task's project; for B, Download .ply stays open to
+anyone who may see the task, its file kept per task until the edits or the model change, one made at a time.
+
+**Design:**
+
+- A. The trained model and its options move from `assets/splats/` to the task's `data/splatme/` folder, which
+  WebODM's asset view and Download Assets → All do not serve, and its backups and Duplicate still copy. A task
+  trained before moves its files there the first time SplatMe looks for them. The Edit Splats page and a new
+  `task/<id>/model` request serve it only to those who may change the project; others are told so. The floaters'
+  request likewise.
+- B. Download .ply keeps its file in the plugin's `downloads/<task>/`, named by a hash of the trained model (size,
+  time), the edits and the boundary; a request for the same serves it, a change makes it again and drops the old.
+  One is made at a time for a task (a lock file); a second request waits for it, up to a deadline. Files not asked
+  for in a day, and those of deleted tasks, are removed.
+- C. An Apply is `waiting` until its worker job starts; a waiting one is not failed as lost until a longer deadline,
+  as trainings are.
+- E. An Apply removes the task's earlier runs' folders when it starts.
+- G. Strength must be a string, a number too large reads as out of range, the body must be an object, and a
+  trained model whose header does not read gives a clear error, all as 400.
+- I. A file error is logged with its details; the answer says the model could not be made, without paths.
+- P. The edits a model was made with (an Apply or a training's import) are kept as a hash; the page says when
+  the saved edits differ: "The edits changed since they were applied."
+- M. One save at a time: a change while one runs is sent when it answers; Apply waits for it.
+- N. The page reads the splats' positions from the `.ply` itself (32-bit), not from Spark's packed splats.
+- O. Escape while drawing a polygon tells the page, as Cancel does.
+- Q. A box's handles attach only for those who may edit.
+- R. Apply's progress stops on a 403, 404 or 500 and says why; it keeps asking only when WebODM does not answer.
+- S. The floaters' error said once; Apply enabled when a training running at the page's start ends; a failed load
+  can be tried again; `pointercancel` ends a stroke; a field's typing is one Undo step; the box fields' labels
+  match the panel; drawing a polygon on a phone scrolls its Finish into view; a task not found shows the page's
+  heading and a link back; the empty list's text names every tool; the Tasks page's intro names editing.
+  Colour Adjust's clipping and two tabs wait.
+- T. `splatme/LICENSE`, the AGPL text, in the zip.
+- U. The vendored Spark's `sourceMappingURL` line removed (its hash in `vendor/README.md` updated).
+- V. eslint 10.15.0; Zensical 0.1.2 in `requirements-dev.txt` and, with hashes, `docs/requirements.txt`.
+- The documentation: the corrections and removals listed in the review, and a 0.2 to 0.3 upgrade in Getting
+  Started; the screenshots of SplatMe → Tasks and Edit Splats taken again once the pages are fixed.
+- D. The worst cases Apply allows timed on the dev machine (a model of a few million splats, lassos at 2,000
+  corners, brushes at 20,000 points); the times go to the user, who decides on lower limits or a cancel.
+
+### Release review of 0.3.0 (done)
 
 Asked 2026-11-19 ("what's left before release?", then "start"): the review the `release-review` skill describes,
 before 0.3.0 (splat editing). Read: `git diff v0.2.0..main` (26 commits, 43 files, mostly Edit Splats) in full,
