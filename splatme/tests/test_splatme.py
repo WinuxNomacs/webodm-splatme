@@ -1909,6 +1909,21 @@ class TestSplatMe(BootTestCase):
         self.assertIsNone(status["edits_error"])
         self.assertEqual(self.converted, [header.replace(b"vertex 4", b"vertex 3") + rows[[0, 2, 3]].tobytes()])
 
+    def test_a_training_clears_the_last_apply_which_no_longer_says_what_the_model_is(self):
+        task, _, _ = self.trained_task()
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["state"], "completed")
+        with mock.patch.object(training, "run_function_async"):
+            self.apply(task)
+        self.assertEqual(self.cancel_apply(task).data["apply"]["state"], "canceled")
+        # The model a training makes is not the one that Apply left: Edit Splats no longer shows it
+        self.assertEqual(self.train(task, resume="true", steps=10).status_code, 200)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed", status)
+        self.assertIsNone(status["apply"])
+        self.assertIsNone(self.client.get(self.edits_url(task)).data["apply"])
+
     def test_edits_that_remove_every_splat_are_not_applied(self):
         task, header, rows = self.trained_task()
         self.put_model(task, b"shown before")

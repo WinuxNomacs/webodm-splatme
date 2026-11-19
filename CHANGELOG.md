@@ -3,6 +3,32 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
+## 0.3.0 (2026-11-19)
+
+Editing a trained model. Works with splat node 0.2.0 or later; no new node (0.2.2 is the latest). Restart WebODM
+once after the upgrade: until then Apply and Continue From Step fail.
+
+- **Edit Splats**, from **Edit** on a task's row on **SplatMe → Tasks**: the model SplatMe trained, in a 3D view,
+  with a list of edits. **Add Box** and **Draw Polygon** keep or remove what is inside them; the **Lasso** and the
+  **Brush** remove what is under them on screen, through to the back, and the Brush's **Restore** paints back what
+  the edits before it removed; **Remove Floaters** (Light, Medium or Strong) removes the splats far from the rest
+  and the oversized ones; **Colour Adjust** changes the whole model's brightness, contrast, saturation and warmth.
+  The view hides what the edits remove as they change; they are saved as they are made, with **Undo** and **Clear
+  Edits**. Only those who may change the task's project can edit.
+- **Apply** makes the task's model again from its trained model with the edits, so WebODM's 3D view, its download
+  and share links show the edited model; **Cancel** stops it, leaving the model as it was. A later training of the
+  task applies the edits again. The trained model itself is never changed: **Clear Edits**, then **Apply**, makes
+  it whole again.
+- **Download .ply**, on **Edit Splats** and on each trained task's row, gives the task's model with its saved
+  edits as a `.ply`, for other splat tools; anyone who may see the task may download it.
+- **The trained model moved** from the task's assets to its `data/splatme` folder, so share links and WebODM's
+  **All Assets** download no longer give the uncut model. A model trained by 0.2 moves there when SplatMe first needs it.
+- **API**: `task/<id>/edits` (GET, PUT), `apply` (with `cancel`), `download`, `model` and `floaters`; `status`
+  adds `edited`, `edits_error`, `editable` and `apply`. See [the plugin's API](https://winuxnomacs.github.io/webodm-splatme/api/).
+- The editor's 3D view uses three.js 0.187.0 and Spark 2.4.0 (both MIT), vendored in the plugin with their
+  hashes. The zip now includes SplatMe's licence.
+- **Documentation**: a new page, **Editing Splats**, and the upgrade from 0.2 in **Getting Started**.
+
 ## 0.2.0 (2026-11-16)
 
 Fixes from a review of 0.1.1. Works with splat node 0.2.0 or later; node 0.2.2 comes with it.
