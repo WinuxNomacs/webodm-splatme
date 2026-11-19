@@ -2,12 +2,13 @@
 
 The Edit Splats page's 3D view (`../editor/viewer.js`) loads these through the page's import map
 (`templates/editor.html`). They are files, not an `npm install` on the server, and they are not built by webpack.
-Each comes unchanged from its npm package, checked against the registry's integrity hash. Vet them again before
+Each comes unchanged from its npm package, checked against the registry's integrity hash, except that Spark's
+last line (`//# sourceMappingURL=spark.module.min.js.map`, a map not vendored) is removed. Vet them again before
 an upgrade.
 
 | File | Package | From the package | SHA-256 |
 |---|---|---|---|
-| `spark/spark.module.min.js` | `@sparkjsdev/spark` 2.4.0 (MIT, `spark/LICENSE`) | `dist/spark.module.min.js` | `a2f01f68dbcd5e060d55348f803e509fc789b97904e01b98763fcf0314351aaf` |
+| `spark/spark.module.min.js` | `@sparkjsdev/spark` 2.4.0 (MIT, `spark/LICENSE`) | `dist/spark.module.min.js` | `79b0bef7918cd1bbab98cee3cd37825e2288a26b20f9ff47add366277154ba49` |
 | `three/three.module.js` | `three` 0.187.0 (MIT, `three/LICENSE`) | `build/three.module.js` | `104f56145899722094556490d787aae0617cc2fc3382f31df02d724ea1aee341` |
 | `three/three.core.js` | `three` 0.187.0 | `build/three.core.js` | `613e370f76638fdef83926642bf256dc9615684922de1ce1f63a8583e5d78578` |
 | `three/OrbitControls.js` | `three` 0.187.0 | `examples/jsm/controls/OrbitControls.js` | `e7fca2fe9e7670a828af9b28084669a5909445b7f36f1f26cee9bf8f2961c32c` |
