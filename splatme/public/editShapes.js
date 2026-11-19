@@ -11,7 +11,7 @@
 //   brush    {type: "brush", strokes: [{size, points: [[x, y], ...]}] on the screen (-1 to 1), view and camera as a
 //            lasso's, aspect: the screen's width over its height}, no keep: removes what is in front of that camera
 //            within size of a stroke's line, through to the back; distances in half the screen's height (x times
-//            aspect first)
+//            aspect first). restore: true (the Restore Brush) puts back what the edits before it removed instead
 //   keep     true keeps what is inside and removes the rest; false removes what is inside
 //   floaters {type: "floaters", strength: "light" | "medium" | "strong"}, at most one, no keep: the splats far from
 //            their neighbours or oversized, which the server finds on the whole model (edits.floaters, the API's
@@ -95,11 +95,14 @@ export function insideBrush(brush, x, y, z){
 
 // Which splats (of those keep still keeps) a brush paints over, set to 0 in keep: the splats sorted across its
 // screen once, so each piece of a stroke looks only at those beside it (edits.brushed's way)
-function brushOut(brush, xs, ys, zs, keep){
+// A brush's strokes on keep: removed under them, or put back for a restore (never what base, the boundary, hides)
+function brushOut(brush, xs, ys, zs, keep, base){
+    const restore = !!brush.restore;
+    const open = i => (restore ? !keep[i] && (!base || base[i]) : keep[i]);
     const us = new Float64Array(xs.length), vs = new Float64Array(xs.length);
     const order = [];
     for (let i = 0; i < xs.length; i++){
-        if (!keep[i]) continue;
+        if (!open(i)) continue;
         const p = onScreen(brush.view, xs[i], ys[i], zs[i]);
         if (!p) continue;
         us[i] = p[0] * brush.aspect;
@@ -124,8 +127,8 @@ function brushOut(brush, xs, ys, zs, keep){
             const top = Math.max(a[1], b[1]) + r, bottom = Math.min(a[1], b[1]) - r, right = Math.max(a[0], b[0]) + r;
             for (let k = firstFrom(Math.min(a[0], b[0]) - r); k < across.length && across[k] <= right; k++){
                 const i = order[k];
-                if (!keep[i] || vs[i] < bottom || vs[i] > top) continue;
-                if (distance2(us[i], vs[i], a[0], a[1], b[0], b[1]) <= r2) keep[i] = 0;
+                if (!open(i) || vs[i] < bottom || vs[i] > top) continue;
+                if (distance2(us[i], vs[i], a[0], a[1], b[0], b[1]) <= r2) keep[i] = restore ? 1 : 0;
             }
         }
     }
@@ -167,13 +170,15 @@ export function keepMask(xs, ys, zs, edits, out, base, floaters){
     const keep = out || new Uint8Array(n);
     if (base) keep.set(base);
     else keep.fill(1);
-    if (floaters){
-        for (const i of floaters) if (i >= 0 && i < n) keep[i] = 0;
-    }
+    // In the list's order, as edits.keep_mask: the floaters where their edit is, a restore after what it puts back
     for (const edit of edits){
-        if (edit.type === "floaters" || edit.type === "colour") continue;
+        if (edit.type === "colour") continue;
+        if (edit.type === "floaters"){
+            if (floaters) for (const i of floaters) if (i >= 0 && i < n) keep[i] = 0;
+            continue;
+        }
         if (edit.type === "brush"){
-            brushOut(edit, xs, ys, zs, keep);
+            brushOut(edit, xs, ys, zs, keep, base);
             continue;
         }
         // A polygon's bounding box first: most splats are far from it
@@ -274,7 +279,7 @@ export function editLabel(edit, count){
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
     }
-    if (edit.type === "brush") return "Brush, " + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
+    if (edit.type === "brush") return (edit.restore ? "Restore Brush, " : "Brush, ") + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
     if (edit.type === "box"){
         const [x, y, z] = edit.size.map(v => Number(v.toFixed(1)).toLocaleString("en-US"));
         return "Box, " + x + " × " + y + " × " + z + " m";
@@ -313,15 +318,18 @@ export function brushStroke(points, width, height, sizePixels, minPixels){
     };
 }
 
-// The stroke added to the Brush session's edit, the last of edits, when it was painted in the same view and has
-// room for it; else a new brush edit after them (the session's first stroke: fresh). Answers the edits
-export function addStroke(edits, stroke, view, aspect, camera, fresh){
+// The stroke added to the Brush session's edit, the last of edits, when it was painted in the same view, removes
+// or restores as it does (restore) and has room for it; else a new brush edit after them (the session's first
+// stroke: fresh). Answers the edits
+export function addStroke(edits, stroke, view, aspect, camera, fresh, restore){
     const last = edits[edits.length - 1];
-    const same = !fresh && last && last.type === "brush" && last.aspect === aspect && last.view.length === view.length &&
+    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.aspect === aspect && last.view.length === view.length &&
         last.view.every((v, i) => v === view[i]) && last.strokes.length < MAX_STROKES &&
         last.strokes.reduce((n, s) => n + s.points.length, 0) + stroke.points.length <= MAX_BRUSH_POINTS;
     if (same) return [...edits.slice(0, -1), {...last, strokes: [...last.strokes, stroke]}];
-    return [...edits, {type: "brush", strokes: [stroke], view, aspect, camera}];
+    const edit = {type: "brush", strokes: [stroke], view, aspect, camera};
+    if (restore) edit.restore = true;
+    return [...edits, edit];
 }
 
 function round4(v){

@@ -18,13 +18,18 @@ x and y (get_rtc_offset). Heights are not offset.
              view (as a lasso's, with its camera), aspect (the screen's width over its height), no keep: removes every
              gaussian in front of the camera whose centre falls within size of a stroke's line, through to the back.
              Distances are in units of half the screen's height: x is multiplied by aspect first, so a stroke's
-             size is the same across and up the screen
+             size is the same across and up the screen; restore: true puts back what the edits before it removed
+             (the Restore Brush) instead
     each     keep: true keeps what is inside and removes the rest, false removes what is inside
     floaters strength ("light", "medium" or "strong"), at most one, no keep: removes the gaussians far from their
              neighbours or oversized, judged on the whole trained model (floaters()), so the shapes do not change
              which ones they are
     colour   brightness, contrast, saturation, warmth (each -1 to 1, 0 for no change), at most one, no keep: changes
              the colours of the whole model (colour_change()), the light that changes with the view too
+
+The edits apply in their list's order: a removing shape or stroke takes out what it covers, a keeping shape the
+rest, the floaters theirs, and a restore puts back what it covers, whatever took it out before it. Without a
+restore the order changes nothing.
 """
 import itertools
 import logging
@@ -156,6 +161,11 @@ def clean_brush(edit, i):
     if not isinstance(strokes, list) or not 1 <= len(strokes) <= MAX_STROKES:
         raise EditsError(f"Edit {i} must have from 1 to {MAX_STROKES} strokes.")
     clean_edit = {"type": "brush", "aspect": number(edit.get("aspect"), f"Edit {i}'s aspect", positive=True), "strokes": []}
+    restore = edit.get("restore", False)
+    if not isinstance(restore, bool):
+        raise EditsError(f"Edit {i} must say whether it removes or restores what it painted over.")
+    if restore:
+        clean_edit["restore"] = True
     total = 0
     for stroke in strokes:
         points = stroke.get("points") if isinstance(stroke, dict) else None
@@ -298,15 +308,25 @@ def inside(edit, x, y, z):
     return crop.inside(x, y, [[edit["ring"]]])
 
 
-def keep_mask(rows, edits):
-    """Which of the rows (a chunk of the .ply) the shapes keep: all of them agree on it (floaters are not here)."""
+def keep_mask(rows, edits, floaters=None):
+    """
+    Which of the rows (a chunk of the .ply) the edits keep, in their list's order. floaters: which of the rows are
+    the floaters (from floaters()), taken out where the floaters edit is in the list; None keeps them.
+    """
     x, y, z = (rows[axis].astype(np.float64) for axis in ("x", "y", "z"))
     keep = np.ones(len(rows), dtype=bool)
     for edit in edits:
-        if edit["type"] in ("floaters", "colour"):
+        if edit["type"] == "colour":
+            continue
+        if edit["type"] == "floaters":
+            if floaters is not None:
+                keep &= ~floaters
             continue
         within = inside(edit, x, y, z)
-        keep &= within if edit.get("keep", False) else ~within  # a brush has no keep: it removes
+        if edit.get("restore"):
+            keep |= within
+        else:
+            keep &= within if edit.get("keep", False) else ~within  # a brush has no keep: it removes
     return keep
 
 

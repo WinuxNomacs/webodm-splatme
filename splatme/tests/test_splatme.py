@@ -1321,9 +1321,42 @@ class TestSplatMe(BootTestCase):
         self.apply(task)
         self.assertEqual(self.converted, [header + rows.tobytes()])
 
+    def test_a_restore_brush_puts_back_what_the_edits_before_it_removed_and_nothing_after(self):
+        task, header, rows = self.trained_task()
+        restore = {**self.brush([self.line()]), "restore": True}  # over rows 0 and 2
+        around_origin = self.box((0, -0.5, 0), (2, 3, 10), keep=False)  # removes rows 0, 2 and 3
+        only_row_1 = self.box((3, 0, 0), (1, 1, 10), keep=True)
+
+        def kept(shapes, floaters=None):
+            self.converted.clear()
+            res = self.put_edits(task, shapes)
+            self.assertEqual(res.status_code, 200, res.data)
+            with mock.patch.object(edits, "floaters", return_value=floaters):
+                self.apply(task)
+            self.assertEqual(self.status(task)["apply"]["state"], "completed", self.status(task)["apply"])
+            return self.converted[0]
+
+        def model(numbers):
+            return header.replace(b"vertex 4", b"vertex %d" % len(numbers)) + rows[numbers].tobytes()
+
+        self.assertEqual(kept([around_origin, restore]), model([0, 1, 2]))
+        self.assertEqual(kept([restore, around_origin]), model([1]))
+        # What a Keep Inside box left out comes back under the strokes too
+        self.assertEqual(kept([only_row_1, restore]), model([0, 1, 2]))
+        # And the floaters (rows 0 and 3 here), when Remove Floaters is listed before it
+        floaters = np.array([True, False, False, True])
+        self.assertEqual(kept([self.floaters("light"), restore], floaters), model([0, 1, 2]))
+        self.assertEqual(kept([restore, self.floaters("light")], floaters), model([1, 2]))
+        # Kept as a restore; a plain brush says nothing of it
+        data = self.client.get(self.edits_url(task)).data["edits"]
+        self.assertTrue(data[0]["restore"])
+        self.put_edits(task, [self.brush([self.line()], camera=None)])
+        self.assertNotIn("restore", self.client.get(self.edits_url(task)).data["edits"][0])
+
     def test_a_brush_with_bad_strokes_size_or_view_is_refused(self):
         task, _, _ = self.trained_task()
         for edit, reason in [
+            ({**self.brush([self.line()]), "restore": "yes"}, "removes or restores"),
             ({**self.brush([self.line()]), "strokes": []}, "from 1 to 500 strokes"),
             ({**self.brush([self.line()]), "strokes": [self.line()] * 501}, "from 1 to 500 strokes"),
             (self.brush([{"size": 0.1, "points": []}]), "must each have points"),

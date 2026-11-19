@@ -20,9 +20,9 @@ replaced there since its training: only a model SplatMe trained can be edited.
 
 ## The Edits
 
-Each shape **Keeps Inside** (removes everything outside it) or **Removes Inside**; the **Brush** and **Remove
-Floaters** only remove. A splat stays only when every
-edit keeps it. The view hides what the edits remove as you change them, by the same rule **Apply** uses. It also
+Each shape **Keeps Inside** (removes everything outside it) or **Removes Inside**; the **Brush** removes or
+restores, and **Remove Floaters** only removes. The edits apply in the list's order, so a restore brings back
+only what the edits above it removed. The view hides what the edits remove as you change them, by the same rule **Apply** uses. It also
 hides what lies outside the task's boundary when the model was trained with **Crop to Boundary**, as the task's
 model leaves it out. The view holds splat positions a little less precisely than the trained model, so a few
 splats right on an edge may end up on the other side when applied.
@@ -40,6 +40,12 @@ splats right on an edge may end up on the other side when applied.
   Escape) is one edit in the list ("Brush, 3 strokes"), and **Undo** takes back the last stroke; turn the view
   between sessions. **Size** sets the brush's width on screen, from 5 to 100 pixels; the [ and ] keys change it
   too. **Go to Its View** works as for a lasso.
+
+    **Restore**, in the brush's panel, paints back instead ("Restore Brush" in the list): everything under the
+    brush that the edits above it removed comes back, through to the back, whether a shape, a lasso, the brush or
+    **Remove Floaters** took it out. It never brings back what **Crop to Boundary** leaves out. An edit added after
+    it removes as usual.
+
 - **Remove Floaters**: removes the splats far from the rest and the oversized ones (the smears and streaks across
   the sky), judged on the whole trained model, so the other edits don't change which ones they are. Its strength,
   in the list, is **Light**, **Medium** (the start) or **Strong**; the list says how many splats it removes besides
@@ -55,6 +61,12 @@ the shape again, and a box's handles and fields with it. **Undo** takes back the
 Edits** removes them all. **Top View** and **Side View** frame the model again.
 
 Edits are saved as you make them ("Saved" under the list); leaving the page before then asks first.
+
+## The 3D View's Start View
+
+WebODM's own 3D view keeps a start view for each task: turn the view as you want it, then press **set initial
+camera view** under **Scene** in its sidebar. The task's 3D view and its share links then open there, with the
+splats as with the point cloud.
 
 ## Applying Them
 
@@ -74,6 +86,9 @@ format the trainer writes and most splat tools open. The file is made when you a
 model, with the task's saved edits, so it has them even before they are applied; on **Edit Splats** the button
 waits until the edits are saved. The `.ply` is up to about 250 bytes a splat (50 MB for 200,000) and takes about a
 second to make. Anyone who may see the task may download it.
+
+The model keeps the task's orientation: up is z, as in Blender, so it opens upright there, and north is y. Its z
+is the height above sea level, so the model sits that high above the origin; x and y are close to it.
 
 Edits saved by a newer SplatMe (or read by a WebODM not restarted since an upgrade) may not read: the page says
 so, **Apply** and trainings leave them as they are and go on without them, and a change on the page replaces

@@ -218,6 +218,42 @@ describe("the brush", () => {
         expect(addStroke(edits, line, identity, 1, camera, true).length).toBe(3);
         expect(edits[0]).toBe(box);
     });
+
+    test("a restore stroke starts an edit of its own after removing ones, and is kept as a restore", () => {
+        const camera = {position: [0, 0, 1], target: [0, 0, 0]};
+        let edits = addStroke([], line, identity, 1, camera, true);
+        expect(edits[0].restore).toBeUndefined();
+        edits = addStroke(edits, line, identity, 1, camera, false, true);
+        expect(edits.length).toBe(2);
+        expect(edits[1].restore).toBe(true);
+        expect(addStroke(edits, line, identity, 1, camera, false, true).length).toBe(2);
+        expect(addStroke(edits, line, identity, 1, camera, false, false).length).toBe(3);
+        expect(editLabel(edits[1])).toBe("Restore Brush, 1 stroke");
+    });
+
+    describe("Restore Brush", () => {
+        const restore = {...brush([line]), restore: true};  // over splats 0 and 2
+        const aroundOrigin = {type: "box", keep: false, center: [0, -0.5, 5], size: [2, 3, 1], turn: 0};  // 0, 2 and 3
+        const onlySecond = {type: "box", keep: true, center: [3, 0, 5], size: [1, 1, 1], turn: 0};
+        const floaters = {type: "floaters", strength: "medium"};
+
+        test("puts back what the edits before it removed, and nothing an edit after it removes", () => {
+            expect(kept([aroundOrigin, restore])).toEqual([1, 1, 1, 0]);
+            expect(kept([restore, aroundOrigin])).toEqual([0, 1, 0, 0]);
+            expect(kept([onlySecond, restore])).toEqual([1, 1, 1, 0]);
+            expect(kept([restore])).toEqual([1, 1, 1, 1]);
+        });
+
+        test("puts back floaters listed before it, as the server does", () => {
+            expect(Array.from(keepMask(xs, ys, zs, [floaters, restore], null, null, [0, 3]))).toEqual([1, 1, 1, 0]);
+            expect(Array.from(keepMask(xs, ys, zs, [restore, floaters], null, null, [0, 3]))).toEqual([0, 1, 1, 0]);
+        });
+
+        test("never puts back what the task's boundary hides", () => {
+            const base = Uint8Array.from([1, 1, 0, 1]);
+            expect(Array.from(keepMask(xs, ys, zs, [aroundOrigin, restore], null, base))).toEqual([1, 1, 0, 0]);
+        });
+    });
 });
 
 describe("floaters", () => {
