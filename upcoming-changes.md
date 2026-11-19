@@ -9,9 +9,7 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Restore Brush on Edit Splats, and the docs for WebODM's own start view and the download's orientation (from
-   the UX review, chosen 2026-11-19). See "10. UX review"; the rest of the review is noted there as possible for
-   later.
+(nothing planned: the rest of the UX review, "10. UX review", is possible for later)
 
 **Then**
 
@@ -19,12 +17,12 @@ other software. The plugin does that step.
 
 **Later**
 
-2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+1. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
 
@@ -47,6 +45,12 @@ other software. The plugin does that step.
 
 **Done**
 
+- Restore Brush (2026-11-19, from the UX review the same day), on Edit Splats: Remove and Restore in the Brush's
+  panel; the edits now apply in their list's order. With it, the docs for WebODM's own start view and for the
+  download's orientation (Level Ground and Set North dropped). Code: `splatme/edits.py` (`clean_brush`,
+  `keep_mask`), `training.py` (`shown_model`), `public/editShapes.js` (`keepMask`, `addStroke`, `editLabel`),
+  `public/Editor.jsx`, `public/editor/viewer.js`; tests in `splatme/tests/test_splatme.py` and
+  `public/__tests__/editShapes.test.js`; `docs/editing.md`, `docs/api.md`. See "10. UX review".
 - SplatMe in WebODM's plugin directory (2026-11-18): the user's pull request,
   https://github.com/WebODM/WebODM-Plugins/pull/9, was merged on 2026-11-17. Checked 2026-11-18 in
   https://plugins.webodm.org/index.json, the list Administration → Plugins → Install Plugins shows: SplatMe
@@ -2678,3 +2682,15 @@ of the findings and tools above are possible for later, not planned.
 - Tests: a box's removal restored; a restore before a removal brings nothing back; floaters restored; a Keep
   Inside box's outside restored under a stroke; the same cases in Jest for the preview; `restore` that is not
   true or false refused.
+
+**Built (2026-11-19)** as designed. Tests: Django's restore test (a box's removal restored, a restore before a
+removal, a Keep Inside box, floaters before and after it, kept as a restore) and the brush refusal of a bad
+`restore`, both seen failing on the old code; Jest's for the preview (the same cases, and the boundary never
+restored, as on the server where the boundary is cut apart from the edits). Checks: Ruff, ESLint, Jest 120,
+Django 137, the node's tests, the docs build and the rendered page. Live, on a copy of the check task (deleted):
+a 100 px Brush stroke across the view took the download from 206,837 splats to 147,760, and a Restore stroke over
+it brought it back to 206,837; the list read "Brush, 1 stroke" and "Restore Brush, 1 stroke"; the panel at phone
+width with no horizontal scroll. Apply was not checked live: it runs in `sm-worker`, which keeps the old code
+until it restarts; Download .ply makes the same model in the web server. WebODM's start view, on another copy
+(deleted): **set initial camera view** under **Scene** saved the turned view, which came back after a reload with
+Splats shown and in the public share view (`/public/task/<id>/3d/`).
