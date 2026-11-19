@@ -347,6 +347,7 @@ export function applyText(apply){
     if (!apply || !apply.state) return "";
     if (apply.state === "applying") return "Applying the edits: " + (apply.status || "starting") + ".";
     if (apply.state === "failed") return "Applying the edits failed: " + (apply.error || "unknown error.");
+    if (apply.state === "canceled") return "Applying the edits was canceled: the task's model is as it was.";
     if (apply.state === "completed"){
         const removed = apply.edited ? Number(apply.edited).toLocaleString("en-US") + (apply.edited === 1 ? " splat" : " splats") + " removed." : "No splat removed.";
         return "Edits applied. " + removed;

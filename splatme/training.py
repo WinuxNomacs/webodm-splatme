@@ -1223,13 +1223,14 @@ class EditsRemoveAll(TrainingError):
         super().__init__(self.text)
 
 
-def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
+def shown_model(task, trained, work, use_boundary, report=None, use_edits=True, check=None):
     """
     The model the task shows, made from the trainer's .ply: cut to the task's boundary (for a model trained with
     Crop to Boundary) and by its edits, its colours adjusted by its Colour Adjust. Answers its path (trained itself when nothing is cut) and how many gaussians
     the boundary and the edits each removed (None for none). A boundary with nothing of the model inside crops
     nothing; edits that would leave nothing raise EditsRemoveAll, and nothing is written. The counts also say
-    which edits it was made with ("made_with", their fingerprint).
+    which edits it was made with ("made_with", their fingerprint). check, when given, is called before each chunk
+    of the model is cut, and may raise to stop (Apply's Cancel).
     """
     rings = crop.boundary(task) if use_boundary else []
     # EditsError: the caller goes on without them, or fails
@@ -1253,6 +1254,8 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
         inside = crop.within(rings) if rings else None
 
         def keep(rows, first):
+            if check:
+                check()
             kept = np.ones(len(rows), dtype=bool)
             if inside:
                 kept &= inside(rows, first)
@@ -1500,6 +1503,24 @@ def update_apply(task_id, run, **fields):
         raise Superseded()
 
 
+def check_apply(task_id, run):
+    """Raises Superseded when the Apply is no longer this run's: canceled, or failed as lost."""
+    record = store().get_json(apply_key(task_id), None)
+    if not record or record.get("run") != run:
+        raise Superseded()
+
+
+def cancel_apply(task_id):
+    """Stops the task's Apply: its job stops at its next chunk or step, and the task's model stays as it was."""
+
+    def stop(record):
+        if record.get("state") == APPLYING:
+            record.update(state="canceled", run=None, waiting=None, status="", finished=time.time())
+
+    change_record(apply_key(task_id), stop)
+    return get_apply(task_id)
+
+
 def apply(task_id, run):
     record = store().get_json(apply_key(task_id), None)
     if not record or record.get("run") != run:
@@ -1518,11 +1539,13 @@ def apply(task_id, run):
                 raise TrainingError(reason)
             trained, steps = trained_model(task), trained_steps(task)
             shown, cut = shown_model(
-                task, trained, work, trained_with_crop(task), lambda text: update_apply(task_id, run, status=text)
+                task, trained, work, trained_with_crop(task), lambda text: update_apply(task_id, run, status=text),
+                check=lambda: check_apply(task_id, run),
             )
             update_apply(task_id, run, status="Converting the model")
             model = os.path.join(work, "model.rad")
             convert(shown, model)
+            check_apply(task_id, run)  # canceled, or no longer this run's (its record lost): the model stays
             task.refresh_from_db()
             if task.status != status_codes.COMPLETED or trained_steps(task) != steps:
                 raise TrainingError("The task's splat model changed while the edits were applied. Apply them again.")

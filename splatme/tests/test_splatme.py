@@ -1796,6 +1796,54 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
         self.assertFalse(applied())
 
+    def cancel_apply(self, task, client=None):
+        return (client or self.client).post(f"{API}/task/{task.id}/apply", {"cancel": True}, format="json")
+
+    def test_cancel_stops_an_apply_and_keeps_the_tasks_model(self):
+        task, _, _ = self.trained_task()
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        # Canceled while it waits in the worker's queue: its job, when it starts, does nothing
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.apply(task)
+        res = self.cancel_apply(task)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["apply"]["state"], "canceled")
+        training.apply(*started[0][1:])
+        self.assertEqual(self.converted, [])
+        self.assertEqual(training.get_apply(task.id)["state"], "canceled")
+        self.assertFalse(os.path.exists(training.apply_dir(task.id)))
+        # Canceled while it cuts the model, a row a chunk here: no other chunk is cut, nothing is converted
+        cut, chunks = edits.keep_mask, []
+
+        def cancel_on_the_way(*args):
+            chunks.append(1)
+            training.cancel_apply(task.id)
+            return cut(*args)
+
+        with mock.patch.object(training.crop, "ROWS", 1), mock.patch.object(edits, "keep_mask", side_effect=cancel_on_the_way):
+            self.apply(task)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(self.converted, [])
+        self.assertEqual(training.get_apply(task.id)["state"], "canceled")
+        # Canceled while it converts (or its record lost then): the model is not replaced
+        with mock.patch.object(training, "convert", side_effect=lambda *a: (training.cancel_apply(task.id), self.convert(*a))):
+            self.apply(task)
+        self.assertEqual(len(self.converted), 1)
+        self.assertEqual(training.get_apply(task.id)["state"], "canceled")
+        self.assertEqual(self.model(task), b"shown before")
+        self.assertFalse(os.path.exists(training.apply_dir(task.id)))
+        # Nothing to cancel: the last Apply stays as it was; and only those who may edit may cancel
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["state"], "completed")
+        self.assertEqual(self.cancel_apply(task).data["apply"]["state"], "completed")
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        self.assertEqual(self.cancel_apply(task, client=other).status_code, 404)
+
     def test_crafted_edits_are_refused_with_the_reason(self):
         task, _, _ = self.trained_task()
         for items, reason in [

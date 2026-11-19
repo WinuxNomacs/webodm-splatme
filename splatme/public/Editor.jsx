@@ -359,6 +359,15 @@ export default class Editor extends React.Component {
         });
     };
 
+    cancelApply = () => {
+        this.setState({canceling: true, applyError: null});
+        request("POST", "task/" + this.props.taskId + "/apply", {cancel: true}).then(status => {
+            if (this._mounted) this.setState({canceling: false, apply: status.apply});
+        }).catch(e => {
+            if (this._mounted) this.setState({canceling: false, applyError: e.message});
+        });
+    };
+
     poll(){
         clearTimeout(this.pollTimer);
         this.pollTimer = setTimeout(() => {
@@ -608,7 +617,11 @@ export default class Editor extends React.Component {
                                 title={_("Make the task's splat model again from its trained model, with these edits")} onClick={this.apply}>
                             <i className={(applying || starting ? "fa fa-circle-notch fa-spin" : "fa fa-check") + " fa-fw"}></i> {_("Apply")}
                         </button>
-                        {this.renderDownload()}
+                        {applying ?
+                            <button type="button" className="btn btn-sm btn-default" disabled={this.state.canceling} onClick={this.cancelApply}
+                                    title={_("Stop applying the edits: the task's model stays as it was")}>
+                                <i className="fa fa-times fa-fw"></i> {_("Cancel")}
+                            </button> : this.renderDownload()}
                         {info.training ? <p className="text-warning">{_("The task's splats are being trained: apply the edits when the training is done.")}</p> : ""}
                         {apply ? <p className={apply.state === "failed" ? "text-danger" : ""}>{applyText(apply)}</p> : ""}
                         {info.applied === false && !applying ?

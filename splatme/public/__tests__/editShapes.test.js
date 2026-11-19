@@ -370,3 +370,7 @@ describe("plyPositions", () => {
             .toThrow("not its first element");
     });
 });
+
+test("a canceled Apply says the task's model is as it was", () => {
+    expect(applyText({state: "canceled"})).toBe("Applying the edits was canceled: the task's model is as it was.");
+});

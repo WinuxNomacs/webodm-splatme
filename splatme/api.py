@@ -24,7 +24,8 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/model     the trained model, uncut (those who may edit)
     GET  task/<id>/floaters  which splats of its trained model are floaters at ?strength= (light, medium or strong):
                              their numbers in the .ply (removed), for the page to hide them (those who may edit)
-    POST task/<id>/apply     makes the task's shown model again from its trained model and its edits
+    POST task/<id>/apply     makes the task's shown model again from its trained model and its edits; with cancel,
+                             stops the one that runs
     GET  task/<id>/download  the task's model with its saved edits, as Apply makes it, as a .ply (training.edited_model)
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
@@ -279,6 +280,9 @@ class Apply(TaskView):
     def post(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
         check_project_perms(request, task.project, perms=("change_project",))
+        if isinstance(request.data, dict) and is_true(request.data.get("cancel")):
+            training.cancel_apply(task.id)
+            return Response(describe(request, task, training.get_job(task.id)))
         try:
             training.start_apply(task, request.user.username)
         except training.TrainingError as e:
