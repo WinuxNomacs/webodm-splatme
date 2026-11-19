@@ -31,7 +31,7 @@ export default class Editor extends React.Component {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
             starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
-            brushing: false, brushSize: BRUSH_SIZE
+            brushing: false, brushSize: BRUSH_SIZE, brushRestore: false
         };
     }
 
@@ -162,12 +162,20 @@ export default class Editor extends React.Component {
         if (!this.viewer || this.state.edits.length >= MAX_EDITS) return;
         this.freshBrush = true;
         this.setState({selected: -1, brushing: true});
-        this.viewer.startBrush(this.state.brushSize);
+        this.viewer.startBrush(this.state.brushSize, this.state.brushRestore);
     };
+
+    // Remove or Restore in the Brush's panel: the next stroke starts an edit of its own
+    setBrushRestore(brushRestore){
+        if (brushRestore === this.state.brushRestore) return;
+        this.freshBrush = true;
+        this.setState({brushRestore});
+        if (this.viewer) this.viewer.setBrushRestore(brushRestore);
+    }
 
     handleBrushStroke = ({stroke, view, aspect, camera}) => {
         const { edits } = this.state;
-        const next = addStroke(edits, stroke, view, aspect, camera, this.freshBrush);
+        const next = addStroke(edits, stroke, view, aspect, camera, this.freshBrush, this.state.brushRestore);
         if (next.length > edits.length && edits.length >= MAX_EDITS){
             this.viewer.endBrush();
             return;
@@ -390,7 +398,7 @@ export default class Editor extends React.Component {
                         {(edit.type === "lasso" || edit.type === "brush") && edit.camera && this.viewer ?
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
-                            {edit.type === "brush" ? <span className="splatme-editor-item-note">{_("Removes what it painted over")}</span> :
+                            {edit.type === "brush" ? <span className="splatme-editor-item-note">{edit.restore ? _("Brings back what it painted over") : _("Removes what it painted over")}</span> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
                             edit.type === "floaters" ?
                                 <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}
@@ -444,7 +452,7 @@ export default class Editor extends React.Component {
     }
 
     renderPanel(){
-        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize } = this.state;
+        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize, brushRestore } = this.state;
         const canEdit = info.can_edit && !!loaded;
         const busy = !canEdit || drawing !== null || lassoing || brushing || edits.length >= MAX_EDITS;
         const applying = !!apply && apply.state === "applying";
@@ -465,7 +473,7 @@ export default class Editor extends React.Component {
                         <i className="fa fa-pencil-alt fa-fw"></i> {_("Lasso")}
                     </button>
                     <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.brush}
-                            title={_("Paint over what to remove: everything under the brush on screen goes, through to the back")}>
+                            title={_("Paint over what to remove, or what to bring back: everything under the brush on screen, through to the back")}>
                         <i className="fa fa-paint-brush fa-fw"></i> {_("Brush")}
                     </button>
                     <button type="button" className="btn btn-sm btn-default" disabled={busy || !!floatersStrength(edits)}
@@ -486,7 +494,16 @@ export default class Editor extends React.Component {
                     </div> : ""}
                 {brushing ?
                     <div className="alert alert-info splatme-editor-drawing">
-                        {_("Paint over what to remove. Everything under the brush on screen goes, through to the back. The view holds still while you paint: press Done to turn it.")}
+                        <div className="btn-group btn-group-sm splatme-editor-brush-mode" role="group" aria-label={_("What the brush does")}>
+                            <button type="button" className={"btn " + (brushRestore ? "btn-default" : "btn-primary")} aria-pressed={!brushRestore}
+                                    onClick={() => this.setBrushRestore(false)}>{_("Remove")}</button>
+                            <button type="button" className={"btn " + (brushRestore ? "btn-primary" : "btn-default")} aria-pressed={brushRestore}
+                                    onClick={() => this.setBrushRestore(true)}>{_("Restore")}</button>
+                        </div>
+                        <p>{brushRestore ?
+                            _("Paint over what to bring back. Everything under the brush on screen that the edits listed before removed comes back, through to the back.") :
+                            _("Paint over what to remove. Everything under the brush on screen goes, through to the back.")}
+                        {" "}{_("The view holds still while you paint: press Done to turn it.")}</p>
                         <label className="splatme-editor-brush-size">
                             {_("Size")}
                             <input type="range" min={BRUSH_SIZES[0]} max={BRUSH_SIZES[1]} value={brushSize}

@@ -169,7 +169,8 @@ export function createViewer(container, handlers){
             }
             const line = points.map(([x, y]) => new THREE.Vector3(x, y, depth).applyMatrix4(back));
             const geometry = new THREE.BufferGeometry().setFromPoints(line);
-            group.add(stroke.points.length === 1 ? new THREE.LineLoop(geometry, lineMaterial(colors.remove)) : new THREE.Line(geometry, lineMaterial(colors.remove)));
+            const color = edit.restore ? colors.keep : colors.remove;
+            group.add(stroke.points.length === 1 ? new THREE.LineLoop(geometry, lineMaterial(color)) : new THREE.Line(geometry, lineMaterial(color)));
         }
         return group;
     }
@@ -290,7 +291,7 @@ export function createViewer(container, handlers){
         const context = overlay.getContext("2d");
         context.clearRect(0, 0, overlay.width, overlay.height);
         if (!brush) return;
-        const color = "#" + colors.remove.getHexString();
+        const color = "#" + (brush.restore ? colors.keep : colors.remove).getHexString();
         if (brush.points.length){
             context.globalAlpha = 0.4;
             context.strokeStyle = color;
@@ -445,13 +446,13 @@ export function createViewer(container, handlers){
     }
     // Painting with the brush: the view holds still while strokes are painted, each letting go one stroke, until
     // endBrush (Done or Escape)
-    function startBrush(size){
+    function startBrush(size, restore){
         cancelPolygon();
         cancelLasso();
         endBrush();
         transform.detach();
         controls.enabled = false;
-        brush = {size, points: [], down: false, at: null};
+        brush = {size, restore: !!restore, points: [], down: false, at: null};
         overlay.style.display = "block";
         canvas.style.cursor = "crosshair";
         drawBrush();
@@ -459,6 +460,12 @@ export function createViewer(container, handlers){
     function setBrushSize(size){
         if (!brush) return;
         brush.size = size;
+        drawBrush();
+    }
+    // The Brush between removing and restoring (the Restore Brush): only the cursor's colour changes here
+    function setBrushRestore(restore){
+        if (!brush) return;
+        brush.restore = !!restore;
         drawBrush();
     }
     function endBrush(){
@@ -590,7 +597,7 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startBrush, setBrushSize, endBrush, goTo, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
             observer.disconnect();

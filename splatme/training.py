@@ -1230,9 +1230,8 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
                 kept &= inside(rows, first)
                 counts["boundary"] += int(len(rows) - kept.sum())
             if shapes:
-                by_edits = edits.keep_mask(rows, shapes)
-                if floaters is not None:
-                    by_edits &= ~floaters[first : first + len(rows)]
+                chunk = floaters[first : first + len(rows)] if floaters is not None else None
+                by_edits = edits.keep_mask(rows, shapes, chunk)
                 counts["edits"] += int((kept & ~by_edits).sum())
                 kept &= by_edits
             return kept
