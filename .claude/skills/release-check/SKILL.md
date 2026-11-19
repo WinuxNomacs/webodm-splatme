@@ -96,6 +96,17 @@ delete the zip.
    restarted mid-training, then pages.js, whose revive takes it over; the import; the pages without console errors.
 10. The webapp's, the worker's and the node's logs: no error or traceback (the webapp logs each takeover).
 
+Notes from running it:
+
+- **A release whose node is unchanged** (the same `VERSION` as the last release's) skips the node's image build
+  and steps 7 and 8: the published node runs throughout.
+- **Train two task copies on the last release before the upgrade**: one left idle, one upgraded under. A release
+  that moves saved files needs the idle case (a model left by the last release, then touched only by the new
+  one), and going back to the last release to make it builds the old zip in a process still holding the new
+  plugin's pages (a webpack error that is the check's, not the release's).
+- A finished training's record reads `completed`. Read records straight from the database (`rec.sh`-style) while
+  waiting for a takeover: `api.js` logs in, and the page it lands on asks `revive` itself.
+
 ## 5. Cleaning up
 
 `splatnode.sh uninstall --yes` (same `SPLATNODE_DIR` and `SPLATNODE_PROJECT`), `docker image rm

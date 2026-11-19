@@ -9,10 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The 0.3.0 release: its branch is made (`release/0.3.0`: manifest 0.3.0, the changelog, Cancel for Apply in
-   the docs) and the release check passed (see "Release check of 0.3.0 (done)"), with one finding for the user:
-   Edit Splats keeps showing the last Apply's message after a later training. Then the merge, the user's push and
-   tag, and the directory entry. The node is unchanged (0.2.2).
+1. The 0.3.0 release: built and checked (`release/0.3.0` merged into `main`: manifest 0.3.0, the changelog,
+   Cancel for Apply in the docs, the release check's finding fixed and the check run again; see "Release check of
+   0.3.0 (done)"). Left: the user's push and tag `v0.3.0`, then the directory entry (a branch on the user's fork,
+   with their approval). The node is unchanged (0.2.2).
 
 The rest of the UX review, "10. UX review", is possible for later.
 
@@ -972,6 +972,31 @@ and 8) did not apply: the published node 0.2.2 ran throughout.
   Continue had just made with the edits. A completed Apply's message goes stale the same way.
 - Cleaned up: `splatnode.sh uninstall --yes` (its volume, network and the pulled image), the stack's containers,
   volumes and network, the task copies and every scratch file. The dev stack and its node were not touched.
+
+**The finding fixed** (the user's choice): a training's import deletes the task's last Apply record
+(`training.py`, after `set_shown`; Apply and a training refuse to run at the same time, so no running Apply is
+lost). Test: `test_a_training_clears_the_last_apply_which_no_longer_says_what_the_model_is`, seen failing first;
+147 Django tests pass.
+
+**Run again on the fixed zip** (`dist/splatme-0.3.0.zip` from f7f9191, SHA-256
+`4f437dcfd69b7c66cbe81a7d3bdb776398d17cf3d3044202cb816db520d84233`), 2026-11-19, with two task copies trained on
+0.2.0 before one upgrade (no return to 0.2.0 this time):
+
+- On 0.2.0 as published: both Drafts trained and imported; the settings saved; task A's uncut model served as an
+  asset (200).
+- The upgrade during task B's Continue (step 3,390): the record stood still for 76 s; SplatMe's pages, opened with
+  GET only, revived it and it imported into `data/splatme/`. The same visit moved A's idle model there with its
+  times kept; A's asset URL then 404 (200 after the restart, before SplatMe looked). Settings as before (B's record
+  and `shown::<B>` the only changes); the token still the node's.
+- On 0.3.0, task A: edits saved, `floaters` answered, Apply in 12 s (7,976 cropped, 3,124 edited), a second
+  Apply canceled with `model.rad` unchanged, Download .ply 384,901 splats (kept file: 0.21 s against 0.77 s),
+  `model` the trained `.ply`. Then a Continue with WebODM's worker restarted mid-training: revived by the pages,
+  imported with the edits (13,878 edited), and `apply` was then null: Edit Splats showed no Apply message (the
+  fix), drawn with the GPU browser, without console errors. SplatMe → Tasks and Administration → SplatMe without
+  console errors.
+- Logs: no error or traceback in the webapp, the worker or the node; both upgrades' builds without errors; the
+  webapp logged both takeovers.
+- Cleaned up the same way; nothing of the throwaway left, the dev stack untouched.
 
 ### Release review of 0.2.0 (done)
 
