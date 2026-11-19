@@ -7,6 +7,8 @@ import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
 const POLL = 2000;  // ms between looks at an Apply Edits that runs
+const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
+const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
 const AXES = ["X", "Y", "Z"];
 const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette"};
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
@@ -40,9 +42,11 @@ export default class Editor extends React.Component {
         window.addEventListener("beforeunload", this.handleLeave);
         request("GET", "task/" + this.props.taskId + "/edits").then(info => {
             if (!this._mounted) return;
+            this.savedEdits = info.edits;
             this.setState({info, edits: info.edits, apply: info.apply});
             if (info.model && info.model.size <= LARGE_MODEL) this.loadModel();
             if (info.apply && info.apply.state === "applying") this.poll();
+            if (info.training) this.followTraining();
         }).catch(e => {
             if (this._mounted) this.setState({error: e.message});
         });
@@ -70,7 +74,9 @@ export default class Editor extends React.Component {
             const count = this.viewer.setFloaters(found.removed);
             this.setState({floaters: {strength, count}, floatersError: null});
         }).catch(e => {
-            if (this._mounted && floatersStrength(this.state.edits) === strength) this.setState({floatersError: e.message});
+            // The server's reason says what failed; a request that never got there does not
+            const text = e.status ? e.message : _("The floaters could not be found:") + " " + e.message;
+            if (this._mounted && floatersStrength(this.state.edits) === strength) this.setState({floatersError: text});
         });
     }
 
@@ -79,6 +85,7 @@ export default class Editor extends React.Component {
         window.removeEventListener("beforeunload", this.handleLeave);
         clearTimeout(this.saveTimer);
         clearTimeout(this.pollTimer);
+        clearTimeout(this.trainingTimer);
         if (this.viewer) this.viewer.dispose();
     }
 
@@ -118,9 +125,19 @@ export default class Editor extends React.Component {
         });
     };
 
-    // A change of the edits from the panel: remembered for Undo, shown, saved shortly
-    change(edits, selected){
-        this.history.push(this.state.edits);
+    // After a failed load: the view made anew
+    reload = () => {
+        if (this.viewer){
+            this.viewer.dispose();
+            this.viewer = null;
+        }
+        this.loadModel();
+    };
+
+    // A change of the edits from the panel: remembered for Undo (unless it goes on the last change: merge), shown,
+    // saved shortly
+    change(edits, selected, merge){
+        if (!merge) this.history.push(this.state.edits);
         this.setState({edits, selected, drafts: {}});
         if (this.viewer) this.viewer.setEdits(edits, selected);
         this.queueSave();
@@ -227,18 +244,30 @@ export default class Editor extends React.Component {
         this.saveTimer = setTimeout(this.save, SAVE_AFTER);
     }
 
+    // One save at a time, so they reach the server in order: one asked for while another runs follows it. Answers
+    // once the edits as they are now are saved.
     save = () => {
         clearTimeout(this.saveTimer);
+        if (this.saving) return this.saving.catch(() => null).then(() => this.save());
         const edits = this.state.edits;
+        if (edits === this.savedEdits && !this.state.saveError){
+            this.setState({saved: true});
+            return Promise.resolve();
+        }
         this.setState({saving: true});
-        return request("PUT", "task/" + this.props.taskId + "/edits", {edits}).then(() => {
+        this.saving = request("PUT", "task/" + this.props.taskId + "/edits", {edits}).then(info => {
+            this.saving = null;
+            this.savedEdits = edits;
             if (!this._mounted) return;
             // Saved unless they changed while the request ran
-            this.setState({saving: false, saveError: null, saved: this.state.edits === edits});
-        }).catch(e => {
+            this.setState({saving: false, saveError: null, saved: this.state.edits === edits,
+                           info: {...this.state.info, applied: info.applied}});
+        }, e => {
+            this.saving = null;
             if (this._mounted) this.setState({saving: false, saveError: e.message});
             throw e;
         });
+        return this.saving;
     };
 
     addBox = () => {
@@ -309,7 +338,12 @@ export default class Editor extends React.Component {
         }
         const edits = this.state.edits.slice();
         edits[index] = box;
-        this.change(edits, index);
+        // A field's typing is one Undo step, as a box's drag is
+        const now = Date.now();
+        const merge = this.fieldKey === index + key && now - this.fieldTime < 1000;
+        this.fieldKey = index + key;
+        this.fieldTime = now;
+        this.change(edits, index, merge);
         this.setState({drafts});
     }
 
@@ -319,8 +353,18 @@ export default class Editor extends React.Component {
             if (!this._mounted) return;
             this.setState({starting: false, apply: status.apply});
             if (status.apply && status.apply.state === "applying") this.poll();
+            else this.refresh();
         }).catch(e => {
             if (this._mounted) this.setState({starting: false, applyError: e.message});
+        });
+    };
+
+    cancelApply = () => {
+        this.setState({canceling: true, applyError: null});
+        request("POST", "task/" + this.props.taskId + "/apply", {cancel: true}).then(status => {
+            if (this._mounted) this.setState({canceling: false, apply: status.apply});
+        }).catch(e => {
+            if (this._mounted) this.setState({canceling: false, applyError: e.message});
         });
     };
 
@@ -331,10 +375,31 @@ export default class Editor extends React.Component {
                 if (!this._mounted) return;
                 this.setState({apply: status.apply});
                 if (status.apply && status.apply.state === "applying") this.poll();
-            }).catch(() => {
-                if (this._mounted) this.poll();  // WebODM restarting: look again
+                else this.refresh();
+            }).catch(e => {
+                if (!this._mounted) return;
+                if (e.status) this.setState({applyError: e.message});  // the session ended, the task is gone
+                else this.poll();  // WebODM restarting: look again
             });
         }, POLL);
+    }
+
+    // What the server says of the edits now: whether the model was made with them, whether a training runs
+    refresh(){
+        return request("GET", "task/" + this.props.taskId + "/edits").then(info => {
+            if (this._mounted) this.setState({info: {...this.state.info, applied: info.applied, training: info.training}});
+            return info;
+        }).catch(() => null);
+    }
+
+    // A training running when the page opened keeps Apply disabled until it ends
+    followTraining(){
+        clearTimeout(this.trainingTimer);
+        this.trainingTimer = setTimeout(() => {
+            this.refresh().then(info => {
+                if (this._mounted && (!info || info.training)) this.followTraining();
+            });
+        }, TRAINING_POLL);
     }
 
     renderBoxFields(box){
@@ -342,7 +407,7 @@ export default class Editor extends React.Component {
         const field = (name, axis, value, step) => {
             const key = name + axis;
             return (
-                <input type="number" step={step} className="form-control input-sm" aria-label={name + " " + (AXES[axis] || "")}
+                <input type="number" step={step} className="form-control input-sm" aria-label={_(FIELD_NAMES[name]) + (axis !== "" ? " " + AXES[axis] : "")}
                        value={key in drafts ? drafts[key] : value} onChange={e => this.setField(name, axis, e.target.value)} />
             );
         };
@@ -387,7 +452,7 @@ export default class Editor extends React.Component {
 
     renderList(){
         const { edits, selected, info } = this.state;
-        if (!edits.length) return <p className="splatme-editor-empty">{_("No edits yet. Add a box or draw a polygon around what to keep, or around what to remove.")}</p>;
+        if (!edits.length) return <p className="splatme-editor-empty">{_("No edits yet. The tools above keep or remove parts of the model, or adjust its colours.")}</p>;
         return (
             <ul className="list-group splatme-editor-list">
                 {edits.map((edit, i) => (
@@ -460,7 +525,6 @@ export default class Editor extends React.Component {
         const colour = selected >= 0 && edits[selected] && edits[selected].type === "colour" ? edits[selected] : null;
         return (
             <div className="splatme-editor-panel">
-                {!info.can_edit ? <p className="text-warning">{_("Only those who may change this project edit its splats.")}</p> : ""}
                 <div className="splatme-editor-tools">
                     <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.addBox}>
                         <i className="fa fa-cube fa-fw"></i> {_("Add Box")}
@@ -553,22 +617,35 @@ export default class Editor extends React.Component {
                                 title={_("Make the task's splat model again from its trained model, with these edits")} onClick={this.apply}>
                             <i className={(applying || starting ? "fa fa-circle-notch fa-spin" : "fa fa-check") + " fa-fw"}></i> {_("Apply")}
                         </button>
-                        {this.renderDownload()}
+                        {applying ?
+                            <button type="button" className="btn btn-sm btn-default" disabled={this.state.canceling} onClick={this.cancelApply}
+                                    title={_("Stop applying the edits: the task's model stays as it was")}>
+                                <i className="fa fa-times fa-fw"></i> {_("Cancel")}
+                            </button> : this.renderDownload()}
                         {info.training ? <p className="text-warning">{_("The task's splats are being trained: apply the edits when the training is done.")}</p> : ""}
                         {apply ? <p className={apply.state === "failed" ? "text-danger" : ""}>{applyText(apply)}</p> : ""}
+                        {info.applied === false && !applying ?
+                            <p className="text-warning">{_("The edits changed since the task's model was made: Apply them for its 3D view and share links to show them.")}</p> : ""}
                         {applyError ? <p className="text-danger">{applyError}</p> : ""}
                         {apply && apply.state === "completed" ?
                             <a className="btn btn-sm btn-default" href={"/3d/project/" + info.project + "/task/" + this.props.taskId + "/?t=splats"}>
                                 <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                             </a> : ""}
-                    </div> : <div className="splatme-editor-apply">{this.renderDownload()}</div>}
+                    </div> : ""}
             </div>
         );
     }
 
     renderViewNote(){
         const { info, loading, loaded, progress, error } = this.state;
-        if (error) return <div className="splatme-editor-note text-danger">{error}</div>;
+        if (error){
+            return (
+                <div className="splatme-editor-note">
+                    <p className="text-danger">{error}</p>
+                    {info && info.model ? <button type="button" className="btn btn-default" onClick={this.reload}>{_("Try Again")}</button> : ""}
+                </div>
+            );
+        }
         if (loading) return <div className="splatme-editor-note"><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading the trained model")}{progress != null ? " (" + progress + "%)" : ""}</div>;
         if (!loaded && info && info.model && info.model.size > LARGE_MODEL){
             return (
@@ -583,13 +660,28 @@ export default class Editor extends React.Component {
 
     render(){
         const { info, error, loaded } = this.state;
+        const heading = (
+            <div>
+                <h3><i className="fa fa-splat fa-fw"></i> {_("Edit Splats")}{info ? ": " + (info.name || this.props.taskId) : ""}</h3>
+                <p><a href="../../">{_("Back to SplatMe Tasks")}</a></p>
+            </div>
+        );
         if (!info){
-            return error ? <p className="text-danger">{error}</p> : <p><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading")}</p>;
+            return <div>{heading}{error ? <p className="text-danger">{error}</p> : <p><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading")}</p>}</div>;
+        }
+        if (!info.can_edit){
+            // The trained model, uncut, is only for those who may edit
+            return (
+                <div>
+                    {heading}
+                    <p className="text-warning">{_("Only those who may change this task's project may edit its splats.")}</p>
+                    {!info.editable ? <div className="splatme-editor-apply">{this.renderDownload()}</div> : ""}
+                </div>
+            );
         }
         return (
             <div>
-                <h3><i className="fa fa-splat fa-fw"></i> {_("Edit Splats")}: {info.name || this.props.taskId}</h3>
-                <p><a href="../../">{_("Back to SplatMe Tasks")}</a></p>
+                {heading}
                 {info.editable ? <p className="text-warning">{info.editable}</p> :
                     <div className="splatme-editor">
                         <div className="splatme-editor-view" ref={el => { this.view = el; }}>

@@ -6,4 +6,4 @@ djangorestframework==3.18.3
 ruff==0.17.3
 # The docs site (zensical serve, zensical build); the release builds it from docs/requirements.txt, the same
 # version with hashes
-zensical==0.1.1
+zensical==0.1.2

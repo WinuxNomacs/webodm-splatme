@@ -128,8 +128,24 @@ which creates a task that trains by itself when its processing completes.
 ## Upgrade
 
 Upgrade between trainings: a training running during an upgrade picks up again or fails with a message. Your
-settings, users' options, tasks' trainings and trained models are kept: they are in WebODM's database and in the
-tasks, not in the plugin's folder.
+settings, users' options, tasks' trainings, trained models and edits are kept: they are in WebODM's database and in
+the tasks, not in the plugin's folder.
+
+### From 0.2.x to 0.3.0
+
+The splat node is unchanged (0.2.2): only the plugin.
+
+1. **The plugin**, on **Administration → Plugins**:
+    - If **Install Plugins** shows **Update** for SplatMe, press it.
+    - Otherwise delete SplatMe (its row's bin), then send `splatme-0.3.0.zip` from the
+      [latest release](https://github.com/WinuxNomacs/webodm-splatme/releases/latest) with **Load Plugin
+      (.zip)**.
+2. **Restart WebODM once**, with the options it was started with, as in a [fresh install](#3-restart-webodm-once).
+   Until then, **Apply** and **Continue From Step** fail: WebODM's worker still runs the old plugin, which looks
+   for the trained models where 0.2 kept them.
+
+**You should see**, on **SplatMe → Tasks**, **Edit** and **Download .ply** beside **View in 3D** on each task
+SplatMe trained.
 
 ### From 0.1.x to 0.2.0
 
@@ -159,5 +175,5 @@ as an update replaces the plugin's folder.
 
 ### Later Versions
 
-The same three steps. The [changelog](changelog.md) says when a release needs a newer splat node; **Test
+The steps of 0.1.x to 0.2.0: the plugin, a restart of WebODM, the splat node. The [changelog](changelog.md) says when a release needs a newer splat node; **Test
 Connection** on **Administration → SplatMe** also says when the node is too old.

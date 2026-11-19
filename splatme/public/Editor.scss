@@ -187,6 +187,17 @@
             flex: none;
             max-height: none;
         }
+
+        // While drawing or painting, the instructions and Finish, Done or Cancel stay in sight with the view: the
+        // panel is below it
+        .splatme-editor-drawing{
+            position: fixed;
+            left: 16px;
+            right: 16px;
+            bottom: 8px;
+            z-index: 10;
+            margin: 0;
+        }
     }
 }
 

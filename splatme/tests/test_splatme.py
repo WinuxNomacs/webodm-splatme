@@ -2,6 +2,7 @@
 Tests of the SplatMe plugin: it registers, and it trains a task's splats through a splat node (a stand-in
 here, tests/fake_node.py; WebODM's tests run a worker's job inside the request that starts it).
 """
+import fcntl
 import io
 import json
 import math
@@ -1106,9 +1107,12 @@ class TestSplatMe(BootTestCase):
         self.assertIsNone(data["editable"])
         self.assertTrue(data["can_edit"])
         self.assertEqual(data["model"]["splats"], 4)
-        self.assertTrue(data["model"]["url"].endswith(f"/tasks/{task.id}/assets/splats/splatme-model.ply"))
-        # WebODM serves it there
-        self.assertEqual(self.client.get(data["model"]["url"]).status_code, 200)
+        self.assertEqual(data["model"]["url"], f"{API}/task/{task.id}/model")
+        res = self.client.get(data["model"]["url"])
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(b"".join(res.streaming_content)[:3], b"ply")
+        for close in res._resource_closers:  # the file; res.close() would close the test's database connection too
+            close()
         res = self.put_edits(task, [self.box((1, 2, 3), (4, 5, 6), turn=-90), self.polygon([(0, 0), (1, 0), (1, 1)])])
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data["edits"][0]["center"], [1, 2, 3])
@@ -1540,8 +1544,14 @@ class TestSplatMe(BootTestCase):
         return res
 
     def downloads(self):
+        """What the downloads' folder holds besides the locks, as task/name."""
         path = training.get_plugins_persistent_path(training.NAME, training.DOWNLOADS)
-        return sorted(os.listdir(path)) if os.path.isdir(path) else []
+        if not os.path.isdir(path):
+            return []
+        return sorted(
+            f"{task}/{name}" for task in os.listdir(path) for name in os.listdir(os.path.join(path, task))
+            if name != training.LOCK
+        )  # fmt: skip
 
     def test_download_gives_the_model_with_the_saved_edits_and_changes_nothing(self):
         task, header, rows = self.coloured_task()
@@ -1567,17 +1577,25 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.model(task), b"shown before")
         with open(training.trained_model(task), "rb") as f:
             self.assertEqual(f.read(), header + rows.tobytes())
-        self.assertEqual(self.downloads(), [])
         self.assertIsNone(training.get_apply(task.id))
-        # A folder a stopped server left is removed by the next download; one being made now stays
+        # The file made is kept for the next download
         parent = training.get_plugins_persistent_path(training.NAME, training.DOWNLOADS)
         self.addCleanup(shutil.rmtree, parent, ignore_errors=True)
+        (made,) = self.downloads()
+        self.assertTrue(made.startswith(f"{task.id}/") and made.endswith(".ply"))
+        # A work folder a stopped server left, and a download not asked for in a day, go at the next download; a
+        # work folder in use stays
+        folder = training.download_dir(task.id)
         for name in ("old", "new"):
-            os.makedirs(os.path.join(parent, name))
+            os.makedirs(os.path.join(folder, name))
+        with open(os.path.join(folder, "unused.ply"), "wb") as f:
+            f.write(b"ply")
         old = time.time() - training.DOWNLOAD_LEFTOVER - 10
-        os.utime(os.path.join(parent, "old"), (old, old))
+        os.utime(os.path.join(folder, "old"), (old, old))
+        old = time.time() - training.DOWNLOAD_KEEP - 10
+        os.utime(os.path.join(folder, "unused.ply"), (old, old))
         self.assertEqual(self.download(task).status_code, 200)
-        self.assertEqual(self.downloads(), ["new"])
+        self.assertEqual(self.downloads(), sorted([made, f"{task.id}/new"]))
 
     def test_a_download_that_cannot_be_made_says_why_and_leaves_nothing(self):
         task, _, _ = self.trained_task(self.GRID)
@@ -1595,11 +1613,13 @@ class TestSplatMe(BootTestCase):
             res = self.download(task)
         self.assertEqual(res.status_code, 400)
         self.assertIn("floaters could not be found: MemoryError", res.body.decode())
-        with mock.patch.object(training.crop, "crop_ply", side_effect=OSError(28, "No space left on device")):
+        with mock.patch.object(training.crop, "crop_ply", side_effect=OSError(28, "No space left on device", "/webodm/x")):
             self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
             res = self.download(task)
         self.assertEqual(res.status_code, 400)
-        self.assertIn("No space left on device", res.body.decode())
+        # The server's paths stay in its log
+        self.assertIn("could not write or read it", res.body.decode())
+        self.assertNotIn("/webodm", res.body.decode())
         self.assertEqual(self.downloads(), [])
         self.assertEqual(self.converted, [])
         # A task whose model SplatMe did not train
@@ -1617,6 +1637,231 @@ class TestSplatMe(BootTestCase):
         res = self.download(task, client=other)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.body, header + rows.tobytes())
+
+    # Found by the release review of 0.3.0
+
+    def test_the_trained_model_is_kept_out_of_the_tasks_assets_and_only_editors_load_it(self):
+        task, _, _ = self.trained_task()
+        path = training.trained_model(task)
+        self.assertEqual(path, task.data_path("splatme", "splatme-model.ply"))
+        self.assertTrue(os.path.isfile(path))
+        self.assertTrue(os.path.isfile(task.data_path("splatme", "splatme-model.json")))
+        self.assertFalse(os.path.exists(task.assets_path("splats", "splatme-model.ply")))
+        # A public task: its viewers see the edits, not the uncut model
+        Task.objects.filter(pk=task.pk).update(public=True)
+        res = self.put_edits(task, [self.floaters()])
+        self.assertEqual(res.status_code, 200, res.data)
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        for client in (APIClient(), other):
+            data = client.get(self.edits_url(task)).data
+            self.assertFalse(data["can_edit"])
+            self.assertIsNone(data["model"])
+            self.assertEqual(data["edits"], [self.floaters()])
+            self.assertEqual(client.get(f"{API}/task/{task.id}/model").status_code, 404)
+            self.assertEqual(client.get(f"{API}/task/{task.id}/floaters?strength=light").status_code, 404)
+            assets = f"/api/projects/{task.project.id}/tasks/{task.id}/assets/splats/splatme-model.ply"
+            self.assertEqual(client.get(assets).status_code, 404)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/floaters?strength=light").status_code, 200)
+
+    def test_a_model_trained_by_0_2_is_moved_out_of_the_assets_keeping_its_time(self):
+        task, header, rows = self.trained_task()
+        model, options = training.trained_model(task), training.trained_options_file(task)
+        when = os.path.getmtime(model)
+        old = task.assets_path("splats")
+        shutil.move(model, os.path.join(old, training.TRAINED_MODEL))
+        shutil.move(options, os.path.join(old, training.TRAINED_OPTIONS))
+        os.rmdir(training.trained_dir(task))
+        data = self.client.get(self.edits_url(task)).data
+        self.assertIsNone(data["editable"])
+        self.assertEqual(data["model"]["splats"], 4)
+        self.assertFalse(os.path.exists(os.path.join(old, training.TRAINED_MODEL)))
+        self.assertFalse(os.path.exists(os.path.join(old, training.TRAINED_OPTIONS)))
+        self.assertEqual(os.path.getmtime(model), when)
+        with open(model, "rb") as f:
+            self.assertEqual(f.read(), header + rows.tobytes())
+        self.assertTrue(os.path.isfile(options))
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"], 10)
+
+    def test_processing_the_task_again_deletes_its_trained_model(self):
+        task, _, _ = self.trained_task()
+        # A task that completes with its splats (imported with them) keeps it
+        training.completed(task.id)
+        self.assertTrue(os.path.isfile(training.trained_model(task)))
+        # Processed again: WebODM deleted its assets, the splats with them
+        shutil.rmtree(task.assets_path("splats"))
+        task.refresh_from_db()
+        task.update_available_assets_field()
+        task.save()
+        training.completed(task.id)
+        self.assertFalse(os.path.exists(training.trained_dir(task)))
+
+    def test_a_download_is_made_once_until_the_edits_or_the_model_change_and_one_at_a_time(self):
+        task, _, _ = self.trained_task()
+        parent = training.get_plugins_persistent_path(training.NAME, training.DOWNLOADS)
+        self.addCleanup(shutil.rmtree, parent, ignore_errors=True)
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        with mock.patch.object(training.crop, "crop_ply", wraps=training.crop.crop_ply) as cut:
+            first = self.download(task).body
+            self.assertEqual(self.download(task).body, first)
+            self.assertEqual(cut.call_count, 1)
+            (made,) = self.downloads()
+            # Other edits: made again, and the file of the old ones goes
+            self.put_edits(task, [self.box((0, 0, 5), (1, 1, 1), keep=False)])
+            self.assertNotEqual(self.download(task).body, first)
+            self.assertEqual(cut.call_count, 2)
+            (again,) = self.downloads()
+            self.assertNotEqual(again, made)
+            # A trained model trained again (its time changed): made again
+            later = time.time() + 5
+            os.utime(training.trained_model(task), (later, later))
+            self.download(task)
+            self.assertEqual(cut.call_count, 3)
+        # While another request makes it, a download waits for it, up to a deadline
+        with open(os.path.join(training.download_dir(task.id), training.LOCK), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with mock.patch.object(training, "DOWNLOAD_WAIT", 0):
+                res = self.download(task)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("being made for another download", res.body.decode())
+        self.assertEqual(self.download(task).status_code, 200)
+        # A deleted task's go with it
+        training.removed(task.id)
+        self.assertFalse(os.path.exists(training.download_dir(task.id)))
+
+    def test_an_apply_that_waits_in_the_workers_queue_is_queued_again_not_failed(self):
+        task, _, _ = self.trained_task()
+        long_ago = time.time() - training.STALE - 1
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.apply(task)
+            self.assertEqual(len(started), 1)
+            training.change_record(training.apply_key(task.id), lambda r: r.update(updated=long_ago))
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(self.status(task)["apply"]["state"], "applying")
+            self.assertEqual(len(started), 2)
+            # The first job, started late, finds its run gone and does nothing
+            training.apply(*started[0][1:])
+            self.assertEqual(training.get_apply(task.id)["state"], "applying")
+        training.apply(*started[1][1:])
+        self.assertEqual(training.get_apply(task.id)["state"], "completed")
+        # A job that never starts is queued again up to APPLY_REQUEUES times, then fails saying so
+        with mock.patch.object(training, "run_function_async"), mock.patch.object(training, "APPLY_REQUEUES", 1):
+            self.apply(task)
+            for _ in range(2):
+                training.change_record(training.apply_key(task.id), lambda r: r.update(updated=long_ago))
+                with self.captureOnCommitCallbacks(execute=True):
+                    record = training.get_apply(task.id)
+        self.assertEqual(record["state"], "failed")
+        self.assertIn("did not start", record["error"])
+        # One that started, then lost its worker, fails at once
+        with mock.patch.object(training, "run_function_async"):
+            self.apply(task)
+        training.change_record(training.apply_key(task.id), lambda r: r.update(waiting=None, updated=long_ago))
+        record = training.get_apply(task.id)
+        self.assertEqual(record["state"], "failed")
+        self.assertIn("worker stopped", record["error"])
+
+    def test_an_apply_removes_the_folders_of_earlier_runs_whose_worker_was_killed(self):
+        task, _, _ = self.trained_task()
+        left = training.apply_dir(task.id, "killed")
+        os.makedirs(left)
+        with open(os.path.join(left, "shown.ply"), "wb") as f:
+            f.write(b"ply")
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["state"], "completed")
+        self.assertFalse(os.path.exists(training.apply_dir(task.id)))
+
+    def test_the_page_is_told_whether_the_model_was_made_with_the_saved_edits(self):
+        task, _, _ = self.trained_task()
+
+        def applied():
+            return self.client.get(self.edits_url(task)).data["applied"]
+
+        self.assertTrue(applied())  # trained with none
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        self.assertFalse(applied())
+        self.apply(task)
+        self.assertTrue(applied())
+        self.put_edits(task, [])
+        self.assertFalse(applied())
+        self.apply(task)
+        self.assertTrue(applied())
+        # Not known for a model made before SplatMe 0.3
+        training.store().del_key(training.shown_key(task.id))
+        self.assertIsNone(applied())
+        # A training that goes on without edits that do not read was not made with them
+        training.store().set_json(edits.edits_key(task.id), [{"type": "brush"}])
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertFalse(applied())
+
+    def cancel_apply(self, task, client=None):
+        return (client or self.client).post(f"{API}/task/{task.id}/apply", {"cancel": True}, format="json")
+
+    def test_cancel_stops_an_apply_and_keeps_the_tasks_model(self):
+        task, _, _ = self.trained_task()
+        self.put_model(task, b"shown before")
+        os.utime(training.trained_model(task))
+        self.put_edits(task, [self.box((3, 0, 5), (1, 1, 1), keep=False)])
+        # Canceled while it waits in the worker's queue: its job, when it starts, does nothing
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.apply(task)
+        res = self.cancel_apply(task)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["apply"]["state"], "canceled")
+        training.apply(*started[0][1:])
+        self.assertEqual(self.converted, [])
+        self.assertEqual(training.get_apply(task.id)["state"], "canceled")
+        self.assertFalse(os.path.exists(training.apply_dir(task.id)))
+        # Canceled while it cuts the model, a row a chunk here: no other chunk is cut, nothing is converted
+        cut, chunks = edits.keep_mask, []
+
+        def cancel_on_the_way(*args):
+            chunks.append(1)
+            training.cancel_apply(task.id)
+            return cut(*args)
+
+        with mock.patch.object(training.crop, "ROWS", 1), mock.patch.object(edits, "keep_mask", side_effect=cancel_on_the_way):
+            self.apply(task)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(self.converted, [])
+        self.assertEqual(training.get_apply(task.id)["state"], "canceled")
+        # Canceled while it converts (or its record lost then): the model is not replaced
+        with mock.patch.object(training, "convert", side_effect=lambda *a: (training.cancel_apply(task.id), self.convert(*a))):
+            self.apply(task)
+        self.assertEqual(len(self.converted), 1)
+        self.assertEqual(training.get_apply(task.id)["state"], "canceled")
+        self.assertEqual(self.model(task), b"shown before")
+        self.assertFalse(os.path.exists(training.apply_dir(task.id)))
+        # Nothing to cancel: the last Apply stays as it was; and only those who may edit may cancel
+        self.apply(task)
+        self.assertEqual(self.status(task)["apply"]["state"], "completed")
+        self.assertEqual(self.cancel_apply(task).data["apply"]["state"], "completed")
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        self.assertEqual(self.cancel_apply(task, client=other).status_code, 404)
+
+    def test_crafted_edits_are_refused_with_the_reason(self):
+        task, _, _ = self.trained_task()
+        for items, reason in [
+            ([{"type": "floaters", "strength": []}], "Light, Medium or Strong"),
+            ([self.box((10**400, 0, 0), (1, 1, 1))], "out of range"),
+        ]:
+            res = self.put_edits(task, items)
+            self.assertEqual(res.status_code, 400, items)
+            self.assertIn(reason, res.data["error"])
+        res = self.client.put(self.edits_url(task), [1, 2], format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("must be a list", res.data["error"])
+        # A trained model whose header does not read: the page is told, not an error
+        with open(training.trained_model(task), "r+b") as f:
+            f.write(b"junk")
+        data = self.client.get(self.edits_url(task)).data
+        self.assertIn("could not be read", data["editable"])
+        self.assertIsNone(data["model"])
 
     def test_floaters_that_cannot_be_found_fail_apply_and_a_training_goes_on_without_the_edits(self):
         task, header, rows = self.trained_task(self.GRID)

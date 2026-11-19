@@ -271,7 +271,7 @@ export default class Tasks extends React.Component {
         const shown = projects.filter(p => !known || String(p.id) === known);
         return (
             <div className="splatme-tasks">
-                <p>{_("Create a task whose Gaussian splats are trained when it completes processing, train a completed task's splats on the splat node, follow a training, and choose whether a task is trained when it completes.")}</p>
+                <p>{_("Create a task whose Gaussian splats are trained when it completes processing, train a completed task's splats on the splat node, follow a training, choose whether a task is trained when it completes, and edit or download a trained model.")}</p>
                 <input type="file" multiple accept={ACCEPT} className="hidden" ref={el => { this.fileInput = el; }} onChange={this.handlePicked} />
                 {error ? <div className="alert alert-warning">{error}</div> : ""}
                 {newTask ?

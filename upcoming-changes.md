@@ -9,8 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Fixes from the release review of 0.3.0, then the release branch and the release check. See "Fixes from
-   the release review of 0.3.0".
+1. The 0.3.0 release: its branch (version, changelog), then the release check (0.2.0 upgraded to 0.3.0 on a
+   throwaway WebODM). The node is unchanged (0.2.2).
 
 The rest of the UX review, "10. UX review", is possible for later.
 
@@ -48,6 +48,9 @@ The rest of the UX review, "10. UX review", is possible for later.
 
 **Done**
 
+- Fixes from the release review of 0.3.0 (2026-11-19): A, B, C, E, G, I, M, N, O, P, Q, R, S, T, U, V, the
+  documentation, and Cancel for Apply (D, the user's choice, which also covers F). See "Fixes from the release
+  review of 0.3.0 (built)".
 - Restore Brush (2026-11-19, from the UX review the same day), on Edit Splats: Remove and Restore in the Brush's
   panel; the edits now apply in their list's order. With it, the docs for WebODM's own start view and for the
   download's orientation (Level Ground and Set North dropped). Code: `splatme/edits.py` (`clean_brush`,
@@ -743,7 +746,7 @@ Each with a test seen failing first, then passing (Django 99, Jest 75 with `__te
   and v0.2.1).
 - **The documentation**: the corrections and removals listed in the review, and `admin.png` retaken (node 0.2.2).
 
-### Fixes from the release review of 0.3.0 (planned)
+### Fixes from the release review of 0.3.0 (built)
 
 **Decided with the user (2026-11-19):** the recommended set: A, B, C, M, N, O, P, the low E, G, I, Q, R, S, T, U,
 V and the documentation; D measured first, then decided with the user; F, H, J, K, W and X wait. The check task
@@ -787,6 +790,32 @@ anyone who may see the task, its file kept per task until the edits or the model
   Started; the screenshots of SplatMe → Tasks and Edit Splats taken again once the pages are fixed.
 - D. The worst cases Apply allows timed on the dev machine (a model of a few million splats, lassos at 2,000
   corners, brushes at 20,000 points); the times go to the user, who decides on lower limits or a cancel.
+
+**Built (2026-11-19)**, on branch `fix-review-server`:
+
+- D measured in the dev stack's web container, on a million synthetic splats: a box 0.04 s; a polygon or lasso of
+  2,000 corners 3.7 to 3.8 s; a brush stroke of 20,000 points 3.8 s; 500 strokes of 40 points 4.5 s. So 200
+  maximal edits take about 15 minutes a million splats. The user chose a Cancel: `POST task/<id>/apply` with
+  `cancel` marks the record canceled and clears its run; the job checks its run before each chunk of the cut and
+  after the conversion, so it stops, or does not replace the model. The same check covers F. Edit Splats has
+  Cancel beside Apply's progress.
+- Q needs nothing more: with A, a user who may not edit never gets the editor or the model.
+- L: Getting Started's 0.2 to 0.3 section says why the restart matters (an old worker looks for the trained models
+  where 0.2 kept them: seen live, an Apply failed "not trained by SplatMe" until `sm-worker` restarted).
+- Code: `training.py` (`trained_dir`, `trained_model`'s move, `completed`, `shown_current`, `set_shown`,
+  `edited_model` with `download_dir`, `clear_downloads`, `download_name`, `get_apply`'s requeue, `check_apply`,
+  `cancel_apply`), `edits.py` (`fingerprint`, `get_with_fingerprint`, the checks of G), `api.py` (`Model`, the
+  floaters and the edits for editors, file errors, Apply's cancel), `plugin.py`; `Editor.jsx`, `editor/viewer.js`
+  (`fetchBytes`, `onPointerCancel`), `editShapes.js` (`plyPositions`, `applyText`), `Editor.scss`, `Tasks.jsx`;
+  `splatme/LICENSE`; the vendored Spark and its README; `package.json`, `requirements-dev.txt`,
+  `docs/requirements.txt`; the docs and two screenshots.
+- Tests: 10 new Django tests (146 in all), each seen failing on the code before its fix; 4 new Jest tests (124),
+  the reader's seen failing without it. Ruff, ESLint, the docs' strict build: clean.
+- Live, on copies of the check task (deleted after), headless with the GPU: the model loads through SplatMe's
+  request; the view counts 10,028 splats outside the boundary, the server's own count (10,030 before N); Escape
+  frees the panel; the notice shows after a change and clears after Apply; Cancel stops an Apply and keeps the
+  model; at 320 px the drawing controls stay in sight; a plain user who may not see the task gets the heading,
+  the link back and the reason; no console error.
 
 ### Release review of 0.3.0 (done)
 

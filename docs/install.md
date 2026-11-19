@@ -61,11 +61,12 @@ Between trainings: a training running during an upgrade picks up again or fails 
 - **The plugin**: its row's bin on Administration → Plugins removes the plugin's folder, with the sky model it
     downloaded. It leaves:
     - **The trained models**: each task keeps its model in its 3D view, as a model uploaded by hand, and the
-      model as the trainer wrote it (`assets/splats/splatme-model.ply`, with the options it was trained with in
-      `splatme-model.json`, kept for continuing a training), all deleted with the task. To delete only the kept
-      ones (the tasks then cannot be continued):
-      `docker exec webapp sh -c 'rm -f /webodm/app/media/project/*/task/*/assets/splats/splatme-model.*'`.
+      model as the trainer wrote it (`data/splatme/splatme-model.ply` in the task's folder, with the options it
+      was trained with in `splatme-model.json`, kept for continuing a training and for editing), all deleted
+      with the task. To delete only the kept ones (the tasks then cannot be continued or edited; 0.2 kept them in
+      `assets/splats`):
+      `docker exec webapp sh -c 'rm -rf /webodm/app/media/project/*/task/*/data/splatme /webodm/app/media/project/*/task/*/assets/splats/splatme-model.*'`.
     - **SplatMe's settings and records** in WebODM's database (the node's address and token, the
-      administrators' defaults, users' options, each task's training), which a reinstall finds again. To delete
-      them:
+      administrators' defaults, users' options, each task's training and edits), which a reinstall finds again.
+      To delete them:
       `docker exec webapp python manage.py shell -c "from app.models import PluginDatum; PluginDatum.objects.filter(key__startswith='splatme::').delete()"`.

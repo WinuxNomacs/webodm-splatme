@@ -29,6 +29,8 @@ and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-
 - **[Getting Started](getting-started.md)**: a fresh install from start to a first trained model, and an upgrade.
 - [Install, Upgrade, Uninstall](install.md): the reference for each, and what an uninstall leaves.
 - [Using SplatMe](using.md): training, its options, following a training, and training automatically.
+- [Editing Splats](editing.md): cropping a trained model, removing floaters, adjusting its colours, and
+  downloading it.
 - [The Splat Node](splat-node.md): the GPU container, its settings and API, and HTTPS to a node on another
   machine.
 - [How It Works](how-it-works.md): what SplatMe takes from WebODM, and how OpenSplat trains a model from it.
@@ -46,3 +48,5 @@ SplatMe is built on these projects:
 - **[Splat-Tools](https://github.com/uav4geo/Splat-Tools)**: the conversion WebODM runs on a trained model for its
   3D view.
 - **[PyTorch](https://pytorch.org)**: libtorch, which OpenSplat trains with.
+- **[Spark](https://github.com/sparkjsdev/spark)** and **[three.js](https://threejs.org)**: the 3D view of Edit
+  Splats.
