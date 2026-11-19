@@ -1111,7 +1111,8 @@ class TestSplatMe(BootTestCase):
         res = self.client.get(data["model"]["url"])
         self.assertEqual(res.status_code, 200)
         self.assertEqual(b"".join(res.streaming_content)[:3], b"ply")
-        res.file_to_stream.close()
+        for close in res._resource_closers:  # the file; res.close() would close the test's database connection too
+            close()
         res = self.put_edits(task, [self.box((1, 2, 3), (4, 5, 6), turn=-90), self.polygon([(0, 0), (1, 0), (1, 1)])])
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data["edits"][0]["center"], [1, 2, 3])
@@ -1647,9 +1648,9 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(os.path.isfile(task.data_path("splatme", "splatme-model.json")))
         self.assertFalse(os.path.exists(task.assets_path("splats", "splatme-model.ply")))
         # A public task: its viewers see the edits, not the uncut model
-        task.public = True
-        task.save()
-        self.put_edits(task, [self.floaters()])
+        Task.objects.filter(pk=task.pk).update(public=True)
+        res = self.put_edits(task, [self.floaters()])
+        self.assertEqual(res.status_code, 200, res.data)
         other = APIClient()
         other.login(username="testuser2", password="test1234")
         assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
@@ -1690,6 +1691,7 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(os.path.isfile(training.trained_model(task)))
         # Processed again: WebODM deleted its assets, the splats with them
         shutil.rmtree(task.assets_path("splats"))
+        task.refresh_from_db()
         task.update_available_assets_field()
         task.save()
         training.completed(task.id)
