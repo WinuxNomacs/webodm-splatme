@@ -353,3 +353,46 @@ export function applyText(apply){
     }
     return "";
 }
+
+const PLY_TYPES = {char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4,
+    int32: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8};
+
+// The splats' positions read from the trained .ply's bytes (binary little-endian, as the trainer writes it), as Apply
+// reads them: 32-bit, where Spark's packed splats keep 16 bits, which is up to a metre out at a few hundred metres up.
+// Answers {count, xs, ys, zs}; throws for a file that is not such a .ply.
+export function plyPositions(bytes){
+    const head = String.fromCharCode.apply(null, bytes.subarray(0, Math.min(bytes.length, 16384)));  // ASCII
+    const end = head.indexOf("end_header\n");
+    if (!head.startsWith("ply\n") || end < 0) throw new Error("The trained model is not a .ply file.");
+    let count = null, stride = 0, element = null;
+    const offsets = {};
+    for (const line of head.slice(0, end).split("\n")){
+        const words = line.trim().split(/\s+/);
+        if (words[0] === "format" && words[1] !== "binary_little_endian") throw new Error("The trained model's format is not binary little-endian.");
+        if (words[0] === "element"){
+            // The vertices first, so their rows start right after the header
+            if (element === null && words[1] !== "vertex") throw new Error("The trained model's splats are not its first element.");
+            element = words[1];
+            if (element === "vertex") count = parseInt(words[2], 10);
+        } else if (words[0] === "property" && element === "vertex"){
+            const size = PLY_TYPES[words[1]];
+            if (!size) throw new Error("The trained model has a property of a type it cannot read: " + words[1] + ".");
+            offsets[words[2]] = [stride, words[1]];
+            stride += size;
+        }
+    }
+    for (const axis of ["x", "y", "z"]){
+        if (!offsets[axis] || offsets[axis][1] !== "float" && offsets[axis][1] !== "float32") throw new Error("The trained model has no 32-bit " + axis + ".");
+    }
+    const start = end + "end_header\n".length;
+    if (!(count >= 0) || bytes.length < start + count * stride) throw new Error("The trained model is shorter than its header says.");
+    const data = new DataView(bytes.buffer, bytes.byteOffset + start, count * stride);
+    const xs = new Float32Array(count), ys = new Float32Array(count), zs = new Float32Array(count);
+    const [ox, oy, oz] = [offsets.x[0], offsets.y[0], offsets.z[0]];
+    for (let i = 0, row = 0; i < count; i++, row += stride){
+        xs[i] = data.getFloat32(row + ox, true);
+        ys[i] = data.getFloat32(row + oy, true);
+        zs[i] = data.getFloat32(row + oz, true);
+    }
+    return {count, xs, ys, zs};
+}

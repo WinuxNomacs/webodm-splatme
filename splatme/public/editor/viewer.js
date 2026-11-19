@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
-import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, BRUSH_SIZES } from "../editShapes.js";
+import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
 
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
@@ -14,6 +14,28 @@ const STROKE_PIXELS = 3;  // a lasso's corners at least this far apart
 const BRUSH_STEP = 1.25;  // the [ and ] keys' change of the brush's size
 
 // A colour of WebODM's theme (theme.css), read from an element given one of its classes: no colour is set here
+// The file at url, whole, telling onProgress({loaded, total}) as it comes
+async function fetchBytes(url, onProgress){
+    const res = await fetch(url, {credentials: "same-origin"});
+    if (!res.ok) throw new Error(res.status === 404 ? "The trained model is gone, or you may not edit it." : "The request failed (" + res.status + ").");
+    const total = parseInt(res.headers.get("Content-Length") || "0", 10) || 0;
+    const reader = res.body.getReader();
+    let bytes = new Uint8Array(total || 1 << 20), loaded = 0;
+    for (;;){
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (loaded + value.length > bytes.length){  // no length given, or a wrong one: grown
+            const more = new Uint8Array(Math.max(bytes.length * 2, loaded + value.length));
+            more.set(bytes.subarray(0, loaded));
+            bytes = more;
+        }
+        bytes.set(value, loaded);
+        loaded += value.length;
+        if (onProgress) onProgress({loaded, total});
+    }
+    return loaded === bytes.length ? bytes : bytes.slice(0, loaded);
+}
+
 function themeColor(container, className, property){
     const probe = document.createElement("span");
     probe.className = className;
@@ -395,6 +417,19 @@ export function createViewer(container, handlers){
         corners.push(point);
         drawDrawing();
     }
+    // A touch the system took over (a gesture, a call): the stroke is dropped
+    function onPointerCancel(){
+        if (brush && brush.down){
+            brush.down = false;
+            brush.points = [];
+            drawBrush();
+        } else if (lasso && lasso.down){
+            lasso.down = false;
+            lasso.points = [];
+            drawStroke();
+        }
+        pointer.down = false;
+    }
     function onDoubleClick(){
         if (drawing && drawing.corners.length >= 3) finishPolygon();
     }
@@ -415,14 +450,17 @@ export function createViewer(container, handlers){
             }
         }
         if (!drawing) return;
-        if (event.key === "Escape") cancelPolygon();
-        else if (event.key === "Enter") finishPolygon();
+        if (event.key === "Escape"){
+            cancelPolygon();
+            if (handlers.onCorners) handlers.onCorners(null);  // as Cancel does
+        } else if (event.key === "Enter") finishPolygon();
     }
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("dblclick", onDoubleClick);
     canvas.addEventListener("pointerleave", onPointerLeave);
+    canvas.addEventListener("pointercancel", onPointerCancel);
     window.addEventListener("keydown", onKey);
 
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
@@ -534,19 +572,18 @@ export function createViewer(container, handlers){
         // The model at url, loaded whole, with what the task's boundary leaves out hidden (boundary: polygons of
         // rings, empty for none): answers {splats, frame, outside} (outside: how many the boundary hides)
         async load(url, onProgress, boundary){
-            mesh = new SplatMesh({url, onProgress});
+            const bytes = await fetchBytes(url, onProgress);
+            // The positions as Apply reads them, before Spark takes the bytes (it may hand them to its worker)
+            const positions = plyPositions(bytes);
+            mesh = new SplatMesh({fileBytes: bytes, fileType: "ply"});
             scene.add(mesh);
             await mesh.initialized;
             const n = mesh.packedSplats.numSplats;
-            xs = new Float32Array(n);
-            ys = new Float32Array(n);
-            zs = new Float32Array(n);
+            if (n !== positions.count) throw new Error("The trained model read as " + n + " splats, not the " + positions.count + " of its header.");
+            ({xs, ys, zs} = positions);
             opacity = new Float32Array(n);
             rgb = new Float32Array(n * 3);
             mesh.forEachSplat((i, center, scales, quaternion, alpha, color) => {
-                xs[i] = center.x;
-                ys[i] = center.y;
-                zs[i] = center.z;
                 opacity[i] = alpha;
                 rgb[3 * i] = color.r;
                 rgb[3 * i + 1] = color.g;
@@ -606,6 +643,7 @@ export function createViewer(container, handlers){
             canvas.removeEventListener("pointermove", onPointerMove);
             canvas.removeEventListener("dblclick", onDoubleClick);
             canvas.removeEventListener("pointerleave", onPointerLeave);
+            canvas.removeEventListener("pointercancel", onPointerCancel);
             window.removeEventListener("keydown", onKey);
             transform.dispose();
             controls.dispose();
