@@ -9,8 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. A UX review of SplatMe's pages and of the editing tools (asked 2026-11-19): findings and proposals for the
-   user to choose from, then phases for what they pick. Findings recorded: see "10. UX review".
+1. Restore Brush on Edit Splats, and the docs for WebODM's own start view and the download's orientation (from
+   the UX review, chosen 2026-11-19). See "10. UX review"; the rest of the review is noted there as possible for
+   later.
 
 **Then**
 
@@ -2650,4 +2651,30 @@ not checked against a specific tool):
   download.
 - Saved views: a start view for the task's 3D view and share links.
 
-Open decisions (with the user): which findings to fix and which tools to build, and in what order.
+**Chosen by the user (2026-11-19):** Restore Brush, Level Ground and Set North, and Saved Start View; the rest
+of the findings and tools above are possible for later, not planned.
+
+- **Restore Brush**: built (the phase below). It brings back what any edit listed before it removed, Remove
+  Floaters included (the user's answer); the boundary cut of Crop to Boundary stays, as a training option.
+- **Level Ground and Set North: dropped**, on the user's condition that the download opens upright, which it
+  does. A task's splats are in its projection, already level and north-up; turning them would part them from the
+  task's point cloud, mesh and boundary in WebODM's 3D view. Checked on the check task's trained `.ply`
+  (2026-11-19): z is up (5th to 95th percentile extent 27.0 by 18.9 m across, 9.6 m high), as in Blender, which
+  is z-up too; z is the height above sea (about 201 to 211 m), so the model sits that far above Blender's
+  origin. PLY has no orientation field: a tool reads it from the axes. Not tried in Blender (not installed). The
+  docs say so under "Downloading the Edited Model".
+- **Saved Start View: WebODM's own**, docs only (the user's answer). WebODM's 3D view has "set initial camera
+  view" (`ModelView.jsx`'s `SetCameraView`, saved in the task's `potree_scene`), not shown in public views. Checked
+  live before the docs point to it.
+
+**Restore Brush, the design:**
+
+- The Brush's panel gets Remove and Restore (a toggle); a restore is a Brush edit with `restore: true`, listed as
+  "Restore Brush", "Brings back what it painted over", drawn in the keep colour.
+- The edits apply in their list's order, on the server (`edits.keep_mask`, with the floaters at their place in
+  the list) and in the preview (`editShapes.keepMask`): a removing shape or stroke takes out what it covers, Keep
+  Inside takes out the rest, a restore puts back what it covers, through to the back as the Brush. A list without
+  a restore keeps exactly what it kept before (removals in any order give the same result).
+- Tests: a box's removal restored; a restore before a removal brings nothing back; floaters restored; a Keep
+  Inside box's outside restored under a stroke; the same cases in Jest for the preview; `restore` that is not
+  true or false refused.
