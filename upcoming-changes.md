@@ -9,8 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The 0.3.0 release: its branch (version, changelog), then the release check (0.2.0 upgraded to 0.3.0 on a
-   throwaway WebODM). The node is unchanged (0.2.2).
+1. The 0.3.0 release: its branch is made (`release/0.3.0`: manifest 0.3.0, the changelog, Cancel for Apply in
+   the docs); next the release check (0.2.0 upgraded to 0.3.0 on a throwaway WebODM). The node is unchanged
+   (0.2.2).
 
 The rest of the UX review, "10. UX review", is possible for later.
 

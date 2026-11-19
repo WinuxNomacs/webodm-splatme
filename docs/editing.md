@@ -69,7 +69,8 @@ Edits are saved as you make them ("Saved" under the list); leaving the page befo
 cut to the task's boundary first when it was trained with **Crop to Boundary**, then by the edits, then
 recoloured by **Colour Adjust**. It takes as long as converting the model. WebODM's 3D view, the download and the
 share links then show the edited model. **SplatMe → Tasks** shows the Apply while it runs, and **Edit Splats**
-says when the edits have changed since the task's model was made.
+says when the edits have changed since the task's model was made. **Cancel**, beside **Apply** while it runs,
+stops it and leaves the task's model as it was.
 
 To make the model whole again, **Clear Edits**, then **Apply**.
 
