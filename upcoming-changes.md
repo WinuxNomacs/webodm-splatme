@@ -9,7 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-(nothing planned: the rest of the UX review, "10. UX review", is possible for later)
+1. Release review of 0.3.0: the user chooses which findings are fixed before the tag; then the fixes, the
+   release branch, the release check. See "Release review of 0.3.0".
+
+The rest of the UX review, "10. UX review", is possible for later.
 
 **Then**
 
@@ -739,6 +742,121 @@ Each with a test seen failing first, then passing (Django 99, Jest 75 with `__te
 - **T**: the node job checks the tag against the manifest before anything is pushed (its script run for v0.2.0
   and v0.2.1).
 - **The documentation**: the corrections and removals listed in the review, and `admin.png` retaken (node 0.2.2).
+
+### Release review of 0.3.0 (found, waiting for the user's choice)
+
+Asked 2026-11-19 ("what's left before release?", then "start"): the review the `release-review` skill describes,
+before 0.3.0 (splat editing). Read: `git diff v0.2.0..main` (26 commits, 43 files, mostly Edit Splats) in full,
+then the whole product again. Four parts read in parallel (the plugin's Python, its pages, the node and the
+release with every pin, the documentation), each finding checked again in the code before it is listed here.
+Run: Apply with Restore strokes in the worker, after its restart (a copy of the check task, deleted after:
+Brush 48,867 removed; Brush then Restore over it, none; Restore then Brush, 48,867; Remove Floaters Strong, 371;
+then a Restore over part, 309), Apply's failures read in its code, and the live sweep. No change was made during
+the review. Weights: medium unless marked.
+
+*The server (training.py, api.py, edits.py)*
+
+- A. The trained model as the trainer wrote it, before Crop to Boundary and the edits, is served to anyone who
+  may see the task: it lies in the task's `assets/splats/` (`splatme-model.ply`), which WebODM's asset view serves
+  to a public task's viewers (`app/api/tasks.py:729`, `get_and_check_task`) and Download Assets → All packs; the
+  Edit Splats API even hands out its URL. A house removed with a box, or land outside the boundary, comes back
+  from a share link. There since 0.1; editing now promises the removal. Checked.
+- B. Download .ply and the floaters' request do the whole work in WebODM's web server on every request (the
+  floaters' cKDTree, every edit, a full copy of the model written), for anyone who may see the task, anonymous
+  viewers of a public task included; nothing is cached or limited. A few repeated requests on a large public model
+  tie up the web workers. Checked.
+- C. An Apply that waits in WebODM's worker queue for more than 60 s is failed as "WebODM's worker stopped"
+  (`get_apply`, `STALE`), and when it starts it finds its run gone and does nothing. Trainings have a `waiting`
+  marker for this; Apply has none. Checked in code; how often the queue is that busy is not measured.
+- D. Apply has no time bound and no cancel: the limits allow 200 edits of 2,000 corners or 20,000 brush points
+  each, every corner and stroke piece a pass over each million splats; while it runs the task cannot be trained
+  or applied again. Cost per edit checked; the times are not measured.
+- E. (low) An Apply whose worker is killed leaves its folder (`apply/<task>/<run>`, the cut `.ply` and the new
+  model) until the task is deleted. Checked.
+- F. (low) An Apply that lost its record (heartbeat writes failing over 60 s) still replaces `splats.rad` after
+  the conversion, and a second Apply uses the same temporary name. Plausible.
+- G. (low) Crafted edits answer 500, not 400: `"strength": []` (TypeError on the dict), an integer of hundreds of
+  digits (OverflowError), a JSON array as the body; a trained `.ply` whose header does not parse fails the GET.
+  Checked.
+- H. (low) A PUT of edits has no size limit (DRF reads the stream; the limits allow about 100 MB of brush points),
+  kept in one row and sent back on every GET. Only for those who may change the project.
+- I. (low) Download's and the floaters' error text includes the server's paths (`str(OSError)`), shown to public
+  viewers too. Checked.
+- J. (low) WebODM's Duplicate hard-links a task's files (`task.py:494`): Apply's `os.utime` on a copy's trained
+  `.ply` changes the original's time, by which SplatMe tells its own model from one uploaded in WebODM's Splats
+  dialog. Checked (the original check task's `.ply` has the time of an Apply on its copy).
+- K. (low) Apply saves the whole task row (`update_size(commit=True)` on a task read before the file move): a
+  Restart clicked then can be overwritten. WebODM's own Splats import does the same. Plausible.
+- L. (low) After an upgrade, until the worker restarts, Apply fails as "WebODM's worker stopped" (its old module
+  has no `apply`). Getting Started's upgrade steps already restart WebODM; a 0.2 to 0.3 section must keep that.
+
+*The pages (Editor.jsx, viewer.js)*
+
+- M. Saves can overlap: a change while a save runs sends another; answers in the wrong order leave the page on
+  "Saving" for good (Download .ply disabled, leaving always asks), or store the older edits; Apply's save can race
+  the timer's. Checked.
+- N. The preview reads splat centres from Spark's packed splats, at half precision (16-bit), while Apply uses the
+  `.ply`'s 32-bit values; heights are not offset, so near a shape's edge the preview and Apply differ by up to
+  0.125 m at 200 m elevation and 1 m at 1,500 m. Checked in the vendored Spark.
+- O. Escape while drawing a polygon cancels it in the view but leaves the panel drawing, every tool disabled, until
+  Cancel (`cancelPolygon` does not tell the page). Checked.
+- P. Edit Splats does not say when the edits changed since the last Apply: "Edits applied. 34,308 splats removed."
+  shows beside "No edits yet" (seen on the check task). Checked.
+- Q. (low) A user who may only view can drag a box (its handles attach for anyone): the save fails with 403 and
+  nothing shows; Download .ply is disabled and leaving asks. Checked.
+- R. (low) Apply's progress keeps asking every 2 s after a 403, 404 or 500, and shows nothing. Checked.
+- S. (low) Smaller: the floaters' error repeats its first words; a training running when the page opened keeps
+  Apply disabled until a reload; Colour Adjust's preview clips bright colours the server does not; a failed load
+  has no retry; an interrupted touch (`pointercancel`) can leave the brush down; every keystroke in a box field is
+  an Undo step; the box fields' labels say "center" and "turn "; on a phone, Finish sits below the view while
+  drawing; a task not found shows a bare "Not found." with no heading or link back; the empty list's text names
+  only boxes and polygons; the Tasks page's intro does not mention editing; two tabs: the last save wins without a
+  warning.
+
+*The node and the release*
+
+- T. (low) The zip carries no licence text for SplatMe itself (`LICENSE` is outside `splatme/`); the vendored MIT
+  notices ship. Checked.
+- U. (low) The vendored Spark ends with a `sourceMappingURL` to a map not vendored (a 404 in the browser's
+  developer tools). Checked.
+- V. (low) Dev pins: eslint 10.12.0 (10.15.0 fixes a moderate minimatch advisory, noted at 0.2.0 and not done);
+  Zensical 0.1.2 (2026-11-17) updates two of its own dependencies for advisories; jest's copy of glob and
+  minimatch has no fix. None ships in the zip.
+- W. (low) `release.yml`'s checkouts keep `persist-credentials` at its default, leaving the write token in
+  `.git/config` while the repo's scripts run.
+- X. (low) The node's CUDA 12.8.2 images become unsupported when their R570 driver does, and NVIDIA deletes such
+  tags six months later; then no new node version builds. Not dated yet.
+
+*The documentation*: 19 corrections and 13 removals, listed for the user before they are applied. The main ones:
+Using SplatMe's Advanced list (Steps, Image Size, Max Gaussians) is swallowed by the paragraph above it (seen in
+the built page); Editing Splats says Apply goes on without edits that do not read (it fails with the reason); it
+says others see the edits (Edit shows only to those who may change the project); Restore and Remove/Restore
+switches start a new brush edit, the Lasso has Keep Inside and Cancel, the box's modes include Move; How It Works
+says the model is cut only by the boundary; Home and the README do not link Editing Splats; three.js and Spark
+are not thanked; Getting Started has no upgrade from 0.2 to 0.3 and the kept records leave out the edits; the
+screenshot of SplatMe → Tasks predates Edit and Download .ply, and Edit Splats has none; "about a second" timings
+and "opens upright in Blender" were not measured. Removals: repetition in Editing Splats ("through to the back"
+three times), reasoning the reader does not need, the start view's section placed between the edits and Apply,
+history in Using SplatMe. CHANGELOG: no 0.3.0 entry yet (the release branch).
+
+*Dependencies (checked 2026-11-19)*: three.js 0.187.0 and Spark 2.4.0 are the latest, no advisories, their six
+files match `vendor/README.md`'s hashes; OpenSplat is still main's head; the CUDA tags are active, by digest;
+the actions are their latest releases, by SHA; libtorch 2.7.1's advisories are in Python APIs OpenSplat does not
+use; the docs' lock has no advisory in OSV.
+
+*The live sweep*: the Dashboard, SplatMe → Tasks, SplatMe → Settings, Administration → SplatMe and Edit Splats at
+320 and 1,280 px, as an administrator and a plain user (403 on the administrators' page; 404 on Edit Splats for
+a task they may not see): no console error besides livereload, no sideways scroll, no write attempted.
+
+*Sound*: permissions on every new write (change_project), CSRF, the editor's route and template, no unsafe HTML;
+the preview's rule matches the server's (box, polygon, lasso, brush, order, restore within the boundary,
+floaters, colour matrix, limits); damaged edits left as they are; Apply against training under the records' lock;
+a lost Apply failed when next read; a task deleted during Apply; Download's temporary files; tasks trained by
+0.2.0 editable; the zip (58 files, 1.5 MB, `splatme/` its only root, no tests or dev files); the node, read again.
+
+*Also found*: the dev stack's check task was applied on directly on 2026-11-18 (34,308 splats removed, its edits
+since cleared), against the rule to copy it: its shown model is cut by edits it no longer has. An Apply with its
+empty edits makes it whole again; the user decides.
 
 ### Release review of 0.2.0 (done)
 
