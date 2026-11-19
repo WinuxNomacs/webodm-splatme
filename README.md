@@ -7,15 +7,16 @@ A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussia
 
 WebODM can export a task's training data and display a trained splat model, but the training itself is done by
 hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
-puts the model in the task's 3D view. A task can also be set to train by itself when its processing completes.
-It is experimental.
+puts the model in the task's 3D view. A task can also be set to train by itself when its processing completes, and
+a trained model can be cropped, cleaned of floaters and recoloured before it is shown or downloaded. It is
+experimental.
 
 ![A thermal task's trained splats in WebODM's 3D view](docs/assets/screenshots/model.png)
 
 **[Getting Started](https://winuxnomacs.github.io/webodm-splatme/getting-started/)**: a fresh install from start
 to a first trained model, and an upgrade, step by step.
 **[Documentation](https://winuxnomacs.github.io/webodm-splatme/)**: installing, upgrading and uninstalling,
-using SplatMe, the splat node, the plugin's API and development.
+using SplatMe, editing splats, the splat node, how it works, the plugin's API and development.
 
 ## Thanks
 
@@ -29,6 +30,8 @@ SplatMe is built on these projects:
 - **[Splat-Tools](https://github.com/uav4geo/Splat-Tools)**: the conversion WebODM runs on a trained model for its
   3D view.
 - **[PyTorch](https://pytorch.org)**: libtorch, which OpenSplat trains with.
+- **[Spark](https://github.com/sparkjsdev/spark)** and **[three.js](https://threejs.org)**: the 3D view of Edit
+  Splats.
 
 ## Licence
 

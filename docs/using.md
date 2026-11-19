@@ -21,6 +21,7 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     ![The Train Splats dialog with Advanced open](assets/screenshots/train.png){ width="400" }
 
     **Advanced** has the steps, the image size and the most gaussians as numbers:
+
     - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
       half of the steps, up to step 15,000, then refines it; steps beyond 30,000 only refine it. A table under
       the number gives the share of the steps in each stage (**Warm-up**, **Growing**, **Refining**,
@@ -66,8 +67,8 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
     about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
     progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after
-    a reload. A download of the model that stops is tried again, and a node that stops answering, or answers an
-    error (being upgraded), is waited for up to an hour. When it is done, **View in 3D** opens the model. A task that cannot be trained (failed or canceled
+    a reload. When it is done, **View in 3D** opens the model; **Edit** and **Download .ply** are in [Editing
+    Splats](editing.md). A task that cannot be trained (failed or canceled
     processing; for users who may only look at the project, any task) says why.
 
     On the Dashboard, a task's panel has a **Splats** line under its Task ID ("Trained, 7,000 steps", or the
@@ -93,12 +94,9 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     for those who may train it, which switches the training on or off and changes its options. A training that could not start shows on the task
     as a failed training, with the reason.
 
-    If another WebODM version draws its Dashboard differently, the button and the line are missing; the Tasks
-    page still creates, trains and sets the training.
-
 Training needs the right to change the task's project. The trained model replaces the task's splat model only
 when training succeeds, and then shows in the task's 3D view like a model uploaded by hand; the model as the
-trainer wrote it is kept in the task's folder (`assets/splats/splatme-model.ply`, about 250 bytes per gaussian) for continuing, and counts in the
+trainer wrote it is kept in the task's folder (`data/splatme/splatme-model.ply`, about 250 bytes per gaussian) for continuing, and counts in the
 task's size.
 
 Trainings waiting on the node do not hold up WebODM's own processing.
