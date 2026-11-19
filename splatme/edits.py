@@ -31,7 +31,9 @@ The edits apply in their list's order: a removing shape or stroke takes out what
 rest, the floaters theirs, and a restore puts back what it covers, whatever took it out before it. Without a
 restore the order changes nothing.
 """
+import hashlib
 import itertools
+import json
 import logging
 import math
 
@@ -76,7 +78,10 @@ def edits_key(task_id):
 def number(value, what, positive=False):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise EditsError(f"{what} must be a number.")
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError:  # an integer of hundreds of digits
+        raise EditsError(f"{what} is out of range.") from None
     if not math.isfinite(value) or abs(value) > MAX_COORDINATE:
         raise EditsError(f"{what} is out of range.")
     if positive and value <= 0:
@@ -102,7 +107,7 @@ def clean(given):
             raise EditsError(f"Edit {i} is not a shape.")
         kind = edit.get("type")
         if kind == "floaters":
-            if edit.get("strength") not in STRENGTHS:
+            if not isinstance(edit.get("strength"), str) or edit["strength"] not in STRENGTHS:
                 raise EditsError(f"Edit {i}'s strength must be Light, Medium or Strong.")
             if any(e["type"] == "floaters" for e in out):
                 raise EditsError("Floaters can be removed only once.")
@@ -219,16 +224,32 @@ def get(task):
     there untouched: written by another version of SplatMe (a worker that has not restarted since an upgrade, or a
     downgrade), they read again with the right one. Their callers go on without them and say why.
     """
+    return get_with_fingerprint(task)[0]
+
+
+def fingerprint(stored):
+    """A short hash of edits as stored, None for none: whether a model was made with the edits saved now."""
+    if not stored:
+        return None
+    return hashlib.sha256(json.dumps(stored, sort_keys=True).encode()).hexdigest()[:32]
+
+
+def saved_fingerprint(task_id):
+    return fingerprint(store().get_json(edits_key(task_id), None))
+
+
+def get_with_fingerprint(task):
+    """The task's edits, as get gives them, and the fingerprint of what they were read from."""
     stored = store().get_json(edits_key(task.id), None)
     if stored is None:
-        return []
+        return [], None
     try:
         edits = clean(stored)
     except EditsError as e:
         logger.warning(f"SplatMe: task {task.id}'s edits do not read: {e}")
         raise EditsError(f"The task's saved edits could not be read ({e}) and were left as they are.") from None
     dx, dy = offset(task)
-    return shift(edits, -dx, -dy)
+    return shift(edits, -dx, -dy), fingerprint(stored)
 
 
 def save(task, given):

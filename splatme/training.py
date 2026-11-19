@@ -1,7 +1,7 @@
 """
 Training a task's splats: export the task's training data with WebODM's own export, send it to the splat node,
 wait for the model and put it in the task as WebODM's own splats asset. The model as the trainer wrote it is
-kept beside it, so that a later training can continue from it.
+kept in the task's data folder, so that a later training can continue from it and its edits can be applied.
 
 A task's job is one record in the plugin's global data store, the only place state is kept: an update of the
 plugin replaces its folder, and a restart of the worker ends the job that was following the node. Each job in
@@ -12,6 +12,7 @@ A job's own worker job exports the task and sends it to the node, then ends. Whi
 for all the trainings, the follower (follow_node), follows them; when one is trained, a worker job of its own
 imports the model. So the trainings waiting in the node's queue take one place in WebODM's worker, not one each.
 """
+import fcntl
 import json
 import logging
 import math
@@ -66,8 +67,11 @@ ESTIMATE_STEPS = 20
 DEFAULTS = {"steps": 30000, "image_size": 1600}
 NODE_OPTIONS = ("steps", "max_gaussians", "sh_degree")
 REQUIRED_ASSETS = ("cameras.json", "shots.geojson", "georeferenced_model.laz")
-# The model as the trainer wrote it, in the task's splats folder: what a training continues from. Processing
-# the task again deletes it with the task's other assets.
+# The model as the trainer wrote it: what a training continues from and the edits cut. In the task's data folder,
+# not with its assets, which WebODM serves to anyone who may see the task (a public task's share links, Download
+# Assets): uncut, it has what Crop to Boundary and the edits remove. WebODM's backups and Duplicate still copy it.
+# A training of SplatMe 0.2 kept it in the splats folder: it is moved the first time it is looked for.
+TRAINED_DIR = "splatme"
 TRAINED_MODEL = "splatme-model.ply"
 # Beside it, the options it was trained with: what continuing it trains with
 TRAINED_OPTIONS = "splatme-model.json"
@@ -339,8 +343,23 @@ def compatible(task):
     return unlisted(task) is None
 
 
+def trained_dir(task):
+    return task.data_path(TRAINED_DIR)
+
+
 def trained_model(task):
-    return os.path.join(os.path.dirname(task.get_asset_file_or_stream("splats.rad")), TRAINED_MODEL)
+    path = os.path.join(trained_dir(task), TRAINED_MODEL)
+    if not os.path.exists(path):
+        # Kept with the task's assets by SplatMe 0.2: moved, its time kept (see trained_steps)
+        old = os.path.dirname(task.get_asset_file_or_stream("splats.rad"))
+        for name in (TRAINED_OPTIONS, TRAINED_MODEL):  # the model last: once it is there, nothing is looked for
+            try:
+                if os.path.exists(os.path.join(old, name)):
+                    os.makedirs(trained_dir(task), exist_ok=True)
+                    os.replace(os.path.join(old, name), os.path.join(trained_dir(task), name))
+            except OSError as e:  # another request moved it first, or the folder cannot be written
+                logger.warning(f"SplatMe: could not move task {task.id}'s {name}: {e}")
+    return path
 
 
 def trained_steps(task):
@@ -360,7 +379,8 @@ def trained_steps(task):
 
 
 def trained_options_file(task):
-    return os.path.join(os.path.dirname(trained_model(task)), TRAINED_OPTIONS)
+    trained_model(task)  # moved first, if still with the assets
+    return os.path.join(trained_dir(task), TRAINED_OPTIONS)
 
 
 def trained_options(task):
@@ -542,6 +562,8 @@ def completed(task_id):
         stop_job(task.id, "canceled", "The task was processed again while its splats trained.")
     if "splats.rad" in task.available_assets:
         return  # an imported task comes with its model
+    # Processed again (WebODM deleted its assets, the splats with them): its trained model no longer fits it
+    shutil.rmtree(trained_dir(task), ignore_errors=True)
     auto = get_auto(task.id)
     if not auto["enabled"]:
         return
@@ -669,8 +691,10 @@ def removed(task_id):
     reset_auto(task_id)
     edits.forget(task_id)
     store().del_key(apply_key(task_id))
+    store().del_key(shown_key(task_id))
     shutil.rmtree(work_dir(task_id), ignore_errors=True)
     shutil.rmtree(apply_dir(task_id), ignore_errors=True)
+    shutil.rmtree(download_dir(task_id), ignore_errors=True)
 
 
 def sweep():
@@ -679,7 +703,7 @@ def sweep():
     starts, so until WebODM restarts after this plugin is installed, a task the worker deletes sends this plugin
     no signal.
     """
-    keys = (job_key(""), auto_key(""), edits.edits_key(""), apply_key(""))
+    keys = (job_key(""), auto_key(""), edits.edits_key(""), apply_key(""), shown_key(""))
     for prefix in (store().db_key(key) for key in keys):
         for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):
             task_id = key[len(prefix) :]
@@ -1135,6 +1159,7 @@ def replace_files(task, model, trained, options):
     """
     dest, kept, options_file = task.get_asset_file_or_stream("splats.rad"), trained_model(task), trained_options_file(task)
     try:
+        os.makedirs(trained_dir(task), exist_ok=True)
         shutil.move(model, dest + NEW)
         shutil.move(trained, kept + NEW)
         os.utime(kept + NEW)  # not older than the model made from it: see trained_steps
@@ -1181,6 +1206,7 @@ def import_model(task_id, run, node, node_job, work):
     dest = task.get_asset_file_or_stream("splats.rad")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     replace_files(task, model, trained, options)
+    set_shown(task.id, cut["made_with"])
     task.refresh_from_db()
     task.update_available_assets_field()
     task.update_size()
@@ -1202,10 +1228,12 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     The model the task shows, made from the trainer's .ply: cut to the task's boundary (for a model trained with
     Crop to Boundary) and by its edits, its colours adjusted by its Colour Adjust. Answers its path (trained itself when nothing is cut) and how many gaussians
     the boundary and the edits each removed (None for none). A boundary with nothing of the model inside crops
-    nothing; edits that would leave nothing raise EditsRemoveAll, and nothing is written.
+    nothing; edits that would leave nothing raise EditsRemoveAll, and nothing is written. The counts also say
+    which edits it was made with ("made_with", their fingerprint).
     """
     rings = crop.boundary(task) if use_boundary else []
-    shapes = edits.get(task) if use_edits else []  # EditsError: the caller goes on without them, or fails
+    # EditsError: the caller goes on without them, or fails
+    shapes, made_with = edits.get_with_fingerprint(task) if use_edits else ([], None)
     dest = os.path.join(work, "shown.ply")
     colour = edits.colour(shapes)
     change = edits.colour_change(colour) if colour else None
@@ -1243,7 +1271,7 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
         return kept, total, counts
 
     if not rings and not shapes:
-        return trained, {"boundary": None, "edits": None}
+        return trained, {"boundary": None, "edits": None, "made_with": made_with}
     if report:
         report("Applying the edits" if shapes else "Cropping to the task's boundary")
     kept, total, counts = cut(rings)
@@ -1252,6 +1280,7 @@ def shown_model(task, trained, work, use_boundary, report=None, use_edits=True):
     if kept == 0 and total > 0 and shapes:
         raise EditsRemoveAll()
     removed = {name: counts[name] or None for name in counts}
+    removed["made_with"] = made_with  # which edits it was made with (edits.fingerprint): see set_shown
     if kept == 0 or (kept == total and not change):
         return trained, removed
     return dest, removed
@@ -1263,46 +1292,110 @@ def trained_with_crop(task):
 
 
 def model_info(task):
-    """The trained model as the Edit Splats page loads it: its URL (WebODM's own for a task's assets), size and splats."""
+    """The trained model as the Edit Splats page loads it: its URL (SplatMe's, for those who may edit), size and splats."""
     path = trained_model(task)
     with open(path, "rb") as f:
         count, _ = splats.parse_ply_header(f)
-    relative = os.path.relpath(path, task.assets_path())
-    url = f"/api/projects/{task.project.id}/tasks/{task.id}/assets/{relative}"
-    return {"url": url, "size": os.path.getsize(path), "splats": count}
+    return {"url": f"/api/plugins/{NAME}/task/{task.id}/model", "size": os.path.getsize(path), "splats": count}
 
 
-DOWNLOADS = "downloads"  # in the plugin's persistent folder: each download's model while it is made
-DOWNLOAD_LEFTOVER = 3600  # seconds after which a download's folder is a leftover of a stopped server
+def shown_key(task_id):
+    return f"shown::{task_id}"
+
+
+def set_shown(task_id, made_with):
+    """The task's model was just made with these edits (their fingerprint, None for none)."""
+    store().set_json(shown_key(task_id), {"edits": made_with})
+
+
+def shown_current(task_id):
+    """Whether the task's model was made with its saved edits; None when not known (a model made before SplatMe 0.3)."""
+    record = store().get_json(shown_key(task_id), None)
+    if record is None:
+        return None
+    return record.get("edits") == edits.saved_fingerprint(task_id)
+
+
+DOWNLOADS = "downloads"  # in the plugin's persistent folder: a folder for each task's downloaded model
+DOWNLOAD_KEEP = 86400  # seconds a made download is kept after it was last asked for
+DOWNLOAD_LEFTOVER = 3600  # seconds after which a download's work folder is a leftover of a stopped server
+DOWNLOAD_WAIT = 300  # seconds a download waits while the same task's is made for another
+LOCK = ".lock"
+
+
+def download_dir(task_id):
+    return get_plugins_persistent_path(NAME, DOWNLOADS, str(task_id))
+
+
+def clear_downloads():
+    """Removes the downloads not asked for in DOWNLOAD_KEEP and the work folders a stopped server left."""
+    parent = get_plugins_persistent_path(NAME, DOWNLOADS)
+    now = time.time()
+    for folder in (os.path.join(parent, name) for name in os.listdir(parent)):
+        try:
+            for path in (os.path.join(folder, name) for name in os.listdir(folder) if name != LOCK):
+                age = now - os.path.getmtime(path)
+                if os.path.isdir(path) and age > DOWNLOAD_LEFTOVER:
+                    shutil.rmtree(path, ignore_errors=True)
+                elif not os.path.isdir(path) and age > DOWNLOAD_KEEP:
+                    os.remove(path)
+        except OSError:
+            pass  # not a folder, or removed meanwhile
+
+
+def download_name(task, trained, use_boundary, made_with):
+    """A made download's file name: what it was made from, so a change to any of it makes it again."""
+    stat = os.stat(trained)
+    rings = crop.boundary(task) if use_boundary else []
+    made_from = json.dumps([stat.st_size, stat.st_mtime_ns, made_with, rings, use_boundary])
+    return uuid.uuid5(uuid.NAMESPACE_OID, made_from).hex + ".ply"
 
 
 def edited_model(task):
     """
     The task's model with its saved edits, as Apply makes it, open for a download: the trained .ply cut by the
-    boundary and the edits, its colours adjusted (the trained .ply itself when nothing changes). The file made has
-    no name left once it is open, so it is gone when closed. Raises TrainingError or edits.EditsError with why not.
+    boundary and the edits, its colours adjusted (the trained .ply itself when nothing changes). The file made is
+    kept until it is not asked for in a day or what it was made from changes, and only one is made at a time for a
+    task: a download is a GET anyone who may see the task can repeat. Raises TrainingError or edits.EditsError with
+    why not.
     """
     reason = editable(task)
     if reason:
         raise TrainingError(reason)
-    parent = get_plugins_persistent_path(NAME, DOWNLOADS)
-    os.makedirs(parent, exist_ok=True)
-    for name in os.listdir(parent):
-        path = os.path.join(parent, name)
-        try:
-            if time.time() - os.path.getmtime(path) > DOWNLOAD_LEFTOVER:
-                shutil.rmtree(path, ignore_errors=True)
-        except OSError:
-            pass
-    work = tempfile.mkdtemp(dir=parent)
-    try:
-        shown, _ = shown_model(task, trained_model(task), work, trained_with_crop(task))
-        return open(shown, "rb")
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+    folder = download_dir(task.id)
+    os.makedirs(folder, exist_ok=True)
+    clear_downloads()
+    trained, use_boundary = trained_model(task), trained_with_crop(task)
+    with open(os.path.join(folder, LOCK), "a") as lock:  # closing it lets the lock go
+        deadline = time.time() + DOWNLOAD_WAIT
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.time() > deadline:
+                    raise TrainingError("The model is being made for another download. Try again in a minute.") from None
+                time.sleep(0.5)
+        path = os.path.join(folder, download_name(task, trained, use_boundary, edits.saved_fingerprint(task.id)))
+        if not os.path.exists(path):
+            work = tempfile.mkdtemp(dir=folder)
+            try:
+                shown, cut = shown_model(task, trained, work, use_boundary)
+                if shown == trained:
+                    return open(trained, "rb")
+                path = os.path.join(folder, download_name(task, trained, use_boundary, cut["made_with"]))
+                os.replace(shown, path)
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+            for name in os.listdir(folder):
+                if name.endswith(".ply") and os.path.join(folder, name) != path:
+                    os.remove(os.path.join(folder, name))  # one being sent stays readable until it is closed
+        os.utime(path)  # asked for now: see clear_downloads
+        return open(path, "rb")
 
 
 APPLYING = "applying"
+APPLY_REQUEUES = 30  # times an Apply whose worker job never started is queued again (STALE seconds apart)
 
 
 def apply_key(task_id):
@@ -1315,19 +1408,36 @@ def apply_dir(task_id, run=None):
 
 
 def get_apply(task_id):
-    """The task's last Apply Edits, or None. One that lost its worker fails here: it is short, so it is not taken over."""
+    """
+    The task's last Apply Edits, or None. One that lost its worker fails here: it is short, so it is not taken over.
+    One whose worker job never started (it waited in WebODM's worker queue, or a restart lost the queue) is queued
+    again, up to APPLY_REQUEUES times.
+    """
+    requeued = []
 
     def lost(record):
         return record.get("state") == APPLYING and time.time() - record.get("updated", 0) > STALE
 
-    def fail(record):
-        if lost(record):
+    def fail_or_requeue(record):
+        if not lost(record):
+            return
+        if record.get("waiting") and record["waiting"] == record.get("run"):
+            if record.get("requeued", 0) < APPLY_REQUEUES:
+                run = uuid.uuid4().hex
+                record.update(run=run, waiting=run, updated=time.time(), requeued=record.get("requeued", 0) + 1)
+                requeued.append(run)
+                return
+            error = "The edits were not applied: WebODM's worker did not start applying them. Restart WebODM, then apply them again."
+        else:
             error = "The edits were not applied: WebODM's worker stopped. Apply them again."
-            record.update(state="failed", run=None, status="", error=error, finished=time.time())
+        record.update(state="failed", run=None, waiting=None, status="", error=error, finished=time.time())
 
     record = store().get_json(apply_key(task_id), None)
     if record and lost(record):
-        record = change_record(apply_key(task_id), fail)
+        record = change_record(apply_key(task_id), fail_or_requeue)
+    for run in requeued:
+        # After the record's change is committed, so the job finds its run
+        transaction.on_commit(lambda run=run: run_function_async(apply_job, PACKAGE, str(task_id), run))
     return record
 
 
@@ -1356,8 +1466,8 @@ def start_apply(task, username):
     run = uuid.uuid4().hex
     now = time.time()
     record = {
-        "state": APPLYING, "run": run, "user": username, "status": "", "error": None, "started": now, "updated": now,
-        "finished": None, "cropped": None, "edited": None,
+        "state": APPLYING, "run": run, "waiting": run, "user": username, "status": "", "error": None, "started": now,
+        "updated": now, "finished": None, "cropped": None, "edited": None,
     }  # fmt: skip
     with transaction.atomic():
         lock_records()
@@ -1396,6 +1506,10 @@ def apply(task_id, run):
         return
     work = apply_dir(task_id, run)
     try:
+        update_apply(task_id, run, waiting=None)  # it started: losing it from here on fails it
+        for name in os.listdir(apply_dir(task_id)) if os.path.isdir(apply_dir(task_id)) else []:
+            if name != run:  # an earlier run's, whose worker was killed
+                shutil.rmtree(os.path.join(apply_dir(task_id), name), ignore_errors=True)
         with Heartbeat(task_id, run, update_apply):
             os.makedirs(work, exist_ok=True)
             task = Task.objects.get(pk=task_id)
@@ -1422,6 +1536,7 @@ def apply(task_id, run):
                 except FileNotFoundError:
                     pass
             os.utime(trained)  # not older than the model made from it: see trained_steps
+            set_shown(task.id, cut["made_with"])
             task.update_size(commit=True)
         update_apply(
             task_id, run, state="completed", status="", finished=time.time(), cropped=cut["boundary"],

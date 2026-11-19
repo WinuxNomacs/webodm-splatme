@@ -17,11 +17,13 @@ The plugin's API, under /api/plugins/splatme/.
     POST automation          saves the user's own options; with reset true, drops them
     GET  automation/shared   the administrators' options, for users who saved none of their own
     POST automation/shared   sets them (administrators)
-    GET  task/<id>/edits     the task's splat edits (edits.py) in its trained model's frame, that model's URL, size
-                             and splat count, why it cannot be edited (editable) and its last Apply Edits
+    GET  task/<id>/edits     the task's splat edits (edits.py) in its trained model's frame, why it cannot be edited
+                             (editable), its last Apply Edits, whether its model was made with them (applied) and, for
+                             those who may edit, the trained model's URL, size and splat count
     PUT  task/<id>/edits     replaces its edits (edits), then answers as GET does
+    GET  task/<id>/model     the trained model, uncut (those who may edit)
     GET  task/<id>/floaters  which splats of its trained model are floaters at ?strength= (light, medium or strong):
-                             their numbers in the .ply (removed), for the page to hide them
+                             their numbers in the .ply (removed), for the page to hide them (those who may edit)
     POST task/<id>/apply     makes the task's shown model again from its trained model and its edits
     GET  task/<id>/download  the task's model with its saved edits, as Apply makes it, as a .ply (training.edited_model)
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
@@ -31,6 +33,8 @@ The plugin's API, under /api/plugins/splatme/.
 
 Starting, canceling, editing and applying need the right to change the task's project; the node's token never leaves the server.
 """
+import logging
+
 from app.api.common import check_project_perms
 from app.models import Project
 from app.plugins.views import TaskView
@@ -44,6 +48,8 @@ from rest_framework.views import APIView
 
 from . import crop, edits, thermal, training
 from .node import Node, NodeError
+
+logger = logging.getLogger("app.logger")
 
 # What a page may know of a job: not its run id, nor the node's job
 PUBLIC = (
@@ -201,7 +207,16 @@ class Edits(TaskView):
             "training": bool(job) and job["state"] in training.ACTIVE,
         }  # fmt: skip
         if reason is None:
-            out["model"] = training.model_info(task)
+            # Whether the task's model was made with the edits saved now (None: not known)
+            out["applied"] = training.shown_current(task.id)
+        if reason is None and out["can_edit"]:
+            # Uncut, it has what the boundary and the edits remove: only for those who may edit
+            try:
+                out["model"] = training.model_info(task)
+            except (OSError, ValueError) as e:
+                logger.warning(f"SplatMe: task {task.id}'s trained model does not read: {e}")
+                out["editable"] = "This task's trained splat model could not be read. Train its splats again to edit them."
+                return out
             # What the shown model leaves out of it, which the page hides too
             out["boundary"] = crop.boundary(task) if training.trained_with_crop(task) else []
         return out
@@ -217,15 +232,33 @@ class Edits(TaskView):
         if reason:
             return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            edits.save(task, request.data.get("edits"))
+            edits.save(task, request.data.get("edits") if isinstance(request.data, dict) else None)
         except edits.EditsError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.describe(request, task))
 
 
+class Model(TaskView):
+    """The trained model, uncut, for Edit Splats: only for those who may change the task's project."""
+
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        reason = training.editable(task)
+        if reason:
+            return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            model = open(training.trained_model(task), "rb")  # noqa: SIM115 (FileResponse closes it)
+        except OSError as e:
+            logger.warning(f"SplatMe: task {task.id}'s trained model could not be opened: {e}")
+            return Response({"error": "The trained model could not be read."}, status=status.HTTP_400_BAD_REQUEST)
+        return FileResponse(model, content_type="application/octet-stream")
+
+
 class Floaters(TaskView):
     def get(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
         strength = request.query_params.get("strength")
         if strength not in edits.STRENGTHS:
             return Response({"error": "The strength must be light, medium or strong."}, status=status.HTTP_400_BAD_REQUEST)
@@ -234,7 +267,10 @@ class Floaters(TaskView):
             return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
         try:
             found = edits.floaters(training.trained_model(task), strength)
-        except (OSError, ValueError, KeyError, MemoryError) as e:
+        except OSError as e:
+            logger.warning(f"SplatMe: task {task.id}'s floaters could not be found: {e}")
+            return Response({"error": "The trained model could not be read."}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, KeyError, MemoryError) as e:
             return Response({"error": f"The trained model's floaters could not be found: {str(e) or type(e).__name__}"}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"strength": strength, "removed": found.nonzero()[0].tolist()})
 
@@ -255,7 +291,11 @@ class Download(TaskView):
         task = self.get_and_check_task(request, pk)
         try:
             model = training.edited_model(task)
-        except (training.TrainingError, edits.EditsError, OSError) as e:
+        except OSError as e:  # its text has the server's paths: the log has it
+            logger.warning(f"SplatMe: task {task.id}'s edited model could not be made: {e}")
+            text = "The edited model could not be made: the server could not write or read it."
+            return HttpResponse(text, status=status.HTTP_400_BAD_REQUEST, content_type="text/plain; charset=utf-8")
+        except (training.TrainingError, edits.EditsError) as e:
             # A link the browser follows: the reason as a page of text
             text = f"The edited model could not be made: {str(e) or type(e).__name__}"
             return HttpResponse(text, status=status.HTTP_400_BAD_REQUEST, content_type="text/plain; charset=utf-8")
