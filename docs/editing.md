@@ -11,6 +11,8 @@ On **SplatMe → Tasks**, a task whose splats SplatMe trained has **Edit** besid
 change the task's project. It opens **Edit Splats**: the trained model in a 3D view, with the edits' panel to its
 right, or below it on a phone. Anyone who may see the task has **Download .ply** instead.
 
+![Edit Splats with a box picked: its handles in the view, its fields under the list](assets/screenshots/editing.png)
+
 The page loads the trained model whole into the browser. A model larger than 400 MB (about 1.7 million splats)
 asks first: it may be slow, or fail on a phone or a computer with little memory.
 
