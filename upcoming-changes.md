@@ -9,10 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
-   quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
-   decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
-   (to evaluate before the release after 0.2.0)".
+1. Restore Brush on Edit Splats, and the docs for WebODM's own start view and the download's orientation (from
+   the UX review, chosen 2026-11-19). See "10. UX review"; the rest of the review is noted there as possible for
+   later.
 
 **Then**
 
@@ -27,9 +26,14 @@ other software. The plugin does that step.
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 1's quality testing.
+   "6. Steps for an Image Size (proposed)".
 
 **Dropped**
+
+- OpenSplat's other training options (2026-11-19, the user's decision): SplatMe keeps OpenSplat's defaults for
+  every option it does not set now. OpenSplat itself gives no guidance on them (its README, `--help`, the
+  maintainers' issue replies and WebODM's docs, checked 2026-11-18 at e33f9dd). See "7. OpenSplat's other
+  training options (dropped)".
 
 - Native Windows app (2026-11-15, the user's decision after checking their native install): WebODM's native
   app is not ready for it. It ships no `splat-tools` (WebODM's own Splats import cannot convert there either)
@@ -2304,7 +2308,15 @@ Also worth trying: a later end to the growing for large photos (`--densify-until
 15,000 however many steps. No percentage of quality is shown: it depends on the scene and the steps. Not yet
 decided by the user.
 
-### 7. OpenSplat's other training options (to evaluate before the release after 0.2.0)
+### 7. OpenSplat's other training options (dropped)
+
+Dropped by the user on 2026-11-19, before any testing: SplatMe keeps OpenSplat's defaults. Checked first
+(2026-11-18, OpenSplat at e33f9dd): OpenSplat offers no advice on these options beyond `--help`'s one-line
+descriptions and the README's memory figure (about 2 GB of GPU memory per million gaussians); the maintainers'
+issue replies are about memory and bugs; WebODM's docs advise only on the photos (oblique or orbit shots).
+The one gap noted for later: a continued training past step 15,000 may no longer densify (`--densify-until`
+defaults to half the steps, at most 15,000), not checked against how `--resume` counts steps.
+
 
 Asked by the user (2026-11-17): review OpenSplat for further quality options SplatMe could offer. Recorded to be
 evaluated again before the next release after 0.2.0, likely with quality testing first.
@@ -2581,3 +2593,88 @@ model, but only in that format (`splat-tools` writes `.rad` only: its `--help`, 
   Floaters (Light) and Brightness +40 saved, not applied, 206,791 splats in 1.1 s, colour means and the
   view-dependent light 1.2 times the unedited file's; the same file from the Tasks row; the button disabled while
   a slider's change saved; no folder left; no horizontal scroll on a phone.
+
+### 10. UX review (asked 2026-11-19)
+
+Asked by the user: review SplatMe's UI with a UX designer's eye (more intuitive, easier to use) and propose
+editing tools for a polished product. Looked at on 2026-11-19 in the dev stack (headless, writes blocked):
+SplatMe → Tasks, its Train Splats and Change dialogs and New Task With Splats, SplatMe → Settings, the
+administrators' page, Edit Splats with each tool, the Dashboard, and both pages at phone width.
+
+**Findings, most important first:**
+
+1. Edit Splats does not say whether the task's model matches the edits. "Edits applied. 34,308 splats removed."
+   stays after the edits change, even with "No edits yet" above it (`applyText(apply)` is the last Apply's result).
+   Saved and applied are two states the user must track. Proposal: a line under Apply that says "The 3D view shows
+   these edits" or "Changed since the last Apply", and Apply named "Update the Model".
+2. Side View (`frameView`) is the starting oblique view, not a side view: rename to Reset View, and add a real side
+   view or leave it out. There is no way to set the orbit's centre (double-click to focus) and no hint of how to
+   orbit, pan and zoom.
+3. While a tool is active, every tool button looks disabled, and the active one is not marked. Proposal: the
+   active tool highlighted (btn-primary or `active`), the others plainly available or hidden behind its panel.
+4. Add Box starts as Keep Inside: a small box in the middle, so almost the whole model disappears on one click.
+   Proposal: a box sized to the view's middle third, or Remove Inside first.
+5. Edit Splats has Undo but no Redo, and keyboard shortcuts only inside a tool (Esc, Enter, `[` `]`). Proposal:
+   Ctrl+Z, Ctrl+Shift+Z, Delete for the selected edit, B, L, P for the tools, shown in the buttons' titles.
+6. SplatMe → Tasks: View in 3D, Edit and Download .ply are WebODM's grey buttons, which read as disabled next to
+   the dark Train Splats Again; the status sentence wraps beside them. Proposal: the row as a header line (name,
+   state, photos), a status line, then the buttons; Edit as the second strong action; a dropdown for the rest
+   on a phone.
+7. The training summary is hard to trust: "60,000 steps in 2 min 38 s" (ThermalTest) and "7,000 steps in 44 min
+   27 s" (HomerunObliqueII9, where 7,000 steps takes about 4.5 min). Not checked: probably the last continuation's
+   time, and time spent waiting or finding the sky. Proposal: the total steps, the date trained and the training's
+   own time, with Ignore Sky's and waiting time apart.
+8. Continue in the Train Splats dialog shows the stages table at Warm-up 0%, Growing 0% and 0 rounds, which reads
+   as an error. Proposal: hide the table when continuing; the sentence below already explains.
+9. Pages open with long paragraphs (Tasks, Settings, the administrators' page) that repeat the docs. Proposal: one
+   sentence and a "Learn more" link into the docs.
+10. Settings: Image Size shows `0` for "keep the photos as they are"; Max Gaussians already uses a placeholder.
+    Proposal: an empty field with the placeholder "Full size".
+11. Three ways to start New Task With Splats on the Tasks page (the top button, each project's button, the
+    inline panel) and one on the Dashboard; at phone width the projects' buttons are icons with no label.
+    Proposal: keep the top button and the Dashboard's, drop the per-project ones or label them.
+12. No picture of the model on the Tasks rows. Proposal: a thumbnail, taken from Edit Splats' view after an Apply
+    or a training.
+
+**Editing tools proposed for a polished product** (from what splat editors commonly offer, training knowledge,
+not checked against a specific tool):
+
+- Highlight before removing: the splats a shape or the brush would remove shown in colour, with a count, before
+  the edit is kept; and a Before/After toggle that shows the trained model without the edits.
+- Restore Brush: paint back what the Brush, the Lasso or a shape removed.
+- Front-only brush: an option to remove only the surface under the brush, not through to the back.
+- Select by size and opacity: remove nearly transparent or very large splats (the haze and the blobs), with sliders
+  and a live count.
+- Hide and isolate (view only): hide what is in front to reach what is behind it, without editing.
+- Local Colour Adjust: Colour Adjust inside a box or polygon, not only the whole model.
+- Set the ground level and north: level a model whose ground is tilted, and turn it, for the 3D view and the
+  download.
+- Saved views: a start view for the task's 3D view and share links.
+
+**Chosen by the user (2026-11-19):** Restore Brush, Level Ground and Set North, and Saved Start View; the rest
+of the findings and tools above are possible for later, not planned.
+
+- **Restore Brush**: built (the phase below). It brings back what any edit listed before it removed, Remove
+  Floaters included (the user's answer); the boundary cut of Crop to Boundary stays, as a training option.
+- **Level Ground and Set North: dropped**, on the user's condition that the download opens upright, which it
+  does. A task's splats are in its projection, already level and north-up; turning them would part them from the
+  task's point cloud, mesh and boundary in WebODM's 3D view. Checked on the check task's trained `.ply`
+  (2026-11-19): z is up (5th to 95th percentile extent 27.0 by 18.9 m across, 9.6 m high), as in Blender, which
+  is z-up too; z is the height above sea (about 201 to 211 m), so the model sits that far above Blender's
+  origin. PLY has no orientation field: a tool reads it from the axes. Not tried in Blender (not installed). The
+  docs say so under "Downloading the Edited Model".
+- **Saved Start View: WebODM's own**, docs only (the user's answer). WebODM's 3D view has "set initial camera
+  view" (`ModelView.jsx`'s `SetCameraView`, saved in the task's `potree_scene`), not shown in public views. Checked
+  live before the docs point to it.
+
+**Restore Brush, the design:**
+
+- The Brush's panel gets Remove and Restore (a toggle); a restore is a Brush edit with `restore: true`, listed as
+  "Restore Brush", "Brings back what it painted over", drawn in the keep colour.
+- The edits apply in their list's order, on the server (`edits.keep_mask`, with the floaters at their place in
+  the list) and in the preview (`editShapes.keepMask`): a removing shape or stroke takes out what it covers, Keep
+  Inside takes out the rest, a restore puts back what it covers, through to the back as the Brush. A list without
+  a restore keeps exactly what it kept before (removals in any order give the same result).
+- Tests: a box's removal restored; a restore before a removal brings nothing back; floaters restored; a Keep
+  Inside box's outside restored under a stroke; the same cases in Jest for the preview; `restore` that is not
+  true or false refused.
