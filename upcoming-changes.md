@@ -9,10 +9,8 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Before the next release after 0.2.0: evaluate OpenSplat's remaining training options again, likely with
-   quality testing first (`--densify-until`, training at lower resolution first, and smaller extras), and
-   decide with the user which, if any, the presets or Image Size set. See "7. OpenSplat's other training options
-   (to evaluate before the release after 0.2.0)".
+1. A UX review of SplatMe's pages and of the editing tools (asked 2026-11-19): findings and proposals for the
+   user to choose from, then phases for what they pick.
 
 **Then**
 
@@ -27,9 +25,14 @@ other software. The plugin does that step.
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
 4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
-   "6. Steps for an Image Size (proposed)". Its grid can share the GPU nights of phase 1's quality testing.
+   "6. Steps for an Image Size (proposed)".
 
 **Dropped**
+
+- OpenSplat's other training options (2026-11-19, the user's decision): SplatMe keeps OpenSplat's defaults for
+  every option it does not set now. OpenSplat itself gives no guidance on them (its README, `--help`, the
+  maintainers' issue replies and WebODM's docs, checked 2026-11-18 at e33f9dd). See "7. OpenSplat's other
+  training options (dropped)".
 
 - Native Windows app (2026-11-15, the user's decision after checking their native install): WebODM's native
   app is not ready for it. It ships no `splat-tools` (WebODM's own Splats import cannot convert there either)
@@ -2304,7 +2307,15 @@ Also worth trying: a later end to the growing for large photos (`--densify-until
 15,000 however many steps. No percentage of quality is shown: it depends on the scene and the steps. Not yet
 decided by the user.
 
-### 7. OpenSplat's other training options (to evaluate before the release after 0.2.0)
+### 7. OpenSplat's other training options (dropped)
+
+Dropped by the user on 2026-11-19, before any testing: SplatMe keeps OpenSplat's defaults. Checked first
+(2026-11-18, OpenSplat at e33f9dd): OpenSplat offers no advice on these options beyond `--help`'s one-line
+descriptions and the README's memory figure (about 2 GB of GPU memory per million gaussians); the maintainers'
+issue replies are about memory and bugs; WebODM's docs advise only on the photos (oblique or orbit shots).
+The one gap noted for later: a continued training past step 15,000 may no longer densify (`--densify-until`
+defaults to half the steps, at most 15,000), not checked against how `--resume` counts steps.
+
 
 Asked by the user (2026-11-17): review OpenSplat for further quality options SplatMe could offer. Recorded to be
 evaluated again before the next release after 0.2.0, likely with quality testing first.
