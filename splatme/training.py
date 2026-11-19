@@ -1207,6 +1207,7 @@ def import_model(task_id, run, node, node_job, work):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     replace_files(task, model, trained, options)
     set_shown(task.id, cut["made_with"])
+    store().del_key(apply_key(task.id))  # the last Apply no longer says what the model is (Apply waits for a training)
     task.refresh_from_db()
     task.update_available_assets_field()
     task.update_size()
