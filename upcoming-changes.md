@@ -10,8 +10,9 @@ other software. The plugin does that step.
 **Up next**
 
 1. The 0.3.0 release: its branch is made (`release/0.3.0`: manifest 0.3.0, the changelog, Cancel for Apply in
-   the docs); next the release check (0.2.0 upgraded to 0.3.0 on a throwaway WebODM). The node is unchanged
-   (0.2.2).
+   the docs) and the release check passed (see "Release check of 0.3.0 (done)"), with one finding for the user:
+   Edit Splats keeps showing the last Apply's message after a later training. Then the merge, the user's push and
+   tag, and the directory entry. The node is unchanged (0.2.2).
 
 The rest of the UX review, "10. UX review", is possible for later.
 
@@ -932,6 +933,45 @@ a lost Apply failed when next read; a task deleted during Apply; Download's temp
 *Also found*: the dev stack's check task was applied on directly on 2026-11-18 (34,308 splats removed, its edits
 since cleared), against the rule to copy it: its shown model is cut by edits it no longer has. An Apply with its
 empty edits makes it whole again; the user decides.
+
+### Release check of 0.3.0 (done)
+
+On a throwaway production WebODM 4.0.0 (port 8018, project `sm-scratch`, removed after), with two copies of the
+217-photo task imported from a backup zip (the dev task untouched), 2026-11-19. `dist/splatme-0.3.0.zip` from
+37f3472, SHA-256 `d417085ef3bd0b26da77c2b383aef61536fde4583293a2bb9d8f28b5b7e91e4d` (57 files, one `splatme/`
+root, `LICENSE` and the vendored three.js and Spark in it). The node is unchanged, so the node's upgrade (steps 7
+and 8) did not apply: the published node 0.2.2 ran throughout.
+
+- **0.2.0 as published** (SHA-256 `d2e6443e…`, the release's own): installed, restarted; the release's
+  `splatnode.sh install` pulled node 0.2.2 from ghcr.io and connected it. A Draft (3,000 steps) trained and imported
+  in about 3 minutes, its uncut model in `assets/splats/`, where the asset URL served it (200). Then saved: the
+  administrators' defaults, the administrator's own options and the task's automatic training.
+- **The upgrade under a running training**: a Continue (3,000 to 8,000) at step 3,500 while SplatMe was deleted,
+  0.3.0 loaded ("SplatMe installed successfully", after "Cannot load plugin: A plugin with the name splatme already
+  exist...") and WebODM restarted. The record stood still for 91 s; one `GET revive` (204) took it over and it
+  completed. The model and its options went to `data/splatme/`, and nothing was left in `assets/splats/` but
+  `model.rad`. Every setting as before (the job's record gained `edited` and `resume`, and `shown::<id>` was added);
+  the saved token still the node's (compared by hash).
+- **A model 0.2.0 trained and left idle** (a second copy, back on 0.2.0, a Draft, then 0.3.0 again): after the
+  restart its uncut model was still served as an asset (200) until SplatMe looked at the task; opening SplatMe →
+  Tasks moved it to `data/splatme/` with its times kept, and the asset URL answered 404 from then on.
+- **On 0.3.0**: edits saved (Remove Floaters, Colour Adjust); `floaters` answered; Apply took 10 s (7,985 cropped,
+  2,628 edited) and replaced `model.rad`. A second Apply canceled at once: "canceled", `model.rad` unchanged,
+  `applied` false, no Apply folder left. Download .ply: 386,335 splats (the trained 406,624 less the boundary's
+  7,985 and Strong floaters), the second request from the kept file (0.19 s against 0.65 s); `model` gave the
+  trained `.ply`. A Continue (to 7,000) with WebODM's worker restarted mid-training: the record stood still until
+  SplatMe's pages were opened (GET only), whose revive took it over; it imported with the edits applied again
+  (13,798 edited), and the node was asked by `ref`.
+- **Pages**: SplatMe → Tasks (View in 3D), Administration → SplatMe ("The splat node is ready.") and Edit Splats
+  (the model drawn with the GPU browser, "Floaters, 13,798 splats", Saved) without console errors.
+- **Logs**: no traceback in the webapp, the worker or the node; the webapp logged both takeovers. One webpack error
+  ("Can't resolve './Editor.jsx'") came from the check's own return to 0.2.0, built by a process still holding
+  0.3.0's pages, and was gone after the restart; both upgrades to 0.3.0 built without errors.
+- **Found, for the user**: Edit Splats keeps showing the last Apply's message after a later training has made the
+  model again. Here it read "Applying the edits was canceled: the task's model is as it was." under a model the
+  Continue had just made with the edits. A completed Apply's message goes stale the same way.
+- Cleaned up: `splatnode.sh uninstall --yes` (its volume, network and the pulled image), the stack's containers,
+  volumes and network, the task copies and every scratch file. The dev stack and its node were not touched.
 
 ### Release review of 0.2.0 (done)
 
