@@ -1,7 +1,7 @@
 """
 The plugin's API, under /api/plugins/splatme/.
 
-    POST task/<id>/train     starts training; options steps, image_size, max_gaussians, sh_degree
+    POST task/<id>/train     starts training; options steps, image_size, max_gaussians, sh_degree, densify_until
     GET  task/<id>/status    the task's job, and whether the task has a splat model
     GET  task/<id>/check     before training: why the task or the node cannot train, warnings, the options' ranges
     POST task/<id>/cancel    stops the task's job
