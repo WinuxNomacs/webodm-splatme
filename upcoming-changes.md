@@ -17,6 +17,10 @@ other software. The plugin does that step.
    `main` at 28e61d0, pushed 2026-11-19 with their approval. Left: the user's pull request, then a look at
    https://plugins.webodm.org/index.json once it is merged.
 
+2. Grow Until (asked 2026-11-21): OpenSplat's `--densify-until` as an optional training option, unset by
+   default, so a training (or a continued one) can keep adding gaussians past step 15,000. See "11. Grow
+   Until".
+
 The rest of the UX review, "10. UX review", is possible for later.
 
 **Then**
@@ -40,6 +44,7 @@ The rest of the UX review, "10. UX review", is possible for later.
   every option it does not set now. OpenSplat itself gives no guidance on them (its README, `--help`, the
   maintainers' issue replies and WebODM's docs, checked 2026-11-18 at e33f9dd). See "7. OpenSplat's other
   training options (dropped)".
+  Except `--densify-until`, asked for on 2026-11-21 as Grow Until (Up next).
 
 - Native Windows app (2026-11-15, the user's decision after checking their native install): WebODM's native
   app is not ready for it. It ships no `splat-tools` (WebODM's own Splats import cannot convert there either)
@@ -2955,3 +2960,33 @@ width with no horizontal scroll. Apply was not checked live: it runs in `sm-work
 until it restarts; Download .ply makes the same model in the web server. WebODM's start view, on another copy
 (deleted): **set initial camera view** under **Scene** saved the turned view, which came back after a reload with
 Splats shown and in the public share view (`/public/task/<id>/3d/`).
+
+### 11. Grow Until
+
+Asked by the user (2026-11-21): an OpenSplat option that adds gaussians beyond step 15,000.
+
+**OpenSplat (e33f9dd, the node's pin).** `--densify-until` (default -1: `min(15000, num-iters / 2)`,
+`opensplat.cpp:45,107`) ends the growing; an explicit value has no 15,000 cap. While growing, gaussians are
+added and pruned every 500 steps after step 500 and opacity is reset every 3,000 steps; after it, faint and
+redundant gaussians are pruned every 3,000 steps (`model.cpp:592-622`) and the optimizer steps every 32, then
+every 64 photos (from `min(20000, 2/3 of the steps)`, `optimizerStepCadence`). `--max-gaussians` still caps the
+growth. On `--resume` the step count continues from the model's (`opensplat.cpp:207`) and the node passes the
+total as `--num-iters`: a continued training past step 15,000 never grows (the gap "7." noted, now checked).
+
+**Decisions (the user, 2026-11-21).**
+
+- Exposed, **unset by default** (OpenSplat's own rule applies when blank). Named **Grow Until** in the UI (the
+  Stages table's "Growing"), `densify_until` in the plugin's and the node's API. In Advanced under Max Gaussians
+  (Train Splats, Change, New Task With Splats, SplatMe → Settings).
+- **Valid range: 1,000 to the steps - 3,000**: at least one growing round, then time to recover from the last
+  opacity reset and at least one final pruning. It needs 4,000 steps or more.
+- **Continue has an optional Grow Until**, from the model's steps + 1,000 to the new total - 3,000; blank keeps
+  the value the model was trained with.
+- No quality testing first ("7."'s plan): the user sets it.
+
+**Build.** Node 0.2.3 (`OPTIONS`, the steps - 3,000 check; a new `VERSION`, as the image is built once per
+version); a node without the option is refused only when the field is set ("Update the node"). The plugin's
+`NODE_OPTIONS`, `parse_options` and Continue's bounds in `training.start`; the field, its checks and the Stages
+table following it in `trainingView.js` (refining empty when growing ends after polishing would start),
+`OptionsFields.jsx`, `TrainDialog.jsx` (Continue) and `options.html`; the docs (Using SplatMe, How It Works, the
+APIs).
