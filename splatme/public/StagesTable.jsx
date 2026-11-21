@@ -5,8 +5,8 @@ import { stagesCells, STAGE_TIPS } from './trainingView';
 
 // Under Steps: the share of the steps the trainer spends in each stage, in four columns of fixed width so the form
 // keeps its size as the number changes; each heading's hover tip says what the trainer does in that stage
-export default function StagesTable({ total, from }){
-    const cells = stagesCells(total, from);
+export default function StagesTable({ total, from, growUntil }){
+    const cells = stagesCells(total, from, growUntil);
     return (
         <table className="table table-bordered table-condensed splatme-stages" style={{tableLayout: "fixed", width: "100%", marginTop: 5, marginBottom: 5}}>
             <caption style={{paddingTop: 0}}>{_("Of these steps:")}</caption>
@@ -24,5 +24,6 @@ export default function StagesTable({ total, from }){
 
 StagesTable.propTypes = {
     total: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-    from: PropTypes.number   // the steps a continued model already has
+    from: PropTypes.number,  // the steps a continued model already has
+    growUntil: PropTypes.oneOfType([PropTypes.string, PropTypes.number])  // Grow Until, when set
 };

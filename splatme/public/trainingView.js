@@ -33,8 +33,12 @@ export function stepsNote(steps){
 // optimizerStepCadence and afterTrain, at the node's pinned commit): it grows the model every 500 steps after step
 // 500 and before half the steps (at most 15,000); it then refines it, updating it once every 32 photos, until two
 // thirds of the steps (at most 20,000), and polishes it, once every 64 photos, to the end
-export const STEPS_HINT = "How long the trainer works on the model. It grows the model in the first half of the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.";
+export const STEPS_HINT = "How long the trainer works on the model. It grows the model in the first half of the steps, up to step 15,000 unless Grow Until says otherwise, then refines it.";
+export const GROW_UNTIL_HINT = "The step the model stops growing at: until then the trainer adds gaussians where the photos show detail the model lacks. Later can give large scenes more detail, for more GPU memory and time. From 1,000 to 3,000 less than Steps.";
 const GROW_FROM = 500, GROW_EVERY = 500, GROW_UNTIL = 15000, POLISH_FROM = 20000;
+// Grow Until's limits (the splat node's): the growing goes on for 1,000 steps at least (on Continue, after the
+// model's), and the training for 3,000 after it
+export const GROW_AT_LEAST = 1000, AFTER_GROWING = 3000;
 
 // What each stage does: the hover tip of its column's heading
 export const STAGE_TIPS = {
@@ -47,13 +51,15 @@ export const STAGE_TIPS = {
 // The steps from+1 to total in the trainer's stages, all four in order: {stages: [{key, label, steps, percent}],
 // rounds}, rounds being how many times it grows the model in them, or null for a number that is not a training's.
 // from: the steps a continued model already has. Steps before the growing ends in which it grows the model no more
-// are a warm-up. The percentages are whole and add up to 100.
-export function trainingStages(total, from){
+// are a warm-up. growUntil: Grow Until, when set (else the trainer's own: half the steps, at most 15,000); growing
+// past where polishing would start leaves no refining. The percentages are whole and add up to 100.
+export function trainingStages(total, from, growUntil){
     total = Number(total);
     from = Math.max(0, Number(from) || 0);
     if (!Number.isInteger(total) || total <= from) return null;
-    const grownUntil = Math.min(GROW_UNTIL, Math.floor(total / 2));
-    const polishFrom = Math.min(POLISH_FROM, Math.floor(total * 2 / 3));
+    const set = Number(String(growUntil == null ? "" : growUntil).trim() || NaN);
+    const grownUntil = Number.isInteger(set) && set > 0 ? set : Math.min(GROW_UNTIL, Math.floor(total / 2));
+    const polishFrom = Math.max(grownUntil, Math.min(POLISH_FROM, Math.floor(total * 2 / 3)));
     let rounds = 0;
     for (let step = GROW_EVERY * (Math.floor(Math.max(from, GROW_FROM) / GROW_EVERY) + 1); step < grownUntil; step += GROW_EVERY) rounds++;
     const span = (a, b) => Math.max(0, Math.min(b, total) - Math.max(a, from));  // the steps a+1 to b of this training
@@ -75,8 +81,8 @@ export function trainingStages(total, from){
 
 // The stages' table under Steps as text, cell by cell: [{label, value}] with the growing's rounds after its share,
 // a dash for each when the number is not a training's
-export function stagesCells(total, from){
-    const result = trainingStages(total, from);
+export function stagesCells(total, from, growUntil){
+    const result = trainingStages(total, from, growUntil);
     const labels = ["Warm-up", "Growing", "Refining", "Polishing"];
     if (!result) return labels.map(label => ({label, value: "–", rounds: label === "Growing" ? "–" : null}));
     return result.stages.map(s => ({label: s.label, value: s.percent + "%",
@@ -182,7 +188,8 @@ export function optionsFromForm(form, ranges){
     const fields = [
         {name: "steps", label: "Steps", required: true},
         {name: "image_size", label: "Image Size", required: true, zero: true},
-        {name: "max_gaussians", label: "Max Gaussians", required: false}
+        {name: "max_gaussians", label: "Max Gaussians", required: false},
+        {name: "densify_until", label: "Grow Until", required: false, range: {min: GROW_AT_LEAST, max: 200000}}
     ];
     const options = {};
     for (const field of fields){
@@ -193,11 +200,15 @@ export function optionsFromForm(form, ranges){
         }
         if (!/^\d+$/.test(text)) return {error: field.label + " is a whole number."};
         const value = parseInt(text, 10);
-        const range = field.name === "image_size" ? {min: 16, max: 100000} : (ranges || {})[field.name];
+        const range = field.name === "image_size" ? {min: 16, max: 100000} : (ranges || {})[field.name] || field.range;
         if (range && !(field.zero && value === 0) && (value < range.min || value > range.max)){
             return {error: field.label + " is between " + range.min + " and " + range.max + (field.zero ? ", or 0." : ".")};
         }
         options[field.name] = value;
+    }
+    if (options.densify_until != null && options.densify_until > options.steps - AFTER_GROWING){
+        if (options.steps < GROW_AT_LEAST + AFTER_GROWING) return {error: "Grow Until needs Steps of " + (GROW_AT_LEAST + AFTER_GROWING) + " or more."};
+        return {error: "Grow Until is at most " + (options.steps - AFTER_GROWING) + ": " + AFTER_GROWING + " less than Steps."};
     }
     if (form.ignore_sky) options.ignore_sky = true;
     if (form.crop === false) options.crop = false;
@@ -205,9 +216,10 @@ export function optionsFromForm(form, ranges){
     return {options};
 }
 
-// Continuing a trained model: the More Steps field as a training request, or {error}.
-// trained: the steps the model has; ranges: as for optionsFromForm (the node's limit is on the total)
-export function continueFromForm(more, trained, ranges){
+// Continuing a trained model: the More Steps and Grow Until fields as a training request, or {error}.
+// trained: the steps the model has; ranges: as for optionsFromForm (the node's limit is on the total); a blank
+// Grow Until keeps the model's
+export function continueFromForm(more, trained, ranges, growUntil){
     const text = String(more == null ? "" : more).trim();
     if (text === "") return {error: "More Steps is needed."};
     if (!/^\d+$/.test(text)) return {error: "More Steps is a whole number."};
@@ -216,7 +228,23 @@ export function continueFromForm(more, trained, ranges){
     const max = range ? range.max - trained : Infinity;
     if (max < 1) return {error: "This model has as many steps as the splat node trains. Start over instead."};
     if (value < 1 || value > max) return {error: "More Steps is between 1 and " + max + "."};
-    return {options: {resume: true, steps: value}};
+    const options = {resume: true, steps: value};
+    const grow = String(growUntil == null ? "" : growUntil).trim();
+    if (grow !== ""){
+        const range = growUntilRange(trained, value);
+        if (!range) return {error: "Grow Until needs More Steps of " + (GROW_AT_LEAST + AFTER_GROWING) + " or more."};
+        if (!/^\d+$/.test(grow)) return {error: "Grow Until is a whole number."};
+        const step = parseInt(grow, 10);
+        if (step < range.min || step > range.max) return {error: "Grow Until is between " + range.min + " and " + range.max + "."};
+        options.densify_until = step;
+    }
+    return {options};
+}
+
+// The steps Grow Until may be when continuing a model of trained steps by more: {min, max}, or null when none
+export function growUntilRange(trained, more){
+    const min = trained + GROW_AT_LEAST, max = trained + more - AFTER_GROWING;
+    return max >= min ? {min, max} : null;
 }
 
 // What More Steps starts as: as many again, within the node's limit
@@ -229,7 +257,7 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), densify_until: text(options.densify_until, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"

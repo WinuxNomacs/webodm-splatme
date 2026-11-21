@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, trainedSize, imageSizeRows, justCompleted, dashboardLink } from "../trainingView";
+import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -161,9 +161,22 @@ describe("a task's automatic training", () => {
 
     test("saved options fill the form, and the form gives them back", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", ignore_sky: false, crop: true, palette: "gray"});
+        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(optionsFromForm(formFromOptions({steps: 30000, image_size: 1600, densify_until: 20000}), null).options)
+            .toEqual({steps: 30000, image_size: 1600, densify_until: 20000});
+    });
+
+    test("Grow Until is optional, from 1,000 to 3,000 less than Steps", () => {
+        const ranges = {steps: {min: 1, max: 200000}, densify_until: {min: 1000, max: 200000}};
+        const form = {steps: "30000", image_size: "1600", max_gaussians: ""};
+        expect(optionsFromForm({...form, densify_until: " "}, ranges).options).toEqual({steps: 30000, image_size: 1600});
+        expect(optionsFromForm({...form, densify_until: "27000"}, ranges).options).toEqual({steps: 30000, image_size: 1600, densify_until: 27000});
+        expect(optionsFromForm({...form, densify_until: "27001"}, ranges).error).toBe("Grow Until is at most 27000: 3000 less than Steps.");
+        expect(optionsFromForm({...form, densify_until: "999"}, ranges).error).toBe("Grow Until is between 1000 and 200000.");
+        expect(optionsFromForm({...form, densify_until: "999"}, null).error).toBe("Grow Until is between 1000 and 200000.");
+        expect(optionsFromForm({...form, steps: "3999", densify_until: "1000"}, ranges).error).toBe("Grow Until needs Steps of 4000 or more.");
     });
 
     test("Crop to Boundary is on unless it is unticked", () => {
@@ -223,6 +236,17 @@ describe("continuing a trained model", () => {
         expect(continueFromForm("0", 7000, ranges).error).toBe("More Steps is between 1 and 193000.");
         expect(continueFromForm("193001", 7000, ranges).error).toBe("More Steps is between 1 and 193000.");
         expect(continueFromForm("1", 200000, ranges).error).toMatch(/Start over instead/);
+    });
+
+    test("Grow Until may make the model grow again, from 1,000 after its steps to 3,000 before the last", () => {
+        expect(continueFromForm("10000", 30000, null, "")).toEqual({options: {resume: true, steps: 10000}});
+        expect(continueFromForm("10000", 30000, null, "37000")).toEqual({options: {resume: true, steps: 10000, densify_until: 37000}});
+        expect(continueFromForm("10000", 30000, null, "30999").error).toBe("Grow Until is between 31000 and 37000.");
+        expect(continueFromForm("10000", 30000, null, "37001").error).toBe("Grow Until is between 31000 and 37000.");
+        expect(continueFromForm("10000", 30000, null, "3e4").error).toBe("Grow Until is a whole number.");
+        expect(continueFromForm("3999", 30000, null, "31000").error).toBe("Grow Until needs More Steps of 4000 or more.");
+        expect(growUntilRange(30000, 4000)).toEqual({min: 31000, max: 31000});
+        expect(growUntilRange(30000, 3999)).toBeNull();
     });
 
     test("More Steps starts as as many again, within the node's limit", () => {
@@ -295,6 +319,7 @@ describe("a task's processing in its row", () => {
 
 describe("the trainer's stages under Steps", () => {
     const shares = (total, from) => trainingStages(total, from).stages.map(s => s.percent);
+    const shares3 = (total, from, growUntil) => trainingStages(total, from, growUntil).stages.map(s => s.percent);
 
     test("up to 30,000 steps about half grow the model, a sixth refine it and a third polish it", () => {
         expect(stagesCells(30000)).toEqual([
@@ -339,6 +364,13 @@ describe("the trainer's stages under Steps", () => {
             expect(stagesCells(value).map(c => [c.value, c.rounds])).toEqual([["–", null], ["–", "–"], ["–", null], ["–", null]]);
         }
         expect(trainingStages(7000, 7000)).toBeNull();
+    });
+
+    test("Grow Until moves the end of the growing, and past where polishing would start leaves no refining", () => {
+        expect(trainingStages(30000, 0, "")).toEqual(trainingStages(30000));
+        expect(trainingStages(30000, 0, " 10000 ").stages.map(s => s.percent)).toEqual([2, 32, 33, 33]);
+        expect([shares3(30000, 0, 27000), trainingStages(30000, 0, 27000).rounds]).toEqual([[2, 88, 0, 10], 52]);
+        expect([shares3(40000, 30000, 37000), trainingStages(40000, 30000, 37000).rounds]).toEqual([[0, 70, 0, 30], 13]);
     });
 });
 

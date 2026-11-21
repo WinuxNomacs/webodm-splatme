@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, THERMAL_PALETTES } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES } from './trainingView';
 import StagesTable from './StagesTable';
 import ImageSizeTable from './ImageSizeTable';
 
@@ -99,9 +99,10 @@ export default class OptionsFields extends React.Component {
                 </div>
                 {advanced ?
                     <React.Fragment>
-                        {this.numberField("steps", _("Steps"), _(STEPS_HINT), "", <StagesTable total={form.steps} />)}
+                        {this.numberField("steps", _("Steps"), _(STEPS_HINT), "", <StagesTable total={form.steps} growUntil={form.densify_until} />)}
                         {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. Larger photos are scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost. GPU memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they are."), "", <ImageSizeTable photoSizes={this.props.photoSizes} imageSize={form.image_size} />)}
                         {this.numberField("max_gaussians", _("Max Gaussians"), _("The most gaussians the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit"))}
+                        {this.numberField("densify_until", _("Grow Until"), _(GROW_UNTIL_HINT), _("Half the steps, at most 15,000"))}
                     </React.Fragment> : ""}
             </React.Fragment>
         );

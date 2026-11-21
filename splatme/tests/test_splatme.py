@@ -517,6 +517,7 @@ class TestSplatMe(BootTestCase):
     def test_continuing_may_set_grow_until_after_the_models_steps_or_keep_the_models(self):
         task = make_task(self.user)
         self.assertEqual(self.train(task, steps=20000, image_size=16, densify_until=10000).status_code, 200)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_grow_until"], 10000)
         self.assertEqual(self.train(task, resume="true", steps=10000, densify_until="").status_code, 200)
         self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 30000, "densify_until": 10000})
         for grow_until, message in ((30999, "between 31000 and 37000"), (37001, "between 31000 and 37000")):
@@ -528,6 +529,9 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.node.jobs["job3"]["options"], {"steps": 40000, "densify_until": 37000})
         self.assertEqual(self.status(task)["options"]["densify_until"], 37000)
         self.assertEqual(training.trained_options(task)["densify_until"], 37000)
+        other = make_task(self.user)
+        self.assertEqual(self.train(other, steps=10).status_code, 200)
+        self.assertIsNone(self.client.get(f"{API}/task/{other.id}/check").data["trained_grow_until"])
 
     def test_continuing_is_refused_without_a_trained_model_or_more_steps(self):
         task = make_task(self.user)

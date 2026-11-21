@@ -34,7 +34,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
                     <td style="text-align: center;"></td><td style="text-align: center;"></td></tr></tbody>
             </table>
             <span class="help-block">How long the trainer works on the model. It grows the model in the first half of
-                the steps (up to step 15,000), then refines it; steps beyond 30,000 only refine it.</span>
+                the steps, up to step 15,000 unless Grow Until says otherwise, then refines it.</span>
         </div>
     </div>
     <div class="form-group">
@@ -53,6 +53,15 @@ shared (the admin page) the administrators', for users who saved none, which onl
             <input type="number" min="1" class="form-control" id="splatme-auto-gaussians" placeholder="The trainer's own limit">
             <span class="help-block">The most gaussians the model may grow to, a limit for very large scenes. When the GPU
                 runs out of memory, lower Image Size first.</span>
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-auto-grow">Grow Until</label>
+        <div class="col-sm-9">
+            <input type="number" min="0" class="form-control" id="splatme-auto-grow" placeholder="Half the steps, at most 15,000">
+            <span class="help-block">The step the model stops growing at: until then the trainer adds gaussians where the
+                photos show detail the model lacks. Later can give large scenes more detail, for more GPU memory and
+                time. From 1,000 to 3,000 less than Steps.</span>
         </div>
     </div>
     <div class="form-group">
@@ -119,14 +128,16 @@ shared (the admin page) the administrators', for users who saved none, which onl
     }
 
     // As public/trainingView.js's trainingStages and stagesCells, for a new training: [[percent text, rounds text]]
-    function stagesCells(value){
-        var total = Number(value);
+    function stagesCells(value, growUntil){
+        var total = Number(value), set = Number(String(growUntil).trim() || NaN);
         if (!(total >= 1) || Math.floor(total) !== total) return [["\u2013"], ["\u2013", "\u2013"], ["\u2013"], ["\u2013"]];
-        var grownUntil = Math.min(15000, Math.floor(total / 2)), polishFrom = Math.min(20000, Math.floor(total * 2 / 3));
+        var grownUntil = set > 0 && Math.floor(set) === set ? set : Math.min(15000, Math.floor(total / 2));
+        var polishFrom = Math.max(grownUntil, Math.min(20000, Math.floor(total * 2 / 3)));
+        var span = function(a, b){ return Math.max(0, Math.min(b, total) - a); };
         var rounds = 0;
         for (var step = 1000; step < grownUntil; step += 500) rounds++;
-        var growing = rounds ? grownUntil - 500 : 0;
-        var counts = [grownUntil - growing, growing, polishFrom - grownUntil, total - polishFrom];
+        var growing = rounds ? span(500, grownUntil) : 0;
+        var counts = [span(0, grownUntil) - growing, growing, span(grownUntil, polishFrom), span(polishFrom, total)];
         var shares = counts.map(function(c){ return Math.floor(c * 100 / total); });
         var order = counts.map(function(c, i){ return [c * 100 / total - shares[i], i]; }).sort(function(a, b){ return b[0] - a[0]; });
         var missing = 100 - shares.reduce(function(a, b){ return a + b; }, 0);
@@ -140,7 +151,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
         document.getElementById("splatme-auto-hint").textContent =
             quality.value === "custom" ? (stepsNote(steps.value) || HINTS.custom) : HINTS[quality.value];
         var cells = document.querySelectorAll("#splatme-auto-stages td");
-        stagesCells(steps.value).forEach(function(cell, i){
+        stagesCells(steps.value, grow.value).forEach(function(cell, i){
             if (cell.length > 1){
                 cells[i].querySelector("span").textContent = cell[0];
                 cells[i].querySelector("small").textContent = cell[1];
@@ -155,6 +166,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
     var steps = document.getElementById("splatme-auto-steps");
     var size = document.getElementById("splatme-auto-size");
     var gaussians = document.getElementById("splatme-auto-gaussians");
+    var grow = document.getElementById("splatme-auto-grow");
     var sky = document.getElementById("splatme-auto-sky");
     var crop = document.getElementById("splatme-auto-crop");
     var palette = document.getElementById("splatme-auto-palette");  // as public/trainingView.js's THERMAL_PALETTES
@@ -202,6 +214,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
         steps.value = options.steps == null ? "" : options.steps;
         size.value = options.image_size == null ? "" : options.image_size;
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
+        grow.value = options.densify_until == null ? "" : options.densify_until;
         sky.checked = !!options.ignore_sky;
         crop.checked = options.crop !== false;
         palette.value = options.palette || "gray";
@@ -219,6 +232,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
         showHint();
     });
     steps.addEventListener("input", qualityOfSteps);
+    grow.addEventListener("input", showHint);
 
     function save(button, values){
         saved.style.display = "none";
@@ -240,7 +254,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
     form.addEventListener("submit", function(e){
         e.preventDefault();
         save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value,
-            max_gaussians: gaussians.value, ignore_sky: sky.checked, crop: crop.checked, palette: palette.value});
+            max_gaussians: gaussians.value, densify_until: grow.value, ignore_sky: sky.checked, crop: crop.checked, palette: palette.value});
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });
 

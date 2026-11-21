@@ -138,6 +138,7 @@ class Check(TaskView):
             "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None,
             "defaults": training.DEFAULTS, "has_splats": "splats.rad" in task.available_assets,
             "trained_steps": training.trained_steps(task), "boundary": bool(crop.boundary(task)),
+            "trained_grow_until": (training.trained_options(task) or {}).get("densify_until"),
             "thermal": thermal.is_thermal(task), "photo_sizes": training.photo_sizes(task),
         }  # fmt: skip
         if out["problem"] is None:
