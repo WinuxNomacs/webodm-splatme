@@ -17,10 +17,6 @@ other software. The plugin does that step.
    `main` at 28e61d0, pushed 2026-11-19 with their approval. Left: the user's pull request, then a look at
    https://plugins.webodm.org/index.json once it is merged.
 
-2. Grow Until (asked 2026-11-21): OpenSplat's `--densify-until` as an optional training option, unset by
-   default, so a training (or a continued one) can keep adding gaussians past step 15,000. See "11. Grow
-   Until".
-
 The rest of the UX review, "10. UX review", is possible for later.
 
 **Then**
@@ -58,6 +54,10 @@ The rest of the UX review, "10. UX review", is possible for later.
 
 **Done**
 
+- Grow Until (2026-11-21): OpenSplat's `--densify-until` as an optional option, in Advanced and on Continue;
+  node 0.2.3. Code in `node/splatnode.py`, `splatme/training.py`, `public/trainingView.js` and the forms; tests in
+  `node/tests`, `test_splatme.py` and Jest. Not yet: a real training with it (the dev node rebuilt as 0.2.3), and
+  Getting Started's upgrade steps for the node, on the next release's branch. See "11. Grow Until (built)".
 - Fixes from the release review of 0.3.0 (2026-11-19): A, B, C, E, G, I, M, N, O, P, Q, R, S, T, U, V, the
   documentation, and Cancel for Apply (D, the user's choice, which also covers F). See "Fixes from the release
   review of 0.3.0 (built)".
@@ -2961,7 +2961,7 @@ until it restarts; Download .ply makes the same model in the web server. WebODM'
 (deleted): **set initial camera view** under **Scene** saved the turned view, which came back after a reload with
 Splats shown and in the public share view (`/public/task/<id>/3d/`).
 
-### 11. Grow Until
+### 11. Grow Until (built)
 
 Asked by the user (2026-11-21): an OpenSplat option that adds gaussians beyond step 15,000.
 

@@ -57,7 +57,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELED = "queued", "running", "completed", "failed", "canceled"
 FINISHED = (COMPLETED, FAILED, CANCELED)
@@ -70,7 +70,12 @@ OPTIONS = {
     "max_gaussians": ("--max-gaussians", int, 0, 50000000, None),
     "sh_degree": ("--sh-degree", int, 1, 3, None),
     "downscale": ("--downscale-factor", float, 1, 16, None),
+    # The step the model stops growing at (the trainer's own: half the steps, at most 15,000)
+    "densify_until": ("--densify-until", int, 1000, 200000, None),
 }
+# The steps a training goes on for after it stops growing: the last opacity reset recovered from, and the
+# faint gaussians pruned at least once
+AFTER_GROWING = 3000
 # What a training zip must hold (WebODM's export, app/splats.py export_zip)
 REQUIRED_FILES = ("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin")
 # The model is a .ply: the only format the trainer continues from (WebODM converts it for its viewer)
@@ -133,6 +138,10 @@ def parse_options(params):
         if not low <= value <= high:
             raise Refused(400, f"Option {name} must be between {low} and {high}")
         options[name] = value
+    grow_until = options.get("densify_until")
+    if grow_until is not None and grow_until > options["steps"] - AFTER_GROWING:
+        raise Refused(400, f"Option densify_until must be at most {options['steps'] - AFTER_GROWING}: "
+                      f"{AFTER_GROWING} steps less than the steps")
     return options
 
 

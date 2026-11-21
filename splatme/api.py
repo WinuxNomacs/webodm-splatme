@@ -1,7 +1,7 @@
 """
 The plugin's API, under /api/plugins/splatme/.
 
-    POST task/<id>/train     starts training; options steps, image_size, max_gaussians, sh_degree
+    POST task/<id>/train     starts training; options steps, image_size, max_gaussians, sh_degree, densify_until
     GET  task/<id>/status    the task's job, and whether the task has a splat model
     GET  task/<id>/check     before training: why the task or the node cannot train, warnings, the options' ranges
     POST task/<id>/cancel    stops the task's job
@@ -138,6 +138,7 @@ class Check(TaskView):
             "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None,
             "defaults": training.DEFAULTS, "has_splats": "splats.rad" in task.available_assets,
             "trained_steps": training.trained_steps(task), "boundary": bool(crop.boundary(task)),
+            "trained_grow_until": (training.trained_options(task) or {}).get("densify_until"),
             "thermal": thermal.is_thermal(task), "photo_sizes": training.photo_sizes(task),
         }  # fmt: skip
         if out["problem"] is None:

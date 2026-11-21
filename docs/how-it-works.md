@@ -84,9 +84,9 @@ training's steps are spent depends on their total:
 | Phase | When | What happens |
 |---|---|---|
 | Colour detail | From the start | The colour's angle detail opens one degree every 1,000 steps: one plain colour until step 1,000, all of it from step 3,000 |
-| Growing | Every 500 steps, from step 1,000 until half the steps (at most step 15,000) | Blobs are added where the renders are worst (below) |
+| Growing | Every 500 steps, from step 1,000 until half the steps (at most step 15,000), or until **Grow Until** | Blobs are added where the renders are worst (below) |
 | Opacity reset | Every 3,000 steps while growing | Every blob is turned down to 1% opacity: those that matter earn it back, the others can then be pruned |
-| Refining | Once growing ends | No new blobs. The optimiser gathers the steps' changes and applies them every 32 steps, then every 64 after two thirds of the steps (at most step 20,000): the late steps cost less |
+| Refining | Once growing ends | No new blobs. The optimiser gathers the steps' changes and applies them every 32 steps, then every 64 after two thirds of the steps (at most step 20,000; if growing ends later, every 64 from there): the late steps cost less |
 | Final pruning | Every 3,000 steps after growing | Blobs under 10% opacity, the worst-scored, and any that flew far off or grew huge are removed |
 
 **How growing chooses**: 10 random photos are rendered, and each one's worst pixels marked. Each gaussian scores
@@ -118,6 +118,7 @@ the level-of-detail `.rad` that the 3D view, the download and the share links us
 
 **Continue From Step** sends that `.ply` back: the trainer loads its gaussians and its step, starts the optimiser
 afresh, and carries on the schedule from that step towards the new total. As growing ends at half the total (and
-at step 15,000), continuing a model mostly sharpens the gaussians it already has.
+at step 15,000), continuing a model mostly sharpens the gaussians it already has, unless **Grow Until** is set past
+the model's step: the model then grows again until it.
 
 *As of WebODM 4.0.0 (`app/splats.py`) and OpenSplat 1.2.2 at the commit the splat node is built from (`e33f9dd`).*

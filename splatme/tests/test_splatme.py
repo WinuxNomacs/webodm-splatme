@@ -488,6 +488,51 @@ class TestSplatMe(BootTestCase):
         task.save()
         self.assertEqual(crop.boundary(task), [])
 
+    def test_grow_until_is_sent_to_the_node_only_when_set(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=5000, image_size=16, densify_until="").status_code, 200)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 5000})
+        res = self.train(task, steps=30000, image_size=16, densify_until=27000)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 30000, "densify_until": 27000})
+        self.assertEqual(self.status(task)["options"]["densify_until"], 27000)
+
+    def test_grow_until_beyond_the_steps_less_3000_or_below_1000_is_refused(self):
+        task = make_task(self.user)
+        for steps, grow_until, message in ((30000, 27001, "at most 27000"), (3999, 1000, "at most 999"),
+                                           (30000, 999, "between 1000 and")):
+            res = self.train(task, steps=steps, densify_until=grow_until)
+            self.assertEqual(res.status_code, 400, (steps, grow_until))
+            self.assertIn(message, res.data["error"])
+        self.assertEqual(self.node.jobs, {})
+
+    def test_grow_until_needs_a_node_that_has_it_and_blank_does_not(self):
+        task = make_task(self.user)
+        del self.node.options["densify_until"]
+        res = self.train(task, steps=30000, densify_until=20000)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Update the node", res.data["error"])
+        self.assertEqual(self.train(task, steps=30000, densify_until="").status_code, 200)
+
+    def test_continuing_may_set_grow_until_after_the_models_steps_or_keep_the_models(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=20000, image_size=16, densify_until=10000).status_code, 200)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_grow_until"], 10000)
+        self.assertEqual(self.train(task, resume="true", steps=10000, densify_until="").status_code, 200)
+        self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 30000, "densify_until": 10000})
+        for grow_until, message in ((30999, "between 31000 and 37000"), (37001, "between 31000 and 37000")):
+            res = self.train(task, resume="true", steps=10000, densify_until=grow_until)
+            self.assertEqual(res.status_code, 400, grow_until)
+            self.assertIn(message, res.data["error"])
+        res = self.train(task, resume="true", steps=10000, densify_until=37000)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job3"]["options"], {"steps": 40000, "densify_until": 37000})
+        self.assertEqual(self.status(task)["options"]["densify_until"], 37000)
+        self.assertEqual(training.trained_options(task)["densify_until"], 37000)
+        other = make_task(self.user)
+        self.assertEqual(self.train(other, steps=10).status_code, 200)
+        self.assertIsNone(self.client.get(f"{API}/task/{other.id}/check").data["trained_grow_until"])
+
     def test_continuing_is_refused_without_a_trained_model_or_more_steps(self):
         task = make_task(self.user)
         res = self.train(task, resume="true", steps=30)

@@ -4,12 +4,12 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps, DEFAULT_PALETTE } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, DEFAULT_PALETTE } from './trainingView';
 import StagesTable from './StagesTable';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
 // that all point down, the options, and Start Training. A task whose trained model SplatMe kept can be continued
-// instead: Start Over or Continue From Step N, which asks only how many more steps.
+// instead: Start Over or Continue From Step N, which asks how many more steps and, optionally, Grow Until.
 export default class TrainDialog extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,
@@ -19,8 +19,8 @@ export default class TrainDialog extends React.Component {
 
     constructor(props){
         super(props);
-        this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "",
-                      form: {steps: "30000", image_size: "1600", max_gaussians: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
+        this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "", growUntil: "",
+                      form: {steps: "30000", image_size: "1600", max_gaussians: "", densify_until: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
     }
 
     componentDidMount(){
@@ -49,7 +49,7 @@ export default class TrainDialog extends React.Component {
         if (this.state.starting || !known || known.problem || known.node_error) return;
         const check = known;
         const { options, error } = this.state.resume ?
-            continueFromForm(this.state.more, check.trained_steps, check.ranges) :
+            continueFromForm(this.state.more, check.trained_steps, check.ranges, this.state.growUntil) :
             optionsFromForm(this.state.form, check.ranges);
         if (error){
             this.setState({error: _(error), advanced: !this.state.resume});
@@ -64,10 +64,12 @@ export default class TrainDialog extends React.Component {
     };
 
     render(){
-        const { check, error, starting, advanced, form, resume, more } = this.state;
+        const { check, error, starting, advanced, form, resume, more, growUntil } = this.state;
         const blocked = !check || !!check.problem || !!check.node_error;
         const trained = (check || {}).trained_steps || 0;
         const total = trained + (/^\d+$/.test(String(more).trim()) ? parseInt(more, 10) : 0);
+        const modelGrowUntil = (check || {}).trained_grow_until;  // the model's Grow Until, when it was set
+        const growRange = growUntilRange(trained, total - trained);
         const footer = (
             <React.Fragment>
                 <button type="button" className="btn btn-default" disabled={starting} onClick={this.props.onClose}>{_("Close")}</button>
@@ -104,9 +106,23 @@ export default class TrainDialog extends React.Component {
                             <div className="col-sm-8">
                                 <input type="number" min="1" className="form-control splatme-more-steps" id="splatme-more-steps" value={more}
                                        onChange={e => this.setState({more: e.target.value, error: null})} />
-                                <StagesTable total={total} from={trained} />
+                                <StagesTable total={total} from={trained} growUntil={String(growUntil).trim() || modelGrowUntil} />
                                 <span className="help-block">
                                     {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
+                                </span>
+                            </div>
+                        </div> : ""}
+                    {resume && !blocked ?
+                        <div className="form-group">
+                            <label className="col-sm-4 control-label" htmlFor="splatme-grow-until">{_("Grow Until")}</label>
+                            <div className="col-sm-8">
+                                <input type="number" min="0" className="form-control splatme-grow-until" id="splatme-grow-until" value={growUntil}
+                                       placeholder={modelGrowUntil ? _("The model's:") + " " + modelGrowUntil.toLocaleString() : _("As the model was trained")}
+                                       onChange={e => this.setState({growUntil: e.target.value, error: null})} />
+                                <span className="help-block">
+                                    {_("The step the model stops growing at, for it to grow again:")} {growRange ?
+                                        _("from") + " " + growRange.min.toLocaleString() + " " + _("to") + " " + growRange.max.toLocaleString() + "." :
+                                        _("it needs 4,000 more steps or more.")}
                                 </span>
                             </div>
                         </div> :

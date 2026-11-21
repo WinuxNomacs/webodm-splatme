@@ -23,7 +23,7 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     **Advanced** has the steps, the image size and the most gaussians as numbers:
 
     - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
-      half of the steps, up to step 15,000, then refines it; steps beyond 30,000 only refine it. A table under
+      half of the steps, up to step 15,000 unless **Grow Until** says otherwise, then refines it. A table under
       the number gives the share of the steps in each stage (**Warm-up**, **Growing**, **Refining**,
       **Polishing**), with how many times the model is grown; each heading's hover tip says what the stage does. A number of steps the trainer handles badly
       gets a note: up to 2,000 steps grows no new gaussians, and 3,001 to 5,999 trains worse than 3,000.
@@ -35,6 +35,10 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
       more: a training of 12-megapixel photos at 30,000 steps ran about 15 times slower than at 1,600 and
       filled an 8 GB GPU before its model had finished growing.
     - **Max Gaussians**: the most gaussians the model may grow to, a limit for very large scenes.
+    - **Grow Until** (blank by default: half the steps, at most 15,000): the step the model stops growing at,
+      from 1,000 to 3,000 less than **Steps**, so the training still has time to settle after the last growing
+      and to prune the model at least once. Later can give large scenes more detail, for more GPU memory and
+      time (**Max Gaussians** still caps the growth); the steps table follows it.
 
     **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the
     model: SplatMe finds the sky in each photo and the training leaves those pixels out. It looks only above
@@ -57,11 +61,13 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     much sharper than Standard. TIFFs from other software are not listed.
 
     A task SplatMe has trained can be trained further instead of starting over: **Train Splats Again** then opens with
-    **Start Over** and **Continue From Step** (the steps the model has), and continuing asks only **More
-    Steps**. The other options stay as the model was trained. Continuing sharpens the model the task has: the
-    model grows only before half the new total of steps (and before step 15,000), so continuing a model by as
-    many steps again, or fewer, adds no gaussians (the steps table says so), and a model that lacks detail
-    everywhere is better started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
+    **Start Over** and **Continue From Step** (the steps the model has), and continuing asks for **More
+    Steps** and, optionally, **Grow Until**. The other options stay as the model was trained. Continuing sharpens the model the task has: left
+    blank, Grow Until stays as the model was trained (by default the model grows only before half the new total
+    of steps, and before step 15,000), so continuing a model by as many steps again, or fewer, adds no gaussians
+    (the steps table says so). To grow it again, set **Grow Until** from 1,000 steps after the model's to 3,000
+    before the new total (4,000 more steps at least). A model that lacks detail everywhere is still better
+    started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
     be continued. A task processed again while its splats train has that training canceled (its model would not
     fit the new results), and is trained again on the new results when it is set to Train Splats When Completed.
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,

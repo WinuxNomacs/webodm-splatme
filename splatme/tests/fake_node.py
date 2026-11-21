@@ -12,6 +12,7 @@ OPTIONS = {
     "steps": {"min": 1, "max": 200000, "default": 7000},
     "max_gaussians": {"min": 0, "max": 50000000, "default": None},
     "sh_degree": {"min": 1, "max": 3, "default": None},
+    "densify_until": {"min": 1000, "max": 200000, "default": None},
 }
 MODEL = b"RAD model from the fake node"
 
@@ -25,6 +26,7 @@ class FakeNode:
     def __init__(self, token="secret"):
         self.token = token
         self.version = "0.2.0"
+        self.options = dict(OPTIONS)  # the options its info lists (an older node has fewer)
         self.script = [("queued", {"position": 1}), ("running", {"progress": 50, "step": 5}), ("completed", {})]
         self.failures = []  # statuses its next job status requests answer with a page (a proxy's 502 while the node restarts)
         self.lose_answer = False  # the next new job's answer is lost: the connection closes once the job is made
@@ -101,7 +103,7 @@ class FakeNode:
     def info(self):
         return {
             "name": "SplatMe splat node", "version": self.version, "trainer": "OpenSplat fake",
-            "gpu": {"name": "Fake GPU"}, "running": None, "queued": 0, "options": OPTIONS,
+            "gpu": {"name": "Fake GPU"}, "running": None, "queued": 0, "options": self.options,
         }  # fmt: skip
 
     def describe(self, job_id):

@@ -65,7 +65,11 @@ ESTIMATE_STEPS = 20
 
 # What a job trains with when the request does not say; the node's ranges apply to all but image_size
 DEFAULTS = {"steps": 30000, "image_size": 1600}
-NODE_OPTIONS = ("steps", "max_gaussians", "sh_degree")
+NODE_OPTIONS = ("steps", "max_gaussians", "sh_degree", "densify_until")
+# Grow Until (densify_until): the steps a training goes on for after the model stops growing (the node's own rule)
+AFTER_GROWING = 3000
+# and the steps a continued training grows for at least, after the model's
+GROW_AT_LEAST = 1000
 REQUIRED_ASSETS = ("cameras.json", "shots.geojson", "georeferenced_model.laz")
 # The model as the trainer wrote it: what a training continues from and the edits cut. In the task's data folder,
 # not with its assets, which WebODM serves to anyone who may see the task (a public task's share links, Download
@@ -478,6 +482,10 @@ def parse_options(given, node_info):
         if not limits["min"] <= value <= limits["max"]:
             raise TrainingError("{} must be between {} and {}.".format(name, limits["min"], limits["max"]))
         options[name] = value
+    grow_until = options.get("densify_until")
+    if grow_until is not None and grow_until > options["steps"] - AFTER_GROWING:
+        raise TrainingError(f"densify_until must be at most {options['steps'] - AFTER_GROWING}: "
+                            f"{AFTER_GROWING} steps less than the steps.")
     if str(given.get("ignore_sky", "")).lower() in ("true", "1"):
         options["ignore_sky"] = True  # masks made here: the node knows no such option
     if str(given.get("crop", "")).lower() in ("false", "0"):
@@ -520,7 +528,19 @@ def start(task, username, given, auto=False):
             raise TrainingError(
                 "The options this task's model was trained with are not known. Start the training over."
             )
+        grow_until = given.get("densify_until")
         given = {**model_options, "steps": resume + more}
+        if grow_until not in (None, ""):
+            # Growing again after the model's steps; blank keeps the step the model was trained with
+            try:
+                grow_until = int(grow_until)
+            except (TypeError, ValueError):
+                raise TrainingError("densify_until must be a whole number.") from None
+            low, high = resume + GROW_AT_LEAST, resume + more - AFTER_GROWING
+            if not low <= grow_until <= high:
+                raise TrainingError(f"densify_until must be between {low} and {high}: at least {GROW_AT_LEAST} "
+                                    f"steps after the model's {resume}, and {AFTER_GROWING} before the last.")
+            given["densify_until"] = grow_until
     options = parse_options(given, node_info)
     sweep()
 

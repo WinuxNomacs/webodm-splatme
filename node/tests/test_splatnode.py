@@ -273,6 +273,23 @@ class TestSplatNode(NodeTestCase):
             self.assertEqual(response.status, 400, query)
         self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
 
+    def test_grow_until_reaches_the_trainer_only_when_given(self):
+        job = self.wait(self.create("steps=5000&densify_until=2000")["id"])
+        data = self.request("GET", "/jobs/{}/result".format(job["id"]))[1]
+        self.assertIn(b"--num-iters 5000 --densify-until 2000", data)
+        job = self.wait(self.create("steps=5000")["id"])
+        data = self.request("GET", "/jobs/{}/result".format(job["id"]))[1]
+        self.assertNotIn(b"--densify-until", data)
+
+    def test_grow_until_that_leaves_fewer_than_3000_steps_after_it_is_refused(self):
+        for query in ("steps=50000&densify_until=999", "densify_until=4001", "steps=3999&densify_until=1000",
+                      "steps=5000&densify_until=2001"):
+            response, answer = self.request("POST", "/jobs?" + query, body=training_zip())
+            self.assertEqual(response.status, 400, query)
+        self.assertIn("at most 2000", answer["error"])
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+        self.assertEqual(self.create("densify_until=4000")["options"], {"steps": 7000, "densify_until": 4000})
+
     def test_a_job_keeps_the_clients_ref_and_is_found_by_it(self):
         job = self.create("steps=20&ref=run-1_a")
         self.create("steps=20&ref=other")
