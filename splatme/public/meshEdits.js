@@ -484,12 +484,15 @@ function move(surface, kept, selected, positions, edit){
         const t = target(v);
         return [v, p[3 * v] + (t[0] - p[3 * v]) * w, p[3 * v + 1] + (t[1] - p[3 * v + 1]) * w, p[3 * v + 2] + (t[2] - p[3 * v + 2]) * w];
     });
+    let moved = 0;
     for (const [v, x, y, z] of out){
+        if (x === p[3 * v] && y === p[3 * v + 1] && z === p[3 * v + 2]) continue;  // a step back to nothing moves none
         p[3 * v] = x;
         p[3 * v + 1] = y;
         p[3 * v + 2] = z;
+        moved++;
     }
-    return out.length;
+    return moved;
 }
 
 // Smooth: the selection's vertices but its rim moved halfway toward their neighbours' middle, passes times; the

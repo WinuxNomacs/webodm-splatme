@@ -341,6 +341,12 @@ describe("Move and Smooth", () => {
         expect(at(result.positions, surface, 3, 2)).toEqual([4, 2, 0]);
     });
 
+    test("a Move with no offset and no stretch moves no points", () => {
+        const surface = weld(grid(4));
+        const still = {...middle, op: "move", offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5};
+        expect(applyEdits(surface, [still], applyShape).moved).toBe(0);
+    });
+
     test("Smooth lowers a spike toward its neighbours, its rim fixed, more with more passes", () => {
         const pieces = grid(4);
         for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 1;

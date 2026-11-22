@@ -228,6 +228,17 @@ export function newBox(frame){
     };
 }
 
+// Straighten's box from its line: along the line, past each end and to each side by margin, turned to it
+export function boxAroundLine(line, margin){
+    const [a, b] = line;
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const turn = ((Math.atan2(dy, dx) * 180 / Math.PI) % 360 + 360) % 360;
+    return {
+        type: "box", keep: false, center: [0, 1, 2].map(i => round((a[i] + b[i]) / 2)), turn: round(turn),
+        size: [Math.hypot(dx, dy) + 2 * margin, 2 * margin, Math.abs(b[2] - a[2]) + 2 * margin].map(round)
+    };
+}
+
 // Undo and Redo: the edit lists before each change (undo) and those taken back (redo). A new change clears Redo.
 export const HISTORY_STEPS = 200;
 export function newHistory(){
