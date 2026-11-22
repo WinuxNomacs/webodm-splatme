@@ -70,9 +70,8 @@ other software. The plugin does that step.
   Checked in Chromium and WebKit with the box, both panels and a picked photo. For the next release's changelog.
 - Grow Until (2026-11-21): OpenSplat's `--densify-until` as an optional option, in Advanced and on Continue;
   node 0.2.3. Code in `node/splatnode.py`, `splatme/training.py`, `public/trainingView.js` and the forms; tests in
-  `node/tests`, `test_splatme.py` and Jest. Not yet: a real training with it (the dev node rebuilt as 0.2.3), and
-  Getting Started's upgrade steps for the node, on the next release's branch (the real training ran 2026-11-22,
-  with the UX review's live check). See "11. Grow Until (built)".
+  `node/tests`, `test_splatme.py` and Jest. A real training with it ran 2026-11-22 (with the UX review's live
+  check). Not yet: Getting Started's upgrade steps for the node, on the next release's branch. See "11. Grow Until (built)".
 - Fixes from the release review of 0.3.0 (2026-11-19): A, B, C, E, G, I, M, N, O, P, Q, R, S, T, U, V, the
   documentation, and Cancel for Apply (D, the user's choice, which also covers F). See "Fixes from the release
   review of 0.3.0 (built)".
