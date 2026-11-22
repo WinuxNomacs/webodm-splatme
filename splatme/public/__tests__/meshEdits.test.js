@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -385,5 +385,68 @@ describe("Straighten", () => {
         const result = applyEdits(surface, [tilted], applyShape);
         expect(height(surface, result, 1, 1)).toBe(0);  // on the rim
         expect(height(surface, result, 2, 2)).toBeGreaterThan(0.3);  // toward the line above
+    });
+});
+
+describe("Clone Texture", () => {
+    // A 4 by 4 grid, its two pieces' textures plain red (x under 2) and plain blue
+    const pieces = () => grid(4).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
+    const sample = piece => piece === 0 ? [255, 0, 0] : [0, 0, 255];
+    const target = {op: "clone", type: "box", keep: false, center: [3.5, 2, 0], size: [0.9, 3.9, 5], turn: 0, source: [1, 2, 0], patch: 1, spin: 0};
+
+    test("a plane's frame has v the most upward, u across", () => {
+        const level = planeFrame([0, 0, 1]);
+        expect(level.v.map(x => Math.round(x) + 0)).toEqual([0, 1, 0]);
+        expect(level.u.map(x => Math.round(x) + 0)).toEqual([1, 0, 0]);
+        const wall = planeFrame([1, 0, 0]);
+        expect(wall.v.map(x => Math.round(x) + 0)).toEqual([0, 0, 1]);
+        expect(wall.u.map(x => Math.round(x) + 0)).toEqual([0, 1, 0]);
+    });
+
+    test("the covered triangles move to a piece of their own, textured from the source", () => {
+        const model = pieces();
+        const surface = weld(model);
+        const result = applyEdits(surface, [{...target, feather: 0}], applyShape);
+        expect(result.cloned).toBe(8);  // the last column's 4 squares
+        expect(result.removed).toBe(0);
+        const out = editedPieces(model, surface, result);
+        expect(out.reduce((sum, p) => sum + p.indices.length / 3, 0)).toBe(24);
+        const regions = cloneRegions(surface, model, result);
+        expect([...regions.keys()].sort()).toEqual([0, 1]);
+        const atlas = cloneAtlas(surface, model, result, sample);
+        expect(atlas.piece.indices.length).toBe(24);
+        // Every texel the triangles cover is the source's red
+        const u = (atlas.piece.uvs[0] + atlas.piece.uvs[2] + atlas.piece.uvs[4]) / 3, v = (atlas.piece.uvs[1] + atlas.piece.uvs[3] + atlas.piece.uvs[5]) / 3;
+        const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+        expect(Array.from(atlas.rgba.slice(i, i + 3))).toEqual([255, 0, 0]);
+    });
+
+    test("the feather keeps the triangles' own texture at their edge, the source's further in", () => {
+        const model = pieces();
+        const surface = weld(model);
+        const result = applyEdits(surface, [{...target, feather: 2}], applyShape);
+        const atlas = cloneAtlas(surface, model, result, sample);
+        // Along the middle row of the clone's part: bluer at its edges than at its middle
+        const row = Math.floor(atlas.height / 2);
+        const blues = [];
+        for (let x = 0; x < atlas.width; x++) if (atlas.rgba[4 * (row * atlas.width + x) + 3]) blues.push(atlas.rgba[4 * (row * atlas.width + x) + 2]);
+        expect(blues.length).toBeGreaterThan(0);
+        expect(Math.max(...blues)).toBeGreaterThan(0);
+    });
+
+    test("a later clone over the same triangles wins, and none is textured without a source near", () => {
+        const surface = weld(pieces());
+        const twice = applyEdits(surface, [{...target, feather: 0}, {...target, feather: 0, source: [3, 2, 0]}], applyShape);
+        expect(twice.clones.length).toBe(1);
+        expect(twice.clones[0].edit.source).toEqual([3, 2, 0]);
+        const nowhere = applyEdits(surface, [{...target, source: [50, 50, 0], feather: 0}], applyShape);
+        expect(cloneAtlas(surface, pieces(), nowhere, sample)).toBeNull();
+    });
+
+    test("a loaded region is sampled bilinearly, clamped to its edge", () => {
+        const region = {rgba: Uint8ClampedArray.from([0, 0, 0, 255, 100, 100, 100, 255]), x0: 2, y0: 0, w: 2, h: 1, width: 4, height: 1};
+        expect(sampleRegion(region, 2.5 / 4, 0.5)[0]).toBeCloseTo(0);
+        expect(sampleRegion(region, 3 / 4, 0.5)[0]).toBeCloseTo(50);
+        expect(sampleRegion(region, 0.99, 0.5)[0]).toBeCloseTo(100);
     });
 });

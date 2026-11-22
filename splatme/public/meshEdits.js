@@ -197,12 +197,17 @@ export function components(faces, count, kept){
 //   {op: "straighten", ...shape, line: [[x, y, z], [x, y, z]], strength, reach}
 //                              the covered vertices (not the rim) pulled toward the line, strength (0 to 1) of the
 //                              way at the line, fading to nothing at reach metres from it: an edge made straight
+//   {op: "clone", ...shape, source: [x, y, z], patch: metres, feather: metres, spin: degrees}
+//                              Clone Texture: the covered triangles textured anew with the texture around source
+//                              (a patch square of patch metres on the surface's plane there), tiled across their
+//                              own plane (turned by spin) and blended into their texture over feather metres from
+//                              their edge (cloneAtlas). Applies to what the edits leave, after them all.
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 //   {type: "holes", size}      Fill Holes: every hole of at most size edges filled
 // A hole is a loop of open edges that goes round as a hole's do, not as a piece's outer rim (holes); a fill is triangles
 // between its rim's vertices (fillHole), coloured from around the rim (fillColours, fillAtlas). The edits apply in
 // the list's order: a fill's triangles close their hole for the edits after it.
-export const OPS = ["delete", "flatten", "fill", "object", "move", "smooth", "straighten"];
+export const OPS = ["delete", "flatten", "fill", "object", "move", "smooth", "straighten", "clone"];
 export const MAX_FLOATING = 100000;  // triangles: the largest size Remove Floating Pieces takes
 export const MAX_HOLE = 5000;  // edges: no hole longer is filled
 
@@ -584,6 +589,7 @@ export function applyEdits(surface, edits, applyShape){
         return covered;
     };
     const fills = [];
+    const clones = [];  // [edit, the triangles it covered]
     const fill = chosen => {
         for (const hole of chosen){
             if (hole.rim.length > MAX_HOLE) continue;
@@ -610,6 +616,8 @@ export function applyEdits(surface, edits, applyShape){
             }
             const outside = applyShape(xs, ys, zs, {...edit, keep: false, restore: false}, new Uint8Array(surface.count).fill(1), null);
             fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.every(v => !outside[v])));
+        } else if (edit.op === "clone"){
+            clones.push([edit, coveredBy(edit)]);
         } else if (edit.type === "holes"){
             fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.length <= edit.size));
         } else if (edit.op === "delete"){
@@ -641,7 +649,16 @@ export function applyEdits(surface, edits, applyShape){
     let removed = 0;
     for (let f = 0; f < n; f++) if (!kept[f]) removed++;
     const added = fills.reduce((sum, f) => sum + f.triangles.length / 3, 0);
-    return {kept, positions, removed, floating, flattened, fills, added, moved};
+    // Clone Texture: each kept triangle goes to the last clone covering it
+    const cloneOf = new Int32Array(n).fill(-1);
+    clones.forEach(([, covered], k) => { for (let f = 0; f < n; f++) if (covered[f] && kept[f]) cloneOf[f] = k; });
+    const cloned = clones.map(([edit], k) => {
+        const faces = [];
+        for (let f = 0; f < n; f++) if (cloneOf[f] === k) faces.push(f);
+        return {edit, faces: Int32Array.from(faces)};
+    }).filter(c => c.faces.length);
+    const clonedCount = cloned.reduce((sum, c) => sum + c.faces.length, 0);
+    return {kept, positions, removed, floating, flattened, fills, added, moved, clones: cloned, cloneOf, cloned: clonedCount};
 }
 
 // The model's pieces after the edits, to draw or to write: for each piece its kept triangles, with the surface's
@@ -650,7 +667,9 @@ export function applyEdits(surface, edits, applyShape){
 // indices: Uint32Array}]
 export function editedPieces(pieces, surface, result){
     const triangles = pieces.map(() => []);
-    for (let f = 0; f < result.kept.length; f++) if (result.kept[f]) triangles[surface.pieceOf[f]].push(surface.localOf[f]);
+    for (let f = 0; f < result.kept.length; f++){
+        if (result.kept[f] && !(result.cloneOf && result.cloneOf[f] >= 0)) triangles[surface.pieceOf[f]].push(surface.localOf[f]);
+    }
     return pieces.map((piece, k) => {
         const idx = piece.indices, ids = surface.vertexOf[k];
         const corners = piece.positions.length / 3;
@@ -802,4 +821,337 @@ export function fillAtlas(fills, colours, positions){
         base += m;
     });
     return {piece: {positions: piecePositions, uvs, indices}, width, height, rgba};
+}
+
+// A plane's two directions across it: v the most upward (north for a level plane), u across, so that u, v and the
+// normal turn as x, y and z do
+export function planeFrame(normal){
+    const [nx, ny, nz] = normal;
+    let vx = -nz * nx, vy = -nz * ny, vz = 1 - nz * nz;  // up, less its part along the normal
+    let length = Math.hypot(vx, vy, vz);
+    if (length < 0.1){
+        vx = -ny * nx;
+        vy = 1 - ny * ny;
+        vz = -ny * nz;
+        length = Math.hypot(vx, vy, vz);
+    }
+    const v = [vx / length, vy / length, vz / length];
+    const u = [v[1] * nz - v[2] * ny, v[2] * nx - v[0] * nz, v[0] * ny - v[1] * nx];
+    return {u, v};
+}
+
+// Clone Texture's source: the kept triangles whose centres are within the patch's reach of source, the plane of their
+// vertices through source, its frame and the patch's half width; null where no triangle is near
+export function cloneSource(surface, positions, kept, edit){
+    const { faces } = surface, [sx, sy, sz] = edit.source, half = edit.patch / 2, reach2 = 2 * half * half;
+    const near = [], vertices = new Set();
+    for (let f = 0; f < faces.length / 3; f++){
+        if (!kept[f]) continue;
+        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        const cx = (positions[a] + positions[b] + positions[c]) / 3 - sx;
+        const cy = (positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3 - sy;
+        const cz = (positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3 - sz;
+        if (cx * cx + cy * cy + cz * cz > reach2) continue;
+        near.push(f);
+        for (let k = 0; k < 3; k++) vertices.add(faces[3 * f + k]);
+    }
+    const plane = fitPlane(positions, [...vertices]);
+    if (!plane) return null;
+    return {faces: near, point: edit.source, normal: plane.normal, ...planeFrame(plane.normal), half};
+}
+
+export const CLONE_TEXEL = 0.01;  // metres a texel of a source patch covers
+const MAX_PATCH = 1024;  // texels across a source patch
+const MAX_CELL = 2048;  // texels across one clone's part of the texture
+export const CLONE_WIDTH = 4096;  // texels: the clones' texture's width
+
+// Where each piece's texture is read by the clones: {piece: [u0, v0, u1, v1]}, for the caller to load those parts
+export function cloneRegions(surface, pieces, result){
+    const regions = new Map();
+    const take = f => {
+        const k = surface.pieceOf[f], uvs = pieces[k].uvs;
+        if (!uvs) return;
+        const r = regions.get(k) || [Infinity, Infinity, -Infinity, -Infinity];
+        for (let c = 0; c < 3; c++){
+            const corner = pieces[k].indices[3 * surface.localOf[f] + c];
+            r[0] = Math.min(r[0], uvs[2 * corner]);
+            r[1] = Math.min(r[1], uvs[2 * corner + 1]);
+            r[2] = Math.max(r[2], uvs[2 * corner]);
+            r[3] = Math.max(r[3], uvs[2 * corner + 1]);
+        }
+        regions.set(k, r);
+    };
+    for (const clone of result.clones){
+        for (const f of clone.faces) take(f);
+        const source = cloneSource(surface, result.positions, result.kept, clone.edit);
+        if (source) for (const f of source.faces) take(f);
+    }
+    return regions;
+}
+
+// Fills a triangle's texels: for each texel centre inside a, b, c (texel coordinates), visit(x, y, wa, wb, wc)
+function rasterise(a, b, c, width, height, visit){
+    const x0 = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))), x1 = Math.min(width - 1, Math.ceil(Math.max(a[0], b[0], c[0])));
+    const y0 = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1]))), y1 = Math.min(height - 1, Math.ceil(Math.max(a[1], b[1], c[1])));
+    const area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    if (!area) return;
+    for (let y = y0; y <= y1; y++){
+        for (let x = x0; x <= x1; x++){
+            const px = x + 0.5, py = y + 0.5;
+            const wa = ((b[0] - px) * (c[1] - py) - (b[1] - py) * (c[0] - px)) / area;
+            const wb = ((c[0] - px) * (a[1] - py) - (c[1] - py) * (a[0] - px)) / area;
+            const wc = 1 - wa - wb;
+            if (wa >= -1e-9 && wb >= -1e-9 && wc >= -1e-9) visit(x, y, wa, wb, wc);
+        }
+    }
+}
+
+// A face's corner uv: [u, v]
+function cornerUv(surface, pieces, f, c){
+    const k = surface.pieceOf[f], corner = pieces[k].indices[3 * surface.localOf[f] + c], uvs = pieces[k].uvs;
+    return uvs ? [uvs[2 * corner], uvs[2 * corner + 1]] : [0, 0];
+}
+
+// A face's texture colour at weights of its corners
+function faceColour(surface, pieces, f, wa, wb, wc, sample){
+    const a = cornerUv(surface, pieces, f, 0), b = cornerUv(surface, pieces, f, 1), c = cornerUv(surface, pieces, f, 2);
+    return sample(surface.pieceOf[f], a[0] * wa + b[0] * wb + c[0] * wc, a[1] * wa + b[1] * wb + c[1] * wc);
+}
+
+// A source patch: the source triangles drawn flat on its plane, size texels square; texels no triangle covers
+// take their neighbours' colours. {rgba: Float32Array of r, g, b, size, texel}
+function sourcePatch(surface, pieces, positions, source, sample){
+    const texel = Math.max(CLONE_TEXEL, 2 * source.half / MAX_PATCH);
+    const size = Math.max(2, Math.ceil(2 * source.half / texel));
+    const rgb = new Float32Array(size * size * 3), have = new Uint8Array(size * size);
+    const { u, v, point } = source;
+    const at = vtx => {
+        const dx = positions[3 * vtx] - point[0], dy = positions[3 * vtx + 1] - point[1], dz = positions[3 * vtx + 2] - point[2];
+        return [(dx * u[0] + dy * u[1] + dz * u[2]) / texel + size / 2, size / 2 - (dx * v[0] + dy * v[1] + dz * v[2]) / texel];
+    };
+    for (const f of source.faces){
+        const { faces } = surface;
+        rasterise(at(faces[3 * f]), at(faces[3 * f + 1]), at(faces[3 * f + 2]), size, size, (x, y, wa, wb, wc) => {
+            const colour = faceColour(surface, pieces, f, wa, wb, wc, sample);
+            const i = y * size + x;
+            rgb[3 * i] = colour[0];
+            rgb[3 * i + 1] = colour[1];
+            rgb[3 * i + 2] = colour[2];
+            have[i] = 1;
+        });
+    }
+    fillGaps(rgb, have, size, size);
+    return {rgb, size, texel};
+}
+
+// Texels not had take the mean of had neighbours, pass after pass; any left, the mean of all
+function fillGaps(rgb, have, width, height){
+    let missing = 0, mean = [0, 0, 0], had = 0;
+    for (let i = 0; i < width * height; i++){
+        if (have[i]){
+            for (let c = 0; c < 3; c++) mean[c] += rgb[3 * i + c];
+            had++;
+        } else missing++;
+    }
+    mean = had ? mean.map(x => x / had) : [128, 128, 128];
+    for (let pass = 0; pass < 64 && missing; pass++){
+        const next = have.slice();
+        for (let y = 0; y < height; y++){
+            for (let x = 0; x < width; x++){
+                const i = y * width + x;
+                if (have[i]) continue;
+                let r = 0, g = 0, b = 0, m = 0;
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]){
+                    const nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                    const j = ny * width + nx;
+                    if (!have[j]) continue;
+                    r += rgb[3 * j];
+                    g += rgb[3 * j + 1];
+                    b += rgb[3 * j + 2];
+                    m++;
+                }
+                if (!m) continue;
+                rgb[3 * i] = r / m;
+                rgb[3 * i + 1] = g / m;
+                rgb[3 * i + 2] = b / m;
+                next[i] = 1;
+                missing--;
+            }
+        }
+        have.set(next);
+    }
+    for (let i = 0; i < width * height; i++){
+        if (have[i]) continue;
+        rgb[3 * i] = mean[0];
+        rgb[3 * i + 1] = mean[1];
+        rgb[3 * i + 2] = mean[2];
+    }
+}
+
+// The patch's colour at a texel position, repeated mirrored (no seam where copies meet), bilinear
+function patchColour(patch, x, y){
+    const { size, rgb } = patch;
+    const mirror = t => {
+        const m = ((t % (2 * size)) + 2 * size) % (2 * size);
+        return m < size ? m : 2 * size - 1 - m;
+    };
+    const fx = x - 0.5, fy = y - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+    const out = [0, 0, 0];
+    for (const [dx, dy, w] of [[0, 0, (1 - tx) * (1 - ty)], [1, 0, tx * (1 - ty)], [0, 1, (1 - tx) * ty], [1, 1, tx * ty]]){
+        const i = 3 * (mirror(y0 + dy) * size + mirror(x0 + dx));
+        out[0] += rgb[i] * w;
+        out[1] += rgb[i + 1] * w;
+        out[2] += rgb[i + 2] * w;
+    }
+    return out;
+}
+
+// Each texel's distance (in texels) to the nearest texel outside the mask (chamfer, 3-4)
+function distances(mask, width, height){
+    const d = new Float32Array(width * height);
+    const big = 1e9;
+    for (let i = 0; i < d.length; i++) d[i] = mask[i] ? big : 0;
+    const at = (x, y) => (x < 0 || y < 0 || x >= width || y >= height) ? 0 : d[y * width + x];
+    for (let y = 0; y < height; y++){
+        for (let x = 0; x < width; x++){
+            const i = y * width + x;
+            if (!d[i]) continue;
+            d[i] = Math.min(d[i], at(x - 1, y) + 3, at(x, y - 1) + 3, at(x - 1, y - 1) + 4, at(x + 1, y - 1) + 4);
+        }
+    }
+    for (let y = height - 1; y >= 0; y--){
+        for (let x = width - 1; x >= 0; x--){
+            const i = y * width + x;
+            if (!d[i]) continue;
+            d[i] = Math.min(d[i], at(x + 1, y) + 3, at(x, y + 1) + 3, at(x + 1, y + 1) + 4, at(x - 1, y + 1) + 4);
+        }
+    }
+    for (let i = 0; i < d.length; i++) d[i] /= 3;
+    return d;
+}
+
+// The clones as one more piece for the model, with a texture made for it: each clone's triangles flat on their plane,
+// textured with its source patch repeated and blended into their own texture near their edge. sample(piece, u, v):
+// a piece's texture's colour (full size) where cloneRegions said. {piece, width, height, rgba} or null with none.
+export function cloneAtlas(surface, pieces, result, sample){
+    const parts = [];
+    for (const clone of result.clones){
+        const source = cloneSource(surface, result.positions, result.kept, clone.edit);
+        if (!source) continue;
+        const patch = sourcePatch(surface, pieces, result.positions, source, sample);
+        const vertices = new Set();
+        for (const f of clone.faces) for (let k = 0; k < 3; k++) vertices.add(surface.faces[3 * f + k]);
+        const plane = fitPlane(result.positions, [...vertices]);
+        if (!plane) continue;
+        const { u, v } = planeFrame(plane.normal);
+        const p = result.positions, o = plane.point;
+        const flat = vtx => {
+            const dx = p[3 * vtx] - o[0], dy = p[3 * vtx + 1] - o[1], dz = p[3 * vtx + 2] - o[2];
+            return [dx * u[0] + dy * u[1] + dz * u[2], dx * v[0] + dy * v[1] + dz * v[2]];
+        };
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        const at = new Map();
+        for (const vtx of vertices){
+            const q = flat(vtx);
+            at.set(vtx, q);
+            x0 = Math.min(x0, q[0]);
+            x1 = Math.max(x1, q[0]);
+            y0 = Math.min(y0, q[1]);
+            y1 = Math.max(y1, q[1]);
+        }
+        const texel = Math.max(patch.texel, (x1 - x0) / MAX_CELL, (y1 - y0) / MAX_CELL);
+        const w = Math.max(1, Math.ceil((x1 - x0) / texel)) + 4, h = Math.max(1, Math.ceil((y1 - y0) / texel)) + 4;
+        // Texel position of a plane point: 2 texels of margin, rows downward (v up)
+        const tx = q => (q[0] - x0) / texel + 2, ty = q => (y1 - q[1]) / texel + 2;
+        const own = new Float32Array(w * h * 3), mask = new Uint8Array(w * h);
+        for (const f of clone.faces){
+            const corners = [0, 1, 2].map(c => at.get(surface.faces[3 * f + c])).map(q => [tx(q), ty(q)]);
+            rasterise(corners[0], corners[1], corners[2], w, h, (x, y, wa, wb, wc) => {
+                const colour = faceColour(surface, pieces, f, wa, wb, wc, sample);
+                const i = y * w + x;
+                own.set(colour, 3 * i);
+                mask[i] = 1;
+            });
+        }
+        const near = distances(mask, w, h);
+        const spin = (clone.edit.spin || 0) * Math.PI / 180, cs = Math.cos(spin), sn = Math.sin(spin);
+        const scale = texel / patch.texel;
+        const rgba = new Uint8ClampedArray(w * h * 4);
+        for (let y = 0; y < h; y++){
+            for (let x = 0; x < w; x++){
+                const i = y * w + x;
+                // The texel's place on the plane in patch texels, turned by spin
+                const px = (x + 0.5 - 2) * scale, py = (y + 0.5 - 2) * scale;
+                const colour = patchColour(patch, cs * px - sn * py + patch.size / 2, sn * px + cs * py + patch.size / 2);
+                const feather = clone.edit.feather > 0 ? Math.min(1, near[i] * texel / clone.edit.feather) : 1;
+                const blend = mask[i] ? feather : 1;
+                for (let c = 0; c < 3; c++) rgba[4 * i + c] = colour[c] * blend + own[3 * i + c] * (1 - blend);
+                rgba[4 * i + 3] = 255;
+            }
+        }
+        parts.push({clone, w, h, rgba, at, tx, ty});
+    }
+    if (!parts.length) return null;
+    // Shelves, the tallest first
+    const order = parts.map((_p, i) => i).sort((a, b) => parts[b].h - parts[a].h);
+    let x = 0, y = 0, shelf = 0;
+    for (const i of order){
+        const part = parts[i];
+        if (x + part.w > CLONE_WIDTH){
+            x = 0;
+            y += shelf;
+            shelf = 0;
+        }
+        part.left = x;
+        part.top = y;
+        x += part.w;
+        shelf = Math.max(shelf, part.h);
+    }
+    const width = Math.min(CLONE_WIDTH, Math.max(...parts.map(part => part.left + part.w))), height = y + shelf;
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    let triangles = 0;
+    for (const part of parts){
+        triangles += part.clone.faces.length;
+        for (let row = 0; row < part.h; row++) rgba.set(part.rgba.subarray(4 * row * part.w, 4 * (row + 1) * part.w), 4 * ((part.top + row) * width + part.left));
+    }
+    const positions = new Float32Array(triangles * 9), uvs = new Float32Array(triangles * 6), indices = new Uint32Array(triangles * 3);
+    let corner = 0;
+    for (const part of parts){
+        for (const f of part.clone.faces){
+            for (let c = 0; c < 3; c++){
+                const vtx = surface.faces[3 * f + c], q = part.at.get(vtx);
+                positions.set([result.positions[3 * vtx], result.positions[3 * vtx + 1], result.positions[3 * vtx + 2]], 3 * corner);
+                uvs[2 * corner] = (part.left + part.tx(q)) / width;
+                uvs[2 * corner + 1] = (part.top + part.ty(q)) / height;
+                indices[corner] = corner;
+                corner++;
+            }
+        }
+    }
+    return {piece: {positions, uvs, indices}, width, height, rgba};
+}
+
+// A texture region as loaded for sample(): rgba of the texels [x0, x0 + w) by [y0, y0 + h) of a width by height
+// texture. The colour at u, v, bilinear, clamped to the region.
+export function sampleRegion(region, u, v){
+    const { rgba, x0, y0, w, h, width, height } = region;
+    const fx = u * width - 0.5 - x0, fy = v * height - 0.5 - y0;
+    const cx = t => Math.min(w - 1, Math.max(0, t)), cy = t => Math.min(h - 1, Math.max(0, t));
+    const xa = Math.floor(fx), ya = Math.floor(fy), tx = fx - xa, ty = fy - ya;
+    const out = [0, 0, 0];
+    for (const [dx, dy, wt] of [[0, 0, (1 - tx) * (1 - ty)], [1, 0, tx * (1 - ty)], [0, 1, (1 - tx) * ty], [1, 1, tx * ty]]){
+        const i = 4 * (cy(ya + dy) * w + cx(xa + dx));
+        out[0] += rgba[i] * wt;
+        out[1] += rgba[i + 1] * wt;
+        out[2] += rgba[i + 2] * wt;
+    }
+    return out;
+}
+
+// A region's texels for a texture of width by height: [u0, v0, u1, v1] grown by a texel, as whole texels
+export function regionRect(r, width, height){
+    const x0 = Math.max(0, Math.floor(r[0] * width) - 2), y0 = Math.max(0, Math.floor(r[1] * height) - 2);
+    const x1 = Math.min(width, Math.ceil(r[2] * width) + 2), y1 = Math.min(height, Math.ceil(r[3] * height) + 2);
+    return {x0, y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0)};
 }

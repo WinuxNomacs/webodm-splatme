@@ -6,14 +6,15 @@
 //
 //   node meshApply.mjs <original.glb> <original.mtl> <edits.json> <out folder>
 //
-// It writes model.glb, model.obj, model.mtl and report.json ({triangles, removed, floating, flattened, filled, added})
-// into the out folder, with FILL_TEXTURE when the edits fill holes (the fills' texture, a material of its own after
-// the model's: a JPEG inside the GLB), and exits 1 with the reason on stderr when it cannot. WEBODM_DIR: where WebODM's
+// It writes model.glb, model.obj, model.mtl and report.json ({triangles, removed, floating, flattened, moved, filled,
+// added, cloned})
+// into the out folder, with FILL_TEXTURE when the edits fill holes and CLONE_TEXTURE when they clone texture (each a
+// material of its own after the model's: a JPEG inside the GLB), and exits 1 with the reason on stderr when it cannot. WEBODM_DIR: where WebODM's
 // node_modules are (/webodm).
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import { weld, applyEdits, editedPieces, fillColours, fillAtlas, sampleImage } from './public/meshEdits.js';
+import { weld, applyEdits, editedPieces, fillColours, fillAtlas, sampleImage, cloneRegions, cloneAtlas, sampleRegion, regionRect } from './public/meshEdits.js';
 import { applyShape } from './public/editShapes.js';
 
 const require = createRequire(path.join(process.env.WEBODM_DIR || '/webodm', 'package.json'));
@@ -25,6 +26,8 @@ const sharp = require('sharp');
 
 const FILL_MATERIAL = 'splatme_fill';
 const FILL_TEXTURE = 'odm_textured_model_geo_splatme_fill_map_Kd.png';
+const CLONE_MATERIAL = 'splatme_clone';
+const CLONE_TEXTURE = 'odm_textured_model_geo_splatme_clone_map_Kd.png';
 const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as the editor's preview)
 
 // WebODM's GLB is placed by CESIUM_RTC (the task's offset): kept as read
@@ -133,23 +136,40 @@ async function main(){
     fillColours(surface, pieces, result.fills, k => { needed.add(k); return [0, 0, 0]; });
     for (const k of needed) await textureOf(k);
     const colours = fillColours(surface, pieces, result.fills, (k, u, v) => copies.get(k) ? sampleImage(copies.get(k), SAMPLE_SIZE, u, v) : [128, 128, 128]);
-    const atlas = fillAtlas(result.fills, colours, result.positions);
-    const fillMaterial = atlas ? primitives[0].getMaterial().clone().setName(FILL_MATERIAL) : null;
-    if (atlas){
-        edited.push({piece: materials.length, ...atlas.piece});
-        materials.push(FILL_MATERIAL);
+    const fillTexture = fillAtlas(result.fills, colours, result.positions);
+
+    // The clones: the parts of the textures they read, at full size, then a texture made for them
+    const regions = new Map();
+    for (const [k, r] of cloneRegions(surface, pieces, result)){
+        const texture = primitives[k].getMaterial()?.getBaseColorTexture();
+        if (!texture) continue;
+        const image = sharp(Buffer.from(texture.getImage()));
+        const { width, height } = await image.metadata();
+        const rect = regionRect(r, width, height);
+        const rgba = await image.extract({left: rect.x0, top: rect.y0, width: rect.w, height: rect.h}).ensureAlpha().raw().toBuffer();
+        regions.set(k, {...rect, rgba, width, height});
+    }
+    const cloneTexture = cloneAtlas(surface, pieces, result, (k, u, v) => regions.has(k) ? sampleRegion(regions.get(k), u, v) : [128, 128, 128]);
+
+    // Each made texture a material after the model's, as the first one is (unlit), and a piece of its own
+    const extras = [[fillTexture, FILL_MATERIAL, FILL_TEXTURE], [cloneTexture, CLONE_MATERIAL, CLONE_TEXTURE]].filter(([made]) => made);
+    for (const [made, name] of extras){
+        edited.push({piece: materials.length, ...made.piece});
+        materials.push(name);
     }
     for (const piece of edited) piece.normals = normals(piece.positions, piece.indices);
 
     // The GLB: each primitive's attributes replaced; one left with no triangle goes, its texture with it (prune)
     const buffer = doc.getRoot().listBuffers()[0];
     const accessor = (array, type) => doc.createAccessor().setArray(array).setType(type).setBuffer(buffer);
-    if (atlas){
-        const raw = {raw: {width: atlas.width, height: atlas.height, channels: 4}};
-        const jpeg = await sharp(Buffer.from(atlas.rgba.buffer), raw).jpeg({quality: 90}).toBuffer();
-        await sharp(Buffer.from(atlas.rgba.buffer), raw).png().toFile(path.join(out, FILL_TEXTURE));
-        fillMaterial.setBaseColorTexture(doc.createTexture(FILL_MATERIAL).setImage(new Uint8Array(jpeg)).setMimeType('image/jpeg'));
-        const primitive = doc.createPrimitive().setMaterial(fillMaterial);
+    const base = primitives[0].getMaterial();
+    for (const [made, name, file] of extras){
+        const raw = {raw: {width: made.width, height: made.height, channels: 4}};
+        const jpeg = await sharp(Buffer.from(made.rgba.buffer), raw).jpeg({quality: 90}).toBuffer();
+        await sharp(Buffer.from(made.rgba.buffer), raw).png().toFile(path.join(out, file));
+        const material = base.clone().setName(name);
+        material.setBaseColorTexture(doc.createTexture(name).setImage(new Uint8Array(jpeg)).setMimeType('image/jpeg'));
+        const primitive = doc.createPrimitive().setMaterial(material);
         doc.getRoot().listMeshes()[0].addPrimitive(primitive);
         primitives.push(primitive);
     }
@@ -168,12 +188,12 @@ async function main(){
     await io.write(path.join(out, 'model.glb'), doc);
 
     writeObj(path.join(out, 'model.obj'), 'odm_textured_model_geo.mtl', materials, edited);
-    const fillLines = ['newmtl ' + FILL_MATERIAL, 'Ka 1.000000 1.000000 1.000000', 'Kd 1.000000 1.000000 1.000000',
-        'Ks 0.000000 0.000000 0.000000', 'Tr 0.000000', 'illum 1', 'Ns 1.000000', 'map_Kd ' + FILL_TEXTURE];
-    fs.writeFileSync(path.join(out, 'model.mtl'), atlas ? mtl.replace(/\s*$/, '\n') + fillLines.join('\n') + '\n' : mtl);
+    const lines = extras.flatMap(([, name, file]) => ['newmtl ' + name, 'Ka 1.000000 1.000000 1.000000', 'Kd 1.000000 1.000000 1.000000',
+        'Ks 0.000000 0.000000 0.000000', 'Tr 0.000000', 'illum 1', 'Ns 1.000000', 'map_Kd ' + file]);
+    fs.writeFileSync(path.join(out, 'model.mtl'), lines.length ? mtl.replace(/\s*$/, '\n') + lines.join('\n') + '\n' : mtl);
     const triangles = edited.reduce((sum, p) => sum + p.indices.length / 3, 0);
     fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({triangles, removed: result.removed, floating: result.floating,
-        flattened: result.flattened, moved: result.moved, filled: result.fills.length, added: result.added}));
+        flattened: result.flattened, moved: result.moved, filled: result.fills.length, added: result.added, cloned: result.cloned}));
 }
 
 main().catch(e => {

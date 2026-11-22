@@ -652,6 +652,33 @@ class TestSplatMe(BootTestCase):
         heights = obj_heights(os.path.join(folder, meshes.OBJ))
         self.assertAlmostEqual(max(heights), 0.25, places=4)  # 0.5 m from the line, reach 1: half the way
 
+    def test_clone_texture_moves_the_covered_triangles_to_a_texture_of_their_own_which_goes_with_the_clone(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        texture = os.path.join(folder, meshes.CLONE_TEXTURE)
+        column = {"type": "box", "keep": False, "center": [2.5, 1.5, 0], "size": [0.9, 2.9, 5], "turn": 0}
+        clone = {"op": "clone", **column, "source": [0.5, 1.5, 0], "patch": 1, "feather": 0.25, "spin": 0}
+        for bad in ({**clone, "source": [0, 1]}, {**clone, "patch": 0}, {**clone, "feather": 6}, {**clone, "spin": 200}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [clone])
+        self.assertEqual(res.status_code, 200, res.data)
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["source"], [1000.5, 2001.5, 0])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["cloned"], 6)  # the last column's 3 squares
+        self.assertEqual(res.data["apply"]["triangles"], 19)
+        self.assertTrue(os.path.exists(texture))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl splatme_clone\n", f.read())
+        self.assertEqual(len(glb_json(os.path.join(folder, meshes.GLB))["meshes"][0]["primitives"]), 3)
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+
+        self.assertEqual(self.model_edits(task, []).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertFalse(os.path.exists(texture))
+
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)
         folder = make_textured_model(task)

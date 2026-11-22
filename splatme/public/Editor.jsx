@@ -25,11 +25,13 @@ const BRUSH_MODES = [
     ["fill", "Fill Holes", "Paint over the holes to fill: a hole is filled when the brush covers all its edge, through to the back."],
     ["object", "Remove Object", "Paint over an object to remove: what is under the brush on screen goes, through to the back, and the hole it leaves is filled."],
 ];
-const OPS_SHOWN = ["flatten", "fill", "object", "move", "smooth", "straighten"];  // the model's shape edits beside Keep and Remove Inside
+const OPS_SHOWN = ["flatten", "fill", "object", "move", "smooth", "straighten", "clone"];  // the model's shape edits beside Keep and Remove Inside
 // The settings Move and Smooth start with, and their steps: [name, axis or null, label, unit, step, low, high,
 // shown as (a factor to show it in the unit)]
-const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, smooth: {passes: 5}, straighten: {strength: 0.5, reach: 0.25}};
-const OP_PARAMS = ["offset", "scale", "soft", "passes", "line", "strength", "reach"];
+const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, smooth: {passes: 5}, straighten: {strength: 0.5, reach: 0.25},
+    clone: {patch: 1, feather: 0.25, spin: 0}};
+const OP_PARAMS = ["offset", "scale", "soft", "passes", "line", "strength", "reach", "source", "patch", "feather", "spin"];
+const NEEDS_POINTS = {straighten: "line", clone: "source"};  // the ops whose edit waits for points on the model
 const OP_STEPS = {
     move: [
         ["offset", 2, "Up", "m", 0.05, -100, 100, 1], ["offset", 0, "East", "m", 0.05, -100, 100, 1],
@@ -39,6 +41,8 @@ const OP_STEPS = {
     ],
     smooth: [["passes", null, "Passes", "", 1, 1, 100, 1]],
     straighten: [["strength", null, "Strength", "%", 10, 0, 100, 100], ["reach", null, "Reach", "m", 0.05, 0.05, 20, 1]],
+    clone: [["patch", null, "Source Size", "m", 0.25, 0.25, 20, 1], ["feather", null, "Feather", "m", 0.05, 0, 5, 1],
+        ["spin", null, "Turn Texture", "°", 15, -180, 180, 1]],
 };
 const BRUSH_OPS = {flatten: "flatten", fill: "fill", object: "object", smooth: "smooth"};  // the model's edit for each mode ("delete" for the rest)
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
@@ -257,22 +261,24 @@ class EditorPanel extends React.Component {
         return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : lining ? "line" : null;
     }
 
-    // Straighten's line for edit index: two clicks on the model (handleLine), the edit then straightening to it
-    drawLine(index){
+    // Points on the model for edit index (handleLine): Straighten's line (two clicks), or Clone Texture's source (one)
+    drawLine(index, op = "straighten"){
         this.endTool();
         if (!this.viewer) return;
         this.lineIndex = index;
-        this.setState({lining: true});
-        this.viewer.startLine(index);
+        this.lineOp = op;
+        this.setState({lining: op});
+        this.viewer.startLine(index, op === "clone" ? 1 : 2);
     }
 
-    handleLine = line => {
-        const index = this.lineIndex;
+    handleLine = points => {
+        const index = this.lineIndex, op = this.lineOp;
         const edits = this.state.edits.slice();
         if (!edits[index]) return;
         const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !OP_PARAMS.includes(name)));
-        const before = edits[index].op === "straighten" ? edits[index] : OP_DEFAULTS.straighten;
-        edits[index] = {...kept, keep: false, op: "straighten", strength: before.strength, reach: before.reach, line};
+        const before = edits[index].op === op ? edits[index] : OP_DEFAULTS[op];
+        const settings = Object.fromEntries(Object.keys(OP_DEFAULTS[op]).map(name => [name, before[name]]));
+        edits[index] = {...kept, keep: false, op, ...settings, [NEEDS_POINTS[op]]: op === "clone" ? points[0] : points};
         this.setState({lining: false});
         this.change(edits, index);
     };
@@ -455,11 +461,11 @@ class EditorPanel extends React.Component {
         edits[index] = {...edits[index], keep: action === "keep"};
         if (this.isModel()){
             const op = OPS_SHOWN.includes(action) ? action : "delete";
-            if (op === "straighten" && !edits[index].line){
-                this.drawLine(index);  // the line first: the edit changes once it is drawn
+            if (NEEDS_POINTS[op] && !edits[index][NEEDS_POINTS[op]]){
+                this.drawLine(index, op);  // its points first: the edit changes once they are picked
                 return;
             }
-            const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !OP_PARAMS.includes(name) || (op === "straighten" && name === "line")));
+            const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !OP_PARAMS.includes(name) || name === NEEDS_POINTS[op]));
             edits[index] = {...kept, ...OP_DEFAULTS[op], op};
         }
         this.change(edits, this.state.selected);
@@ -663,13 +669,18 @@ class EditorPanel extends React.Component {
                         );
                     })}
                 </tbody>
-                {edit.op === "straighten" ?
+                {edit.op === "straighten" || edit.op === "clone" ?
                     <tfoot>
                         <tr><td colSpan="5">
-                            <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(index)}
-                                    title={_("Click its two ends on the model again; or drag an end of the line in the view")}>
-                                <i className="fa fa-pencil-alt fa-fw"></i> {_("Draw the Line Again")}
-                            </button>
+                            {edit.op === "straighten" ?
+                                <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(index)}
+                                        title={_("Click its two ends on the model again; or drag an end of the line in the view")}>
+                                    <i className="fa fa-pencil-alt fa-fw"></i> {_("Draw the Line Again")}
+                                </button> :
+                                <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(index, "clone")}
+                                        title={_("Click the middle of the area to copy from again")}>
+                                    <i className="fa fa-crosshairs fa-fw"></i> {_("Pick the Source Again")}
+                                </button>}
                         </td></tr>
                     </tfoot> : ""}
             </table>
@@ -735,6 +746,7 @@ class EditorPanel extends React.Component {
                                     {this.isModel() ? <option value="move">{_("Move Inside")}</option> : ""}
                                     {this.isModel() ? <option value="smooth">{_("Smooth Inside")}</option> : ""}
                                     {this.isModel() ? <option value="straighten">{_("Straighten Inside")}</option> : ""}
+                                    {this.isModel() ? <option value="clone">{_("Clone Texture Inside")}</option> : ""}
                                 </select>}
                             {info.can_edit ?
                                 <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit (Delete when it is selected)")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
@@ -842,7 +854,9 @@ class EditorPanel extends React.Component {
                 </div>
                 {this.state.lining ?
                     <div className="alert alert-info splatme-editor-drawing">
-                        {_("Click the line's first end on the model, then its other end: a line follows the pointer from the first. Inside the shape, the surface is pulled toward the line.")}
+                        {this.state.lining === "clone" ?
+                            _("Click the middle of a good area on the model to copy from: a square of it, Source Size across, is tiled over what the shape covers.") :
+                            _("Click the line's first end on the model, then its other end: a line follows the pointer from the first. Inside the shape, the surface is pulled toward the line.")}
                         <div className="splatme-editor-drawing-actions">
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>
                         </div>
@@ -965,8 +979,9 @@ class EditorPanel extends React.Component {
         const result = this.viewer ? this.viewer.modelResult() : null;
         const removed = result && result.removed ? ", " + result.removed.toLocaleString("en-US") + " " + _("of them removed by the edits") : "";
         const flattened = result && result.moved ? "; " + result.moved.toLocaleString("en-US") + " " + (result.moved === 1 ? _("point moved") : _("points moved")) : "";
+        const cloned = result && result.cloned ? "; " + result.cloned.toLocaleString("en-US") + " " + (result.cloned === 1 ? _("triangle retextured") : _("triangles retextured")) : "";
         const filled = result && result.filled ? "; " + result.filled.toLocaleString("en-US") + " " + (result.filled === 1 ? _("hole filled") : _("holes filled")) : "";
-        return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + ".";
+        return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + cloned + ".";
     }
 
     render(){

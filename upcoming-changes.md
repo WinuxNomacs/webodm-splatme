@@ -3295,6 +3295,16 @@ what it hid can be clicked); the vertices inside the shape but its rim pulled to
 at the reach; Strength in 10% steps, Reach in 0.05 m; either end dragged on the model; Draw the Line Again. The
 line is shifted with the shape between the task's projection and the model's frame.
 
+R3: Clone Texture Inside (`op: "clone"`, `source` point, `patch` m, `feather` m, `spin` degrees): choosing it asks
+for one click on a good area; the source patch (the triangles within reach of the point, drawn flat on their
+plane at 1 cm texels, at most 1,024 across, gaps filled from neighbours) is tiled mirrored across the target's
+plane (v the most upward direction, north for level ground), turned by spin, and blended into the target's own
+texture over the feather (chamfer distance to the target's edge). The target's triangles move to a piece of their
+own (material `splatme_clone`, `odm_textured_model_geo_splatme_clone_map_Kd.png`); the last clone over a triangle
+wins; applied after all other edits. Only the texture regions involved are read at full size (sharp `extract` in
+Node, a canvas `drawImage` of the sub-rectangle in the browser). Live: a default box retextured with lawn from a
+1 m source (55,375 triangles; preview 1.7 s; update 8 s).
+
 **The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
 line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
 area shows while placing the second), then either end draggable.

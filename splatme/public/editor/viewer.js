@@ -9,7 +9,7 @@ import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, applyShape, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
-import { weld, applyEdits, fillColours, fillAtlas, sampleImage } from "../meshEdits.js";
+import { weld, applyEdits, fillColours, fillAtlas, sampleImage, cloneSource, cloneRegions, cloneAtlas, sampleRegion, regionRect } from "../meshEdits.js";
 
 const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as meshApply.mjs's)
 
@@ -140,9 +140,11 @@ export function createViewer(container, handlers){
             model.moved = result.moved > 0;
         }
         showFills(result);
+        showClones(result);
+        if (selected >= 0 && edits[selected] && edits[selected].source) drawShapes();  // its source square follows the surface
         const lists = model.pieces.map(() => []);
         const { pieceOf, localOf } = model.surface;
-        for (let f = 0; f < result.kept.length; f++) if (result.kept[f]) lists[pieceOf[f]].push(localOf[f]);
+        for (let f = 0; f < result.kept.length; f++) if (result.kept[f] && result.cloneOf[f] < 0) lists[pieceOf[f]].push(localOf[f]);
         model.meshes.forEach((m, k) => {
             const source = model.pieces[k].indices, list = lists[k];
             const index = new Uint32Array(list.length * 3);
@@ -173,6 +175,65 @@ export function createViewer(container, handlers){
             model.copies.set(k, copy);
         }
         return model.copies.get(k);
+    }
+
+    // A part of piece k's texture at full size, read once: {rgba, x0, y0, w, h, width, height} (sampleRegion's)
+    function textureRegion(k, r){
+        const image = model.meshes[k].material && model.meshes[k].material.map && model.meshes[k].material.map.image;
+        if (!image) return null;
+        const rect = regionRect(r, image.width, image.height);
+        const key = k + ":" + rect.x0 + "," + rect.y0 + "," + rect.w + "," + rect.h;
+        if (!model.regions.has(key)){
+            const canvas2 = document.createElement("canvas");
+            canvas2.width = rect.w;
+            canvas2.height = rect.h;
+            const context = canvas2.getContext("2d", {willReadFrequently: true});
+            context.drawImage(image, rect.x0, rect.y0, rect.w, rect.h, 0, 0, rect.w, rect.h);
+            model.regions.set(key, {...rect, rgba: context.getImageData(0, 0, rect.w, rect.h).data, width: image.width, height: image.height});
+        }
+        return model.regions.get(key);
+    }
+
+    // The triangles Clone Texture covers, drawn with the texture Update the Model makes for them
+    function showClones(result){
+        if (model.clones){
+            model.clones.parent.remove(model.clones);
+            model.clones.geometry.dispose();
+            model.clones.material.map.dispose();
+            model.clones.material.dispose();
+            model.clones = null;
+        }
+        if (!result.clones.length) return;
+        const regions = new Map();
+        for (const [k, r] of cloneRegions(model.surface, model.pieces, result)){
+            const region = textureRegion(k, r);
+            if (region) regions.set(k, region);
+        }
+        const atlas = cloneAtlas(model.surface, model.pieces, result, (k, u, v) => regions.has(k) ? sampleRegion(regions.get(k), u, v) : [128, 128, 128]);
+        if (!atlas) return;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(atlas.piece.positions, 3));
+        geometry.setAttribute("uv", new THREE.BufferAttribute(atlas.piece.uvs, 2));
+        geometry.setIndex(new THREE.BufferAttribute(atlas.piece.indices, 1));
+        const map = new THREE.DataTexture(new Uint8Array(atlas.rgba.buffer), atlas.width, atlas.height, THREE.RGBAFormat);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.magFilter = map.minFilter = THREE.LinearFilter;
+        map.needsUpdate = true;
+        model.clones = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide}));
+        model.meshes[0].parent.add(model.clones);
+    }
+
+    // A clone's source: a square on the surface's plane, its size across, about the point picked
+    function sourceObject(edit){
+        if (!model || !model.kept) return null;
+        const source = cloneSource(model.surface, model.kept.positions, model.kept.kept, edit);
+        if (!source) return null;
+        const c = new THREE.Vector3(...source.point), u = new THREE.Vector3(...source.u).multiplyScalar(source.half);
+        const v = new THREE.Vector3(...source.v).multiplyScalar(source.half);
+        const corners = [c.clone().sub(u).sub(v), c.clone().add(u).sub(v), c.clone().add(u).add(v), c.clone().sub(u).add(v)];
+        const object = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), lineMaterial(colors.keep));
+        object.renderOrder = 10;
+        return object;
     }
 
     // The holes the edits fill, drawn with the texture Update the Model makes for them
@@ -340,6 +401,10 @@ export function createViewer(container, handlers){
         // The picked edit's Straighten line, apart from its shape (a box's object is scaled and turned)
         const picked = selected >= 0 ? edits[selected] : null;
         if (picked && picked.line) shapes.add(lineObject(new THREE.Vector3(...picked.line[0]), new THREE.Vector3(...picked.line[1])));
+        if (picked && picked.source){
+            const square = sourceObject(picked);
+            if (square) shapes.add(square);
+        }
         if (selected >= 0 && edits[selected] && edits[selected].type === "box") transform.attach(handles[selected]);
     }
 
@@ -393,14 +458,15 @@ export function createViewer(container, handlers){
 
     // Placing Straighten's line: a click on the model drops its first end, a line follows the pointer from it, and
     // a second click ends it (onLine(line)); the view still turns between clicks
-    // skip: the edit the line is for, left out of the view meanwhile
-    function startLine(skip = -1){
+    // skip: the edit the line is for, left out of the view meanwhile; count: its points (1: a single point, Clone
+    // Texture's source)
+    function startLine(skip = -1, count = 2){
         endBrush();
         cancelPolygon();
         cancelLasso();
         cancelLine();
         transform.detach();
-        placing = {first: null, object: null, skip};
+        placing = {first: null, object: null, skip, count};
         canvas.style.cursor = "crosshair";
         if (skip >= 0) queueMask();
     }
@@ -428,6 +494,11 @@ export function createViewer(container, handlers){
     function placeLine(event){
         const point = surfacePoint(event);
         if (!point) return;
+        if (placing.count === 1){
+            cancelLine();
+            if (handlers.onLine) handlers.onLine([point.toArray().map(round)]);
+            return;
+        }
         if (!placing.first){
             placing.first = point;
             drawPlacing(null);
@@ -898,7 +969,7 @@ export function createViewer(container, handlers){
                 positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice(),
                 uvs: m.geometry.attributes.uv ? m.geometry.attributes.uv.array : null}));
             const surface = weld(pieces);
-            model = {group: gltf.scene, meshes, pieces, surface, kept: null, copies: new Map(), fills: null};
+            model = {group: gltf.scene, meshes, pieces, surface, kept: null, copies: new Map(), fills: null, clones: null, regions: new Map()};
             scene.add(gltf.scene);
             const n = surface.count;
             xs = new Float64Array(n);
@@ -918,7 +989,7 @@ export function createViewer(container, handlers){
         // What the model's edits do now: {removed, floating, added} triangles, flattened points and filled holes (null
         // before the model shows)
         modelResult(){
-            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened, moved: model.kept.moved,
+            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened, moved: model.kept.moved, cloned: model.kept.cloned,
                 filled: model.kept.fills.length, added: model.kept.added} : null;
         },
         // The edits to show, and which one has the handles (-1: none)
