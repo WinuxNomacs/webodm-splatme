@@ -301,3 +301,55 @@ describe("filling holes", () => {
         expect(sampleImage(rgba, 2, 1.9, 0.1)).toEqual([2, 2, 2]);
     });
 });
+
+describe("Move and Smooth", () => {
+    // Over the middle 2 by 2 squares of a 4 by 4 grid: their 9 vertices, (2, 2) alone not on their rim
+    const middle = {type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0};
+    const at = (positions, surface, x, y) => {
+        for (let v = 0; v < surface.count; v++){
+            if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return Array.from(positions.slice(3 * v, 3 * v + 3));
+        }
+        return null;
+    };
+
+    test("Move raises what the shape covers, the rest staying put without a soft edge", () => {
+        const surface = weld(grid(4));
+        const raise = {...middle, op: "move", offset: [0, 0, 0.5], scale: [1, 1, 1], soft: 0};
+        const result = applyEdits(surface, [raise], applyShape);
+        expect(result.moved).toBe(9);
+        expect(at(result.positions, surface, 1, 1)).toEqual([1, 1, 0.5]);
+        expect(at(result.positions, surface, 0, 0)).toEqual([0, 0, 0]);
+        expect(result.removed).toBe(0);
+    });
+
+    test("Move's soft edge takes the vertices near the selection part of the way, less the farther", () => {
+        const surface = weld(grid(4));
+        const raise = {...middle, op: "move", offset: [0, 0, 1], scale: [1, 1, 1], soft: 1.5};
+        const result = applyEdits(surface, [raise], applyShape);
+        const near = at(result.positions, surface, 0, 2)[2], corner = at(result.positions, surface, 0, 0)[2];
+        expect(near).toBeGreaterThan(0);
+        expect(near).toBeLessThan(1);
+        expect(corner).toBeLessThan(near);  // farther: sqrt(2) from (1, 1)
+        expect(at(result.positions, surface, 2, 2)[2]).toBe(1);
+    });
+
+    test("Move stretches the selection about its middle", () => {
+        const surface = weld(grid(4));
+        const stretch = {...middle, op: "move", offset: [0, 0, 0], scale: [2, 1, 1], soft: 0};
+        const result = applyEdits(surface, [stretch], applyShape);
+        expect(at(result.positions, surface, 1, 1)).toEqual([0, 1, 0]);
+        expect(at(result.positions, surface, 3, 2)).toEqual([4, 2, 0]);
+    });
+
+    test("Smooth lowers a spike toward its neighbours, its rim fixed, more with more passes", () => {
+        const pieces = grid(4);
+        for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 1;
+        const surface = weld(pieces);
+        const one = applyEdits(surface, [{...middle, op: "smooth", passes: 1}], applyShape);
+        const five = applyEdits(surface, [{...middle, op: "smooth", passes: 5}], applyShape);
+        expect(one.moved).toBe(1);
+        expect(at(one.positions, surface, 2, 2)[2]).toBeCloseTo(0.5);
+        expect(at(five.positions, surface, 2, 2)[2]).toBeCloseTo(1 / 32);
+        expect(at(five.positions, surface, 1, 1)[2]).toBe(0);
+    });
+});

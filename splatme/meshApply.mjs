@@ -173,7 +173,7 @@ async function main(){
     fs.writeFileSync(path.join(out, 'model.mtl'), atlas ? mtl.replace(/\s*$/, '\n') + fillLines.join('\n') + '\n' : mtl);
     const triangles = edited.reduce((sum, p) => sum + p.indices.length / 3, 0);
     fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({triangles, removed: result.removed, floating: result.floating,
-        flattened: result.flattened, filled: result.fills.length, added: result.added}));
+        flattened: result.flattened, moved: result.moved, filled: result.fills.length, added: result.added}));
 }
 
 main().catch(e => {

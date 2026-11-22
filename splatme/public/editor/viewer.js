@@ -120,7 +120,7 @@ export function createViewer(container, handlers){
     function applyModelMask(){
         const result = applyEdits(model.surface, edits, applyShape);
         model.kept = result;
-        if (result.flattened || model.moved){
+        if (result.moved || model.moved){
             model.meshes.forEach((m, k) => {
                 const ids = model.surface.vertexOf[k], attribute = m.geometry.attributes.position, array = attribute.array;
                 for (let c = 0; c < ids.length; c++){
@@ -133,7 +133,7 @@ export function createViewer(container, handlers){
                 m.geometry.computeBoundingSphere();
                 m.geometry.computeBoundingBox();
             });
-            model.moved = result.flattened > 0;
+            model.moved = result.moved > 0;
         }
         showFills(result);
         const lists = model.pieces.map(() => []);
@@ -777,7 +777,7 @@ export function createViewer(container, handlers){
         // What the model's edits do now: {removed, floating, added} triangles, flattened points and filled holes (null
         // before the model shows)
         modelResult(){
-            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened,
+            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened, moved: model.kept.moved,
                 filled: model.kept.fills.length, added: model.kept.added} : null;
         },
         // The edits to show, and which one has the handles (-1: none)

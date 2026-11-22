@@ -605,6 +605,34 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertFalse(os.path.exists(texture))
 
+    def test_move_and_smooth_change_the_models_shape_in_steps_checked_by_the_server(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        middle = {"type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        raise_ = {"op": "move", **middle, "offset": [0, 0, 0.5], "scale": [1, 1, 1], "soft": 0}
+        for bad in ({**raise_, "offset": [0, 0]}, {**raise_, "scale": [1, 0, 1]}, {**raise_, "soft": -1},
+                    {**raise_, "offset": [0, 0, 101]}, {"op": "smooth", **middle, "passes": 0},
+                    {"op": "smooth", **middle, "passes": 1.5}, {"op": "smooth", **middle}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [raise_])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"], [{**raise_, "offset": [0.0, 0.0, 0.5], "scale": [1.0, 1.0, 1.0], "soft": 0.0}])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["moved"], 4)  # the middle square's corners
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertAlmostEqual(max(heights), 1.0, places=5)  # the bump's corner, raised with the rest
+        self.assertEqual(sorted({round(z, 4) for z in heights}), [0.0, 0.5, 1.0])
+
+        # Smooth over the four squares around the bump: its vertex settles toward its flat neighbours
+        around = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        self.assertEqual(self.model_edits(task, [{"op": "smooth", **around, "passes": 3}]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertLess(max(heights), 0.5)
+        self.assertGreater(max(heights), 0)
+
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)
         folder = make_textured_model(task)

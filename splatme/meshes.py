@@ -10,6 +10,9 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
              moved onto the plane that best fits the selection's rim (the rim staying put)
     fill     {"op": "fill", <a shape>}: the holes whose whole rim the shape covers filled
     object   {"op": "object", <a shape>}: Remove Object, what the shape covers removed and the hole it leaves filled
+    move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
+             scaled about its middle and moved, the move fading to nothing over soft metres around it
+    smooth   {"op": "smooth", <a shape>, "passes": n}: what the shape covers smoothed, n passes, its rim fixed
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
     holes    {"type": "holes", "size": n}: Fill Holes, every hole of at most n edges filled
 
@@ -41,8 +44,12 @@ KIND = "modelapply"  # the update's record and folder (training.get_apply)
 MAX_EDITS = edits.MAX_EDITS
 MAX_FLOATING = 100000  # triangles: as meshEdits.MAX_FLOATING
 MAX_HOLE = 5000  # edges: as meshEdits.MAX_HOLE
+MAX_OFFSET = 100  # metres a move goes along each axis, at most
+SCALES = (0.1, 10)  # a move's stretch along each axis
+MAX_SOFT = 20  # metres: a move's soft edge
+MAX_PASSES = 100  # Smooth's passes
 SHAPES = ("box", "polygon", "lasso", "brush")
-OPS = ("delete", "flatten", "fill", "object")
+OPS = ("delete", "flatten", "fill", "object", "move", "smooth")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
@@ -85,13 +92,39 @@ def clean(given):
         op = edit.get("op")
         if op not in OPS or edit.get("type") not in SHAPES:
             raise edits.EditsError(f"Edit {i} is of an unknown kind.")
-        shape = {k: v for k, v in edit.items() if k != "op"}
+        params = clean_params(op, edit, i)
+        shape = {k: v for k, v in edit.items() if k != "op" and k not in params}
         try:
             (clean_shape,) = edits.clean([shape])
         except edits.EditsError as e:
             raise edits.EditsError(str(e).replace("Edit 1", f"Edit {i}", 1)) from None
-        out.append({"op": op, **clean_shape})
+        out.append({"op": op, **clean_shape, **params})
     return out
+
+
+def clean_params(op, edit, i):
+    """An op's own settings beside its shape (Move's, Smooth's), checked. Raises EditsError."""
+
+    def axes(name, low, high):
+        value = edit.get(name)
+        if not isinstance(value, list) or len(value) != 3:
+            raise edits.EditsError(f"Edit {i}'s {name} must be 3 numbers.")
+        out = [edits.number(v, f"Edit {i}'s {name}") for v in value]
+        if not all(low <= v <= high for v in out):
+            raise edits.EditsError(f"Edit {i}'s {name} must be from {low} to {high}.")
+        return out
+
+    if op == "move":
+        soft = edits.number(edit.get("soft"), f"Edit {i}'s soft edge")
+        if not 0 <= soft <= MAX_SOFT:
+            raise edits.EditsError(f"Edit {i}'s soft edge must be from 0 to {MAX_SOFT} m.")
+        return {"offset": axes("offset", -MAX_OFFSET, MAX_OFFSET), "scale": axes("scale", *SCALES), "soft": soft}
+    if op == "smooth":
+        passes = edit.get("passes")
+        if isinstance(passes, bool) or not isinstance(passes, int) or not 1 <= passes <= MAX_PASSES:
+            raise edits.EditsError(f"Edit {i}'s passes must be a whole number from 1 to {MAX_PASSES}.")
+        return {"passes": passes}
+    return {}
 
 
 def shift(given, dx, dy):
@@ -231,7 +264,7 @@ def start_apply(task, username):
     now = time.time()
     record = {
         "state": training.APPLYING, "run": run, "waiting": run, "user": username, "status": "", "error": None,
-        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "filled": None, "added": None,
+        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "moved": None, "filled": None, "added": None,
         "triangles": None,
     }  # fmt: skip
     with transaction.atomic():
@@ -376,14 +409,14 @@ def apply(task_id, run):
                 keep_originals(task)
                 replace_model(task, out)
             else:
-                result = {"removed": 0, "flattened": 0, "filled": 0, "added": 0, "triangles": None}
+                result = {"removed": 0, "flattened": 0, "moved": 0, "filled": 0, "added": 0, "triangles": None}
                 if kept(task):
                     restore_model(task)
             drop_cached_models(task)
             edits.store().set_json(shown_key(task_id), {"edits": made_with})
             task.update_size(commit=True)
         report(task_id, run, state="completed", status="", finished=time.time(), removed=result.get("removed"),
-               flattened=result.get("flattened"), filled=result.get("filled"), added=result.get("added"),
+               flattened=result.get("flattened"), moved=result.get("moved"), filled=result.get("filled"), added=result.get("added"),
                triangles=result.get("triangles"))  # fmt: skip
     except training.Superseded:
         pass

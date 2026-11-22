@@ -188,12 +188,18 @@ export function components(faces, count, kept){
 //   {op: "fill", ...shape}     the holes whose rims the shape covers (all their vertices) filled
 //   {op: "object", ...shape}   Remove Object: the triangles whose centres the shape covers removed, then the holes
 //                              that leaves filled
+//   {op: "move", ...shape, offset: [x, y, z], scale: [x, y, z], soft: metres}
+//                              the vertices of the triangles the shape covers scaled about their middle and moved;
+//                              those within soft metres of them moved part of the way (less the farther), so the
+//                              surface stretches instead of tearing
+//   {op: "smooth", ...shape, passes}
+//                              the covered vertices moved toward their neighbours' middle, passes times, the rim fixed
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 //   {type: "holes", size}      Fill Holes: every hole of at most size edges filled
 // A hole is a loop of open edges that goes round as a hole's do, not as a piece's outer rim (holes); a fill is triangles
 // between its rim's vertices (fillHole), coloured from around the rim (fillColours, fillAtlas). The edits apply in
 // the list's order: a fill's triangles close their hole for the edits after it.
-export const OPS = ["delete", "flatten", "fill", "object"];
+export const OPS = ["delete", "flatten", "fill", "object", "move", "smooth"];
 export const MAX_FLOATING = 100000;  // triangles: the largest size Remove Floating Pieces takes
 export const MAX_HOLE = 5000;  // edges: no hole longer is filled
 
@@ -268,14 +274,8 @@ export function fitPlane(positions, vertices){
 // A selection's triangles flattened: their vertices but those on the selection's rim moved onto the plane fitted to
 // the rim (to the selection's own vertices without a rim), along its normal, in positions
 function flatten(surface, kept, selected, positions){
-    const { faces, count } = surface;
-    const n = faces.length / 3;
-    const inside = new Uint8Array(count), outside = new Uint8Array(count);
-    for (let f = 0; f < n; f++){
-        if (!kept[f]) continue;
-        const mark = selected[f] ? inside : outside;
-        mark[faces[3 * f]] = mark[faces[3 * f + 1]] = mark[faces[3 * f + 2]] = 1;
-    }
+    const { count } = surface;
+    const { inside, outside } = sides(surface, kept, selected);
     const rim = [], moved = [];
     for (let v = 0; v < count; v++){
         if (!inside[v]) continue;
@@ -401,16 +401,161 @@ function holes(surface, kept, fills, positions){
     }).map(rim => ({rim}));
 }
 
+// The vertices of the kept triangles selected (a Uint8Array per vertex), and of the kept ones not selected
+function sides(surface, kept, selected){
+    const { faces, count } = surface;
+    const inside = new Uint8Array(count), outside = new Uint8Array(count);
+    for (let f = 0; f < faces.length / 3; f++){
+        if (!kept[f]) continue;
+        const mark = selected[f] ? inside : outside;
+        mark[faces[3 * f]] = mark[faces[3 * f + 1]] = mark[faces[3 * f + 2]] = 1;
+    }
+    return {inside, outside};
+}
+
+// Move: the selection's vertices scaled about their middle and moved, those within the soft edge part of the way;
+// the vertices moved
+function move(surface, kept, selected, positions, edit){
+    const { inside, outside } = sides(surface, kept, selected);
+    const count = surface.count, p = positions;
+    const list = [];
+    let cx = 0, cy = 0, cz = 0;
+    for (let v = 0; v < count; v++){
+        if (!inside[v]) continue;
+        list.push(v);
+        cx += p[3 * v];
+        cy += p[3 * v + 1];
+        cz += p[3 * v + 2];
+    }
+    if (!list.length) return 0;
+    cx /= list.length;
+    cy /= list.length;
+    cz /= list.length;
+    const [ox, oy, oz] = edit.offset, [sx, sy, sz] = edit.scale, soft = edit.soft;
+    const target = v => [cx + (p[3 * v] - cx) * sx + ox, cy + (p[3 * v + 1] - cy) * sy + oy, cz + (p[3 * v + 2] - cz) * sz + oz];
+    // The soft edge: each vertex outside within soft of one inside, weighted by how near; the inside's as they were
+    const weights = new Map();
+    if (soft > 0){
+        const key = (x, y, z) => x + "," + y + "," + z;
+        const cells = new Map();
+        for (const v of list){
+            const k = key(Math.floor(p[3 * v] / soft), Math.floor(p[3 * v + 1] / soft), Math.floor(p[3 * v + 2] / soft));
+            if (!cells.has(k)) cells.set(k, []);
+            cells.get(k).push(v);
+        }
+        for (let v = 0; v < count; v++){
+            if (inside[v] || !outside[v]) continue;
+            const x = p[3 * v], y = p[3 * v + 1], z = p[3 * v + 2];
+            const gx = Math.floor(x / soft), gy = Math.floor(y / soft), gz = Math.floor(z / soft);
+            let best = soft * soft;
+            for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++){
+                const near = cells.get(key(gx + i, gy + j, gz + k));
+                if (!near) continue;
+                for (const u of near){
+                    const d = (p[3 * u] - x) ** 2 + (p[3 * u + 1] - y) ** 2 + (p[3 * u + 2] - z) ** 2;
+                    if (d < best) best = d;
+                }
+            }
+            if (best < soft * soft){
+                const t = 1 - Math.sqrt(best) / soft;
+                weights.set(v, t * t * (3 - 2 * t));
+            }
+        }
+    }
+    const moves = [];
+    for (const v of list) moves.push([v, 1]);
+    for (const [v, w] of weights) moves.push([v, w]);
+    const out = moves.map(([v, w]) => {
+        const t = target(v);
+        return [v, p[3 * v] + (t[0] - p[3 * v]) * w, p[3 * v + 1] + (t[1] - p[3 * v + 1]) * w, p[3 * v + 2] + (t[2] - p[3 * v + 2]) * w];
+    });
+    for (const [v, x, y, z] of out){
+        p[3 * v] = x;
+        p[3 * v + 1] = y;
+        p[3 * v + 2] = z;
+    }
+    return out.length;
+}
+
+// Smooth: the selection's vertices but its rim moved halfway toward their neighbours' middle, passes times; the
+// vertices moved
+function smooth(surface, kept, selected, positions, passes){
+    const { faces, count } = surface;
+    const { inside, outside } = sides(surface, kept, selected);
+    const free = new Uint8Array(count);
+    let moved = 0;
+    for (let v = 0; v < count; v++){
+        if (inside[v] && !outside[v]){
+            free[v] = 1;
+            moved++;
+        }
+    }
+    if (!moved) return 0;
+    // Each free vertex's neighbours, along the kept triangles' edges (CSR)
+    const start = new Int32Array(count + 1);
+    const n = faces.length / 3;
+    for (let f = 0; f < n; f++){
+        if (!kept[f]) continue;
+        for (let k = 0; k < 3; k++){
+            const a = faces[3 * f + k];
+            if (free[a]) start[a + 1] += 2;
+        }
+    }
+    for (let v = 0; v < count; v++) start[v + 1] += start[v];
+    const next = start.slice(0, count), around = new Int32Array(start[count]);
+    for (let f = 0; f < n; f++){
+        if (!kept[f]) continue;
+        for (let k = 0; k < 3; k++){
+            const a = faces[3 * f + k];
+            if (!free[a]) continue;
+            around[next[a]++] = faces[3 * f + (k + 1) % 3];
+            around[next[a]++] = faces[3 * f + (k + 2) % 3];
+        }
+    }
+    const list = [];
+    for (let v = 0; v < count; v++) if (free[v]) list.push(v);
+    const fresh = new Float64Array(list.length * 3);
+    for (let pass = 0; pass < passes; pass++){
+        list.forEach((v, i) => {
+            let x = 0, y = 0, z = 0;
+            const m = start[v + 1] - start[v];
+            for (let j = start[v]; j < start[v + 1]; j++){
+                const u = around[j];
+                x += positions[3 * u];
+                y += positions[3 * u + 1];
+                z += positions[3 * u + 2];
+            }
+            fresh[3 * i] = (positions[3 * v] + x / m) / 2;
+            fresh[3 * i + 1] = (positions[3 * v + 1] + y / m) / 2;
+            fresh[3 * i + 2] = (positions[3 * v + 2] + z / m) / 2;
+        });
+        list.forEach((v, i) => {
+            positions[3 * v] = fresh[3 * i];
+            positions[3 * v + 1] = fresh[3 * i + 1];
+            positions[3 * v + 2] = fresh[3 * i + 2];
+        });
+    }
+    return moved;
+}
+
 // The edits on the surface: {kept: Uint8Array per triangle, positions: the surface's vertices after them (a copy),
 // removed: triangles taken out, floating: of them, those Remove Floating Pieces took, flattened: vertices moved,
-// fills: the holes filled, as fillHole gives them, added: their triangles}. applyShape: editShapes.js's,
+// fills: the holes filled, as fillHole gives them, added: their triangles, moved: vertices Flatten, Move and Smooth
+// moved}. applyShape: editShapes.js's,
 // given so this module imports nothing.
 export function applyEdits(surface, edits, applyShape){
     const n = surface.faces.length / 3;
     const kept = new Uint8Array(n).fill(1);
     const positions = Float64Array.from(surface.positions);
     let at = null;  // the triangles' centres, made again when the vertices move
-    let floating = 0, flattened = 0;
+    let floating = 0, flattened = 0, moved = 0;
+    // The triangles a shape covers: what removing it would take out (a shape that keeps its inside: the rest)
+    const coveredBy = edit => {
+        at = at || centres(surface.faces, positions);
+        const covered = applyShape(at.xs, at.ys, at.zs, {...edit, restore: false}, new Uint8Array(n).fill(1), null);
+        for (let f = 0; f < n; f++) covered[f] = covered[f] ? 0 : 1;
+        return covered;
+    };
     const fills = [];
     const fill = chosen => {
         for (const hole of chosen){
@@ -443,14 +588,13 @@ export function applyEdits(surface, edits, applyShape){
         } else if (edit.op === "delete"){
             at = at || centres(surface.faces, positions);
             applyShape(at.xs, at.ys, at.zs, edit, kept, null);
-        } else if (edit.op === "flatten"){
-            at = at || centres(surface.faces, positions);
-            // What the shape covers: what removing it would take out (a shape that keeps its inside: the rest)
-            const covered = applyShape(at.xs, at.ys, at.zs, {...edit, restore: false}, new Uint8Array(n).fill(1), null);
-            for (let f = 0; f < n; f++) covered[f] = covered[f] ? 0 : 1;
-            const count = flatten(surface, kept, covered, positions);
+        } else if (edit.op === "flatten" || edit.op === "move" || edit.op === "smooth"){
+            const covered = coveredBy(edit);
+            const count = edit.op === "flatten" ? flatten(surface, kept, covered, positions) :
+                edit.op === "move" ? move(surface, kept, covered, positions, edit) : smooth(surface, kept, covered, positions, edit.passes);
             if (count){
-                flattened += count;
+                if (edit.op === "flatten") flattened += count;
+                moved += count;
                 at = null;  // the vertices moved
             }
         } else if (edit.type === "floating"){
@@ -469,7 +613,7 @@ export function applyEdits(surface, edits, applyShape){
     let removed = 0;
     for (let f = 0; f < n; f++) if (!kept[f]) removed++;
     const added = fills.reduce((sum, f) => sum + f.triangles.length / 3, 0);
-    return {kept, positions, removed, floating, flattened, fills, added};
+    return {kept, positions, removed, floating, flattened, fills, added, moved};
 }
 
 // The model's pieces after the edits, to draw or to write: for each piece its kept triangles, with the surface's

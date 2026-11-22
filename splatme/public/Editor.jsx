@@ -20,12 +20,25 @@ const HOLE_SIZES = [[10, "Small"], [50, "Medium"], [200, "Large"]];
 const BRUSH_MODES = [
     ["remove", "Remove", "Paint over what to remove. Everything under the brush on screen goes, through to the back."],
     ["restore", "Restore", "Paint over what to bring back. Everything under the brush on screen that the edits listed before removed comes back, through to the back."],
+    ["smooth", "Smooth", "Paint over what to smooth: the surface under the brush on screen, through to the back, is made smoother, its edges fixed. Its passes, under the list, set how much."],
     ["flatten", "Flatten", "Paint over what to flatten. The surface under the brush on screen, through to the back, is made flat, level with its edges."],
     ["fill", "Fill Holes", "Paint over the holes to fill: a hole is filled when the brush covers all its edge, through to the back."],
     ["object", "Remove Object", "Paint over an object to remove: what is under the brush on screen goes, through to the back, and the hole it leaves is filled."],
 ];
-const OPS_SHOWN = ["flatten", "fill", "object"];  // the model's shape edits beside Keep and Remove Inside
-const BRUSH_OPS = {flatten: "flatten", fill: "fill", object: "object"};  // the model's edit for each mode ("delete" for the rest)
+const OPS_SHOWN = ["flatten", "fill", "object", "move", "smooth"];  // the model's shape edits beside Keep and Remove Inside
+// The settings Move and Smooth start with, and their steps: [name, axis or null, label, unit, step, low, high,
+// shown as (a factor to show it in the unit)]
+const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, smooth: {passes: 5}};
+const OP_STEPS = {
+    move: [
+        ["offset", 2, "Up", "m", 0.05, -100, 100, 1], ["offset", 0, "East", "m", 0.05, -100, 100, 1],
+        ["offset", 1, "North", "m", 0.05, -100, 100, 1], ["scale", 0, "Stretch East", "%", 5, 10, 1000, 100],
+        ["scale", 1, "Stretch North", "%", 5, 10, 1000, 100], ["scale", 2, "Stretch Up", "%", 5, 10, 1000, 100],
+        ["soft", null, "Soft Edge", "m", 0.25, 0, 20, 1],
+    ],
+    smooth: [["passes", null, "Passes", "", 1, 1, 100, 1]],
+};
+const BRUSH_OPS = {flatten: "flatten", fill: "fill", object: "object", smooth: "smooth"};  // the model's edit for each mode ("delete" for the rest)
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 const THUMBNAIL_WIDTH = 320;  // the picture of the model on its row in SplatMe → Tasks, in pixels across
 const THUMBNAIL_AFTER = 2000;  // ms after the model shows before its picture is taken (the splats settle)
@@ -194,7 +207,13 @@ class EditorPanel extends React.Component {
     // saved shortly
     change(edits, selected, merge){
         // The model's shapes delete what they cover (meshes.py's op)
-        if (this.isModel()) edits = edits.map(e => SHAPES.includes(e.type) && !e.op ? {...e, op: "delete"} : e);
+        if (this.isModel()){
+            edits = edits.map(e => {
+                if (!SHAPES.includes(e.type)) return e;
+                const op = e.op || "delete";
+                return {...OP_DEFAULTS[op], ...e, op};
+            });
+        }
         const history = merge ? this.state.history : recordChange(this.state.history, this.state.edits);
         this.setState({edits, selected, drafts: {}, history});
         if (this.viewer) this.viewer.setEdits(edits, selected);
@@ -400,7 +419,11 @@ class EditorPanel extends React.Component {
     setAction(index, action){
         const edits = this.state.edits.slice();
         edits[index] = {...edits[index], keep: action === "keep"};
-        if (this.isModel()) edits[index].op = OPS_SHOWN.includes(action) ? action : "delete";
+        if (this.isModel()){
+            const op = OPS_SHOWN.includes(action) ? action : "delete";
+            const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !["offset", "scale", "soft", "passes"].includes(name)));
+            edits[index] = {...kept, ...OP_DEFAULTS[op], op};
+        }
         this.change(edits, this.state.selected);
     }
 
@@ -567,6 +590,45 @@ class EditorPanel extends React.Component {
         );
     }
 
+    // Move's or Smooth's settings, each with - and + to change it a step at a time (each step one Undo)
+    renderOpFields(index, edit){
+        const value = (name, axis) => axis === null ? edit[name] : edit[name][axis];
+        const set = (name, axis, raw, low, high, factor) => {
+            if (!Number.isFinite(raw)) return;
+            const v = Math.min(high, Math.max(low, raw)) / factor;
+            const edits = this.state.edits.slice();
+            const changed = {...edits[index]};
+            if (axis === null) changed[name] = name === "passes" ? Math.round(v) : Math.round(v * 1000) / 1000;
+            else {
+                changed[name] = changed[name].slice();
+                changed[name][axis] = Math.round(v * 1000) / 1000;
+            }
+            edits[index] = changed;
+            this.change(edits, this.state.selected);
+        };
+        return (
+            <table className="splatme-editor-fields splatme-editor-steps">
+                <tbody>
+                    {OP_STEPS[edit.op].map(([name, axis, label, unit, step, low, high, factor]) => {
+                        const shown = Math.round(value(name, axis) * factor * 1000) / 1000;
+                        return (
+                            <tr key={name + axis}>
+                                <th>{_(label)}</th>
+                                <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " -"} disabled={shown <= low}
+                                            onClick={() => set(name, axis, shown - step, low, high, factor)}><i className="fa fa-minus fa-fw"></i></button></td>
+                                <td><input type="number" step={step} min={low} max={high} className="form-control input-sm" aria-label={_(label)} value={shown}
+                                           onChange={e => set(name, axis, parseFloat(e.target.value), low, high, factor)} /></td>
+                                <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " +"} disabled={shown >= high}
+                                            onClick={() => set(name, axis, shown + step, low, high, factor)}><i className="fa fa-plus fa-fw"></i></button></td>
+                                <td>{unit}</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        );
+    }
+
     renderColourFields(index, edit){
         return (
             <div className="splatme-editor-colour">
@@ -599,7 +661,7 @@ class EditorPanel extends React.Component {
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
                             {edit.type === "brush" ? <span className="splatme-editor-item-note">{edit.restore ? _("Brings back what it painted over") : edit.op === "flatten" ? _("Flattens what it painted over") :
-                                edit.op === "fill" ? _("Fills the holes it painted over") : edit.op === "object" ? _("Removes what it painted over and fills the hole") : _("Removes what it painted over")}</span> :
+                                edit.op === "fill" ? _("Fills the holes it painted over") : edit.op === "smooth" ? _("Smooths what it painted over") : edit.op === "object" ? _("Removes what it painted over and fills the hole") : _("Removes what it painted over")}</span> :
                             edit.type === "holes" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
                                         aria-label={_("Which holes to fill")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
@@ -623,6 +685,8 @@ class EditorPanel extends React.Component {
                                     {this.isModel() ? <option value="flatten">{_("Flatten Inside")}</option> : ""}
                                     {this.isModel() ? <option value="fill">{_("Fill Holes Inside")}</option> : ""}
                                     {this.isModel() ? <option value="object">{_("Remove Object")}</option> : ""}
+                                    {this.isModel() ? <option value="move">{_("Move Inside")}</option> : ""}
+                                    {this.isModel() ? <option value="smooth">{_("Smooth Inside")}</option> : ""}
                                 </select>}
                             {info.can_edit ?
                                 <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit (Delete when it is selected)")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
@@ -688,6 +752,7 @@ class EditorPanel extends React.Component {
         const applying = !!apply && apply.state === "applying";
         const box = selected >= 0 && edits[selected] && edits[selected].type === "box" ? edits[selected] : null;
         const colour = selected >= 0 && edits[selected] && edits[selected].type === "colour" ? edits[selected] : null;
+        const stepped = selected >= 0 && edits[selected] && OP_STEPS[edits[selected].op] ? edits[selected] : null;
         return (
             <div className="splatme-editor-panel">
                 <div className="splatme-editor-tools">
@@ -778,6 +843,7 @@ class EditorPanel extends React.Component {
                 {this.state.floatersError ? <p className="text-danger">{_("The floaters could not be found:")} {this.state.floatersError}</p> : ""}
                 {box && canEdit ? this.renderBoxFields(box) : ""}
                 {colour && canEdit ? this.renderColourFields(selected, colour) : ""}
+                {stepped && canEdit ? this.renderOpFields(selected, stepped) : ""}
                 {info.can_edit ?
                     <div className="splatme-editor-history">
                         <button type="button" className="btn btn-sm btn-default" disabled={!this.state.history.undo.length} onClick={this.undo} title={_("Undo (Ctrl+Z)")}>
@@ -843,7 +909,7 @@ class EditorPanel extends React.Component {
     modelStats(loaded){
         const result = this.viewer ? this.viewer.modelResult() : null;
         const removed = result && result.removed ? ", " + result.removed.toLocaleString("en-US") + " " + _("of them removed by the edits") : "";
-        const flattened = result && result.flattened ? "; " + result.flattened.toLocaleString("en-US") + " " + (result.flattened === 1 ? _("point flattened") : _("points flattened")) : "";
+        const flattened = result && result.moved ? "; " + result.moved.toLocaleString("en-US") + " " + (result.moved === 1 ? _("point moved") : _("points moved")) : "";
         const filled = result && result.filled ? "; " + result.filled.toLocaleString("en-US") + " " + (result.filled === 1 ? _("hole filled") : _("holes filled")) : "";
         return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + ".";
     }

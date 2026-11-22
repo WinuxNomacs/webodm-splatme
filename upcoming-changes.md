@@ -3283,6 +3283,12 @@ it can be undone, stays editable, and never piles up.
 **Proposed phases:** R1 Move and Smooth, with the list's step controls (+/-) for any op with a strength. R2
 Straighten, with the line drawn on the surface. R3 Clone Texture. R4 Fills with detail (R3's renderer). R5 docs.
 
+**Built:** R1 (branch `model-repair`): Move Inside (`op: "move"`, `offset`, `scale`, `soft`) and Smooth Inside
+(`op: "smooth"`, `passes`), as list actions, Smooth also as a Brush mode; the selected edit's settings under the
+list, each with - and + (Up, East, North in 5 cm steps; Stretch in 5%; Soft Edge in 0.25 m; Passes one at a time),
+each step one Undo. Live on a copy of the check task: four Up steps raised a default box's surface 0.2 m (40,167
+points), a Smooth brush stroke, and the update moved the same 60,061 points as the preview, in 9 s.
+
 **The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
 line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
 area shows while placing the second), then either end draggable.
