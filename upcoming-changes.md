@@ -9,9 +9,7 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Left from "12. UX review, the rest" (built): a live Update the Model and a real training (Grow Until on node
-   0.2.3, the stage times in the summary, the thumbnail dropped and taken again) once `sm-worker` restarts.
-2. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
+1. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
    (CHANGELOG's Unreleased; Getting Started's node upgrade steps on its branch).
 
 **Then**
@@ -73,7 +71,8 @@ other software. The plugin does that step.
 - Grow Until (2026-11-21): OpenSplat's `--densify-until` as an optional option, in Advanced and on Continue;
   node 0.2.3. Code in `node/splatnode.py`, `splatme/training.py`, `public/trainingView.js` and the forms; tests in
   `node/tests`, `test_splatme.py` and Jest. Not yet: a real training with it (the dev node rebuilt as 0.2.3), and
-  Getting Started's upgrade steps for the node, on the next release's branch. See "11. Grow Until (built)".
+  Getting Started's upgrade steps for the node, on the next release's branch (the real training ran 2026-11-22,
+  with the UX review's live check). See "11. Grow Until (built)".
 - Fixes from the release review of 0.3.0 (2026-11-19): A, B, C, E, G, I, M, N, O, P, Q, R, S, T, U, V, the
   documentation, and Cancel for Apply (D, the user's choice, which also covers F). See "Fixes from the release
   review of 0.3.0 (built)".
@@ -3093,7 +3092,12 @@ Live (headless, GPU), on copies of the check task (deleted): the keys, tool stat
 removing its inside, double-click centring, Reset View, the hint, phone width; the thumbnail taken (320 px,
 11 kB) and shown on its row; the row at desktop and phone width with its menu; Continue without the table and
 with it once Grow Until is set; the three pages' intros; Settings' Image Size round trip (the options restored
-after). Not live yet: Update the Model (runs in `sm-worker`, which still has the old code) and a real training.
+after). Then, with `sm-worker` restarted, on another copy (deleted): Update the Model with a Remove
+Inside box, 13,841 splats removed, the line "The task's model has these edits (13,841 splats removed).", the
+thumbnail taken again; a real training on node 0.2.3 (5,000 steps, Image Size 800, Grow Until 2,000: the node got
+`densify_until=2000`), completed with `times` (training 155.8 s, exporting 20.6 s, importing 3.4 s), the
+thumbnail dropped, the row reading "Splats trained (5,000 steps) on 22 Nov 2026: 2 min 36 s of training.
+Preparing, transfers and waiting took 24 s. Cropped to the task's boundary."
 
 ### 13. Model editing (proposed)
 
