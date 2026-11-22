@@ -3186,3 +3186,23 @@ made flat, and texture repair of the edited areas. The list to match is the user
   Pieces, the edit list saved, Update the Model writing GLB and OBJ.
 - M2. Flatten. M3. Fill Holes (textured from the surroundings). M4. Remove Object.
 - M5. Docs, changelog with the headlines, then the release.
+
+**M0, the spike (2026-11-22), on the check task's model:**
+
+- The GLB is in the OBJ's frame: the task's local coordinates, z up, offset by `CESIUM_RTC` (410977, 4661816,
+  0), which is `coords.txt`; edits can be kept in the task's projection, as the splats' are.
+- Node in `sm-worker` (v20.20.2) reads it with WebODM's gltf-transform in 0.7 s and writes it back Draco-encoded
+  in 1.4 s (39.2 MB), 324 MB of memory; it loads a plain `.js` ES module from an `.mjs` script.
+- In the browser (headless Chromium, the RTX 5060): the GLB through `/api/projects/<p>/tasks/<t>/textured_model/`
+  in 1.4 s, 271 meshes, 854,042 triangles, 45 frames a second turning, 225 MB of JS heap. WebODM's own Draco
+  decoder fails with three.js 0.187's DRACOLoader ("Unexpected geometry type"): the decoder from the same
+  three.js package is vendored (`public/vendor/draco`, Apache-2.0).
+- `meshEdits.js` (weld, open edges, loops, components) in Node: weld 0.5 s (463,483 surface vertices), open edges
+  0.35 s (85,771), loops 0.05 s (3,521 holes and the rim; 2,702 of 10 edges or fewer), components 0.03 s (458:
+  738,524 and 112,890 triangles, then 453 under 100 triangles, 2,024 triangles in all). The OBJ's exact topology
+  has 85,790 open edges and no non-manifold edge: the holes are real (texturing drops faces no photo saw), and
+  the weld's tolerance (1 mm to 2 cm) hardly changes them.
+- WebODM caches smaller copies of a large GLB for its 3D view (`get_safe_textured_model`, in the task's assets
+  cache, never checked against the GLB's time): Update the Model deletes them. The Textured Model download is
+  zipped from `odm_texturing/` as it is when asked for: the originals are kept in `data/splatme`, not there. A
+  task's 3D Tiles model (`3d_tiles/model`) is not edited.
