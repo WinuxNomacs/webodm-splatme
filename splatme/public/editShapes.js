@@ -228,17 +228,6 @@ export function newBox(frame){
     };
 }
 
-// Straighten's box from its line: along the line, past each end and to each side by margin, turned to it
-export function boxAroundLine(line, margin){
-    const [a, b] = line;
-    const dx = b[0] - a[0], dy = b[1] - a[1];
-    const turn = ((Math.atan2(dy, dx) * 180 / Math.PI) % 360 + 360) % 360;
-    return {
-        type: "box", keep: false, center: [0, 1, 2].map(i => round((a[i] + b[i]) / 2)), turn: round(turn),
-        size: [Math.hypot(dx, dy) + 2 * margin, 2 * margin, Math.abs(b[2] - a[2]) + 2 * margin].map(round)
-    };
-}
-
 // Undo and Redo: the edit lists before each change (undo) and those taken back (redo). A new change clears Redo.
 export const HISTORY_STEPS = 200;
 export function newHistory(){
@@ -319,7 +308,10 @@ export function editLabel(edit, count){
         const name = {fill: "Fill", clone: "Clone", smooth: "Smooth", flatten: "Flatten", raise: edit.amount < 0 ? "Lower" : "Raise", delete: "Remove", restore: "Restore"}[edit.op] || "Brush";
         return name + " Brush, " + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
     }
-    if (edit.type === "stamps") return "Clone Stamps, " + edit.stamps.length + (edit.stamps.length === 1 ? " stamp" : " stamps");
+    if (edit.type === "straighten"){
+        const [a, b] = edit.line;
+        return "Straighten, " + Number(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]).toFixed(1)).toLocaleString("en-US") + " m";
+    }
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
     }
@@ -365,15 +357,14 @@ export function brushStroke(points, width, height, sizePixels, minPixels){
 // The stroke added to the Brush session's edit, the last of edits, when it was painted in the same view, removes
 // or restores as it does (restore) and has room for it; else a new brush edit after them (the session's first
 // stroke: fresh). Answers the edits
-export function addStroke(edits, stroke, view, aspect, camera, fresh, restore, op){
+export function addStroke(edits, stroke, view, aspect, camera, fresh, restore){
     const last = edits[edits.length - 1];
-    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.op === op && last.aspect === aspect && last.view.length === view.length &&
+    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.aspect === aspect && last.view.length === view.length &&
         last.view.every((v, i) => v === view[i]) && last.strokes.length < MAX_STROKES &&
         last.strokes.reduce((n, s) => n + s.points.length, 0) + stroke.points.length <= MAX_BRUSH_POINTS;
     if (same) return [...edits.slice(0, -1), {...last, strokes: [...last.strokes, stroke]}];
     const edit = {type: "brush", strokes: [stroke], view, aspect, camera};
     if (restore) edit.restore = true;
-    if (op) edit.op = op;
     return [...edits, edit];
 }
 

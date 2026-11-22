@@ -555,23 +555,33 @@ class TestSplatMe(BootTestCase):
             self.assertEqual(f.read(), original_glb)
         self.assertTrue(self.model_edits(task).data["applied"])
 
-    def test_flatten_moves_what_the_shape_covers_onto_the_plane_of_its_rim(self):
+    def test_the_flatten_brush_moves_what_it_paints_onto_the_plane_of_its_rim(self):
         task = make_task(self.user)
         folder = make_textured_model(task, bump=0.5)
-        # Over the four squares around the raised vertex: their rim (x or y 2) is at z 0
-        flatten = {"op": "flatten", "type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        # Over the four squares around the raised vertex: their rim (x or y 0 or 2) is at z 0
+        flatten = {"type": "paint", "op": "flatten", "strokes": [{"points": [[1, 1, 0]], "radius": 0.9, "view": [0, 0, 1]}]}
         res = self.model_edits(task, [flatten])
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data["edits"], [flatten])
+        self.assertEqual(res.data["edits"], [{**flatten, "strokes": [{"points": [[1.0, 1.0, 0.0]], "radius": 0.9, "view": [0.0, 0.0, 1.0]}]}])
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertEqual(res.data["apply"]["removed"], 0)
-        self.assertEqual(res.data["apply"]["flattened"], 4)
+        self.assertGreater(res.data["apply"]["flattened"], 0)
         self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
         heights = obj_heights(os.path.join(folder, meshes.OBJ))
         self.assertTrue(heights and max(abs(z) for z in heights) < 1e-5, max(heights))
         with open(os.path.join(meshes.model_dir(task), meshes.GLB), "rb") as f:
             self.assertIn(b"glTF", f.read(4))  # the original, bump and all, kept
+
+    def test_a_shape_set_to_a_repair_the_brush_does_now_and_clone_stamps_are_refused(self):
+        task = make_task(self.user)
+        make_textured_model(task)
+        box = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1, 1, 1], "turn": 0}
+        for bad in ({"op": "flatten", **box}, {"op": "fill", **box}, {"op": "smooth", **box, "passes": 3},
+                    {"op": "clone", **box, "source": [0, 0, 0], "patch": 1, "feather": 0.25, "spin": 0},
+                    {"op": "straighten", **box, "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1},
+                    {"type": "stamps", "op": "clone", "source": [0.5, 1.5, 0], "feather": 0.1, "stamps": []}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
 
     def test_fill_holes_adds_triangles_with_a_texture_of_their_own_which_goes_when_no_fill_needs_it(self):
         task = make_task(self.user)
@@ -618,14 +628,13 @@ class TestSplatMe(BootTestCase):
             self.assertIn("newmtl splatme_clone\n", f.read())
         self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
 
-    def test_move_and_smooth_change_the_models_shape_in_steps_checked_by_the_server(self):
+    def test_move_and_the_smooth_brush_change_the_models_shape_checked_by_the_server(self):
         task = make_task(self.user)
         folder = make_textured_model(task, bump=0.5)
         middle = {"type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
         raise_ = {"op": "move", **middle, "offset": [0, 0, 0.5], "scale": [1, 1, 1], "soft": 0}
         for bad in ({**raise_, "offset": [0, 0]}, {**raise_, "scale": [1, 0, 1]}, {**raise_, "soft": -1},
-                    {**raise_, "offset": [0, 0, 101]}, {"op": "smooth", **middle, "passes": 0},
-                    {"op": "smooth", **middle, "passes": 1.5}, {"op": "smooth", **middle}):
+                    {**raise_, "offset": [0, 0, 101]}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
         res = self.model_edits(task, [raise_])
         self.assertEqual(res.status_code, 200, res.data)
@@ -637,20 +646,21 @@ class TestSplatMe(BootTestCase):
         self.assertAlmostEqual(max(heights), 1.0, places=5)  # the bump's corner, raised with the rest
         self.assertEqual(sorted({round(z, 4) for z in heights}), [0.0, 0.5, 1.0])
 
-        # Smooth over the four squares around the bump: its vertex settles toward its flat neighbours
-        around = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
-        self.assertEqual(self.model_edits(task, [{"op": "smooth", **around, "passes": 3}]).status_code, 200)
+        # The Smooth brush over the four squares around the bump: its vertex settles toward its flat neighbours
+        smooth = {"type": "paint", "op": "smooth", "strokes": [{"points": [[1, 1, 0]], "radius": 0.9, "view": [0, 0, 1]}]}
+        for bad in ({**smooth, "passes": 0}, {**smooth, "passes": 1.5}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        self.assertEqual(self.model_edits(task, [{**smooth, "passes": 3}]).status_code, 200)
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         heights = obj_heights(os.path.join(folder, meshes.OBJ))
         self.assertLess(max(heights), 0.5)
         self.assertGreater(max(heights), 0)
 
-    def test_straighten_keeps_its_line_in_the_tasks_projection_and_pulls_the_surface_to_it(self):
+    def test_straighten_keeps_its_line_in_the_tasks_projection_and_pulls_the_surface_within_reach_to_it(self):
         task = make_task(self.user)
         folder = make_textured_model(task, bump=0.5)
-        around = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
-        line = {"op": "straighten", **around, "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}
+        line = {"type": "straighten", "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}
         for bad in ({**line, "line": [[0, 1, 0]]}, {**line, "strength": 1.5}, {**line, "reach": 0},
                     {**line, "line": [[0, 1], [2, 1]]}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
@@ -661,22 +671,24 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(stored[0]["line"], [[1000, 2001, 0], [1002, 2001, 0]])
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
-        self.assertEqual(res.data["apply"]["moved"], 2)  # within reach and inside the rim: the bump, and (0, 1) on the line
+        self.assertEqual(res.data["apply"]["moved"], 1)  # within reach and off the line: the bump
         heights = obj_heights(os.path.join(folder, meshes.OBJ))
         self.assertAlmostEqual(max(heights), 0.25, places=4)  # 0.5 m from the line, reach 1: half the way
 
-    def test_clone_texture_moves_the_covered_triangles_to_a_texture_of_their_own_which_goes_with_the_clone(self):
+    def test_the_clone_brush_moves_what_it_paints_to_a_texture_of_their_own_which_goes_with_the_clone(self):
         task = make_task(self.user)
         folder = make_textured_model(task)
         texture = os.path.join(folder, meshes.CLONE_TEXTURE)
-        column = {"type": "box", "keep": False, "center": [2.5, 1.5, 0], "size": [0.9, 2.9, 5], "turn": 0}
-        clone = {"op": "clone", **column, "source": [0.5, 1.5, 0], "patch": 1, "feather": 0.25, "spin": 0}
-        for bad in ({**clone, "source": [0, 1]}, {**clone, "patch": 0}, {**clone, "feather": 6}, {**clone, "spin": 200}):
+        # Down the last column, copied from the first: the source's offset from where the stroke starts
+        stroke = {"points": [[2.5, 0.5, 0], [2.5, 2.5, 0]], "radius": 0.45, "view": [0, 0, 1]}
+        clone = {"type": "paint", "op": "clone", "strokes": [stroke], "source": [0.5, 0.5, 0], "target": [2.5, 0.5, 0],
+                 "normal": [0, 0, 1], "feather": 0.02}
+        for bad in ({**clone, "source": [0, 1]}, {**clone, "normal": [0, 0, 0]}, {**clone, "feather": 6}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
         res = self.model_edits(task, [clone])
         self.assertEqual(res.status_code, 200, res.data)
         stored = edits.store().get_json(meshes.edits_key(task.id))
-        self.assertEqual(stored[0]["source"], [1000.5, 2001.5, 0])
+        self.assertEqual((stored[0]["source"], stored[0]["target"]), ([1000.5, 2000.5, 0], [1002.5, 2000.5, 0]))
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertEqual(res.data["apply"]["cloned"], 6)  # the last column's 3 squares
@@ -692,27 +704,6 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertFalse(os.path.exists(texture))
 
-    def test_clone_stamps_clone_the_triangles_under_each_stamp_and_are_checked_and_shifted_with_the_model(self):
-        task = make_task(self.user)
-        folder = make_textured_model(task)
-        square = {"center": [2.5, 1.5, 0], "normal": [0, 0, 1], "size": 1, "spin": 0}
-        stamping = {"type": "stamps", "op": "clone", "source": [0.5, 1.5, 0], "feather": 0.1, "stamps": [square]}
-        for bad in ({**stamping, "op": "delete"}, {**stamping, "feather": 6}, {**stamping, "stamps": {}},
-                    {**stamping, "stamps": [{**square, "size": 0}]}, {**stamping, "stamps": [{**square, "normal": [0, 0, 0]}]},
-                    {**stamping, "stamps": [{**square, "spin": 200}]}, {**stamping, "stamps": [{**square, "center": [1, 2]}]}):
-            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
-        res = self.model_edits(task, [stamping])
-        self.assertEqual(res.status_code, 200, res.data)
-        stored = edits.store().get_json(meshes.edits_key(task.id))
-        self.assertEqual(stored[0]["source"], [1000.5, 2001.5, 0])
-        self.assertEqual(stored[0]["stamps"][0]["center"], [1002.5, 2001.5, 0])
-        self.assertEqual(meshes.get(task), [stamping])
-        res = self.client.post(f"{API}/task/{task.id}/model-apply")
-        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
-        self.assertEqual(res.data["apply"]["cloned"], 2)  # the square under the stamp
-        self.assertTrue(os.path.exists(os.path.join(folder, meshes.CLONE_TEXTURE)))
-        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
-
     def test_the_surface_brush_is_checked_shifted_with_the_model_and_applied_by_the_update(self):
         task = make_task(self.user)
         folder = make_textured_model(task, hole=True)
@@ -727,6 +718,11 @@ class TestSplatMe(BootTestCase):
         stored = edits.store().get_json(meshes.edits_key(task.id))
         self.assertEqual(stored[0]["strokes"][0]["points"][0], [1002.5, 2001.5, 0])
         self.assertEqual(meshes.get(task), [remove])
+        # After a shape too: each edit shifted by its own kind
+        box = {"op": "delete", "type": "box", "keep": False, "center": [0.5, 0.5, 0], "size": [0.1, 0.1, 0.1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box, remove]).status_code, 200)
+        self.assertEqual(meshes.get(task)[1], remove)
+        self.assertEqual(self.model_edits(task, [remove]).status_code, 200)
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertEqual(res.data["apply"]["removed"], 4)  # the last column's two middle squares' triangles

@@ -10,15 +10,13 @@ node refuses a training only when Grow Until is set).
 
 - **3D model cleanup and repair**: **Edit** now edits the task's textured 3D model too (**Splats** and **3D
   Model** above the editor's view; a task with a textured model but no splats opens on it). **Remove Floating
-  Pieces** and **Fill Holes** act on the whole model; each shape (box, polygon, lasso, brush) can **Remove** or
-  **Keep Inside**, **Flatten Inside** (onto the plane of its edge), **Fill Holes Inside**, **Remove Object**
-  (remove it and fill the hole it leaves), **Move Inside** (raise, shift or stretch it, with a soft edge),
-  **Smooth Inside**, **Straighten Inside** (toward a line clicked on the model) or **Clone Texture Inside** (a
-  good area's texture tiled over it and blended in). On the model, the **Brush** paints on
-  the surface, sized in metres: **Fill** (the holes painted over, with the texture beside them), **Clone** (a good
-  area's texture copied where it paints, filling the holes under it), **Smooth**, **Flatten**, **Raise**,
-  **Lower**, **Remove** and **Restore**; the wheel sizes it. A **Repair** row starts each repair without drawing
-  first. Their settings change a step at a time with - and +.
+  Pieces** and **Fill Holes** act on the whole model. The **Brush** paints on the model's surface, sized in
+  metres: **Fill** (the holes painted over, with the texture beside them), **Clone** (a good area's texture copied
+  where it paints, filling the holes under it), **Smooth**, **Flatten**, **Raise**, **Lower**, **Remove** and
+  **Restore**; the wheel sizes it. **Straighten** pulls the surface near a line clicked on the model toward it. A
+  box, polygon or lasso can **Remove** or **Keep Inside**, **Remove Object** (remove it and fill the hole it
+  leaves) or **Move Inside** (raise, shift or stretch it, with a soft edge). A **Repair** row starts each repair.
+  Their settings change a step at a time with - and +.
   Filled holes take the texture of the surface beside them. The view shows the edits as
   they change; **Update the Model** writes them into the GLB (WebODM's 3D view and share links) and the OBJ (the
   Textured Model download) in seconds, keeping the original files, so **Clear Edits** then **Update the Model**

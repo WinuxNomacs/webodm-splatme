@@ -14,7 +14,8 @@ const [, user, pass] = found;
 const scenario = (await import(pathToFileURL(path.resolve(scenarioPath)).href)).default;
 
 const browser = await chromium.launch({args: ['--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist']});
-const page = await (await browser.newContext({viewport: {width: 1500, height: 900}})).newPage();
+const [WIDTH, HEIGHT] = (process.env.VIEWPORT || '1500x900').split('x').map(Number);  // 1280x800 for the docs' screenshots
+const page = await (await browser.newContext({viewport: {width: WIDTH, height: HEIGHT}})).newPage();
 page.on('pageerror', e => console.log('PAGEERROR', e.message));
 page.on('console', m => { if (m.type() === 'error' && !/livereload|35729|ERR_CONNECTION_REFUSED/.test(m.text())) console.log('CONSOLE', m.text().slice(0, 300)); });
 // A request to the API as the page makes it (with the session's CSRF token)
@@ -28,7 +29,8 @@ const footer = () => page.locator('p:has-text("triangles")').first().innerText()
 const waitIdle = async (label, t0) => {
     await page.waitForTimeout(50);
     await page.waitForFunction(() => { const p = [...document.querySelectorAll('p')].find(e => e.textContent.includes('triangles')); return p && !p.textContent.includes('Showing the edits'); }, null, {timeout: 180000, polling: 50});
-    console.log(label.padEnd(36), Date.now() - t0, 'ms |', (await footer()).slice(0, 100));
+    const clock = (await page.evaluate(() => performance.now() / 1000)).toFixed(1);
+    console.log(label.padEnd(36), Date.now() - t0, 'ms |', (await footer()).slice(0, 100), '| done at', clock + 's');
 };
 const shot = name => page.screenshot({path: path.join(OUT, name + '.png')});
 let copy = null;
@@ -47,7 +49,7 @@ try {
     await page.addInitScript(() => {
         window.__long = [];
         window.__splatmeTiming = [];
-        new PerformanceObserver(l => { for (const e of l.getEntries()) window.__long.push(Math.round(e.duration)); }).observe({type: 'longtask', buffered: true});
+        new PerformanceObserver(l => { for (const e of l.getEntries()) window.__long.push(Math.round(e.duration) + '@' + (e.startTime / 1000).toFixed(1) + 's'); }).observe({type: 'longtask', buffered: true});
     });
     await page.goto(`${BASE}/plugins/splatme/edit/${copy}/`);
     await page.waitForTimeout(2500);
@@ -61,7 +63,7 @@ try {
     const at = (fx, fy) => [box.x + box.width * fx, box.y + box.height * fy];
     await scenario({page, api, copy, at, footer, waitIdle, shot});
     for (const t of await page.evaluate(() => window.__splatmeTiming)) console.log('  timing', JSON.stringify(t));
-    console.log('long tasks (ms):', JSON.stringify(await page.evaluate(() => window.__long)));
+    console.log('long tasks (ms@page clock):', JSON.stringify(await page.evaluate(() => window.__long)));
 } catch (err){
     console.log('ERR', err.message.split('\n')[0]);
     await shot('error').catch(() => null);

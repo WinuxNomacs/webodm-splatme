@@ -14,47 +14,27 @@ Above the view, **Splats** and **3D Model** switch between the task's splats ([E
 its textured model; a task with only a textured model opens on **3D Model**. The view shows the model as
 WebODM's 3D view does, with the edits' panel to its right, or below it on a phone.
 
-![The 3D model's editor: Fill Holes, and a polygon set to Remove Object over a round flower bed on the lawn, filled in its place](assets/screenshots/editing-model.png)
+![The 3D model's editor on a roof: the Repair row, and the Brush's Clone mode with its circle on the shingles](assets/screenshots/editing-model.png)
 
 A task can be edited once WebODM has made its textured model (its GLB, OBJ and MTL files).
 
 ## The Edits
 
-**Add Box** (X), **Draw Polygon** (P) and **Lasso** (L) are drawn as on Editing Splats (see
-[The Edits](editing.md#the-edits) there); the **Brush** (B) paints on the surface instead ([The Brush](#the-brush)).
-A shape acts on the triangles whose centres it covers. What it does is chosen in the list:
+The repairs most work needs are on the **Brush** (B), which paints on the surface ([The Brush](#the-brush)). The
+**Repair** buttons under the tools start each repair: **Fill**, **Clone Texture**, **Smooth** and **Flatten** start
+the Brush in that mode; **Straighten** asks for a line ([Straighten](#straighten)); **Move** and **Remove Object**
+each add a box doing that in the middle of the view, to move and size like any box.
+
+**Add Box** (X), **Draw Polygon** (P) and **Lasso** (L) are for large areas, drawn as on Editing Splats (see
+[The Edits](editing.md#the-edits) there). A shape acts on the triangles whose centres it covers. What it does is
+chosen in the list:
 
 - **Remove Inside** (the start) and **Keep Inside**: remove the triangles inside it, or all the others.
-- **Flatten Inside**: makes what it covers flat. The triangles' corners move onto the plane that best fits the
-  edge between them and the rest of the model, which stays where it is: a bumpy roof face, a wavy wall, uneven
-  ground. Draw the shape over one flat surface at a time: a shape over a roof's ridge flattens both sides into one
-  plane.
-- **Fill Holes Inside**: fills the holes whose whole edge it covers.
 - **Remove Object**: removes what it covers, then fills the hole that leaves, so the ground under a car or a
   person closes over. Draw it close around the object: the fill spans the hole's whole edge.
 - **Move Inside**: raises, shifts or stretches what it covers: a roof that sits too low, an eave that should sit
   above the wall below it. The move fades to nothing over a **Soft Edge** around it, so the surface stretches
   instead of tearing.
-- **Smooth Inside**: evens out what it covers, its edge fixed: lumpy walls, bent or broken shingles. More
-  **Passes**, smoother.
-- **Straighten Inside**: pulls what it covers toward a straight line: a gutter, an eave, a ridge, a window
-  frame. Choosing it asks for the line: click one end on the model, and a line follows the pointer from it; click
-  the other end. While the line is placed, the view leaves this edit out, so what it hid can be clicked. Either
-  end can then be dragged on the model, or **Draw the Line Again**. The pull is strongest at the line and fades to
-  nothing at **Reach** from it.
-- **Clone Texture Inside**: covers what it covers with the texture of a good area: shingles over broken
-  shingles, siding over a smear, lawn over a bare patch. It suits a large area; for a patch here and there, the
-  **Clone** brush (below) is quicker. Choosing it asks for one click on the middle of the good
-  area. A square of it, **Source Size** across (shown in the view while the edit is picked), is laid flat and
-  repeated across the shape's surface, with its rows kept level (north up on level ground); **Turn Texture**
-  turns it, and **Feather** blends it into the surface's own texture near the shape's edge. It changes only the
-  texture, after all the other edits.
-
-The **Repair** buttons under the tools start the repairs without drawing first. **Fill**, **Clone Texture**,
-**Smooth** and **Flatten** start the brush (below) in that mode. **Move** and **Remove Object** each add a box
-doing that in the middle of the view, to move and size like any box. **Straighten** asks for the line first and
-puts a box around it, as wide as **Reach** each side. To repair inside a polygon or a lasso instead, draw it and
-choose the repair in its list.
 
 ### The Brush
 
@@ -62,14 +42,15 @@ On the 3D model, the **Brush** paints on the surface: a circle lies on the surfa
 metres, and a drag paints along the surface. It acts only on the surface it covers that faces you, never on what
 is behind it. The buttons above its panel choose what it does:
 
-- **Fill**: fills each hole whose whole edge is under the paint, with the texture of the surface beside it. Paint
-  over the holes, edge to edge.
+- **Fill**: fills each hole whose whole edge is under the circle, with the texture of the surface beside it. Paint
+  over the holes, edge to edge; specks of a few centimetres fill as the brush passes over them.
 - **Clone**: copies the texture of a good area. Click the middle of the good area, then paint where it should go:
   the texture comes from the same distance and direction from the good area as from where you started painting,
   so a stroke beside the first one carries on from it. The holes under the paint are filled with it too. **Pick the
   Source Again** starts over from another area.
-- **Smooth**: evens out bumps and broken surface; each stroke smooths more.
-- **Flatten**: makes what it paints flat, onto the plane of its edge.
+- **Smooth**: evens out bumps and broken surface (lumpy walls, bent or broken shingles); each stroke smooths more.
+- **Flatten**: makes what it paints flat, onto the plane of its edge: a bumpy roof face, a wavy wall. Paint one flat
+  surface at a time: a stroke over a roof's ridge flattens both sides into one plane.
 - **Raise** and **Lower**: lift or lower the surface by **Step** (2 cm at first) each stroke, the most at the
   middle of the circle.
 - **Remove** and **Restore**: remove what it paints, or bring back what the edits above it removed.
@@ -79,11 +60,18 @@ the step or Clone's source changes, which starts another. The wheel, or **[** an
 smaller (**Size** in the panel, 4 cm to 10 m across), and Shift+wheel zooms. While painting, a drag paints: Alt+drag
 or the middle button turns the view, and right-drag moves it. **Done** or Esc stops.
 
+### Straighten
+
+**Straighten** pulls the surface toward a straight line: a gutter, an eave, a ridge, a window frame. Click one end
+of the line on the model, and a line follows the pointer from it; click the other end. The pull is strongest at the
+line and fades to nothing at **Reach** from it (25 cm at first), so only the surface near the line moves. Picked in
+the list, either end of the line can be dragged on the model, or **Draw the Line Again**; while a line is placed,
+the view leaves its edit out, so what it hid can be clicked.
+
 The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
-step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North** and
-**Stretch Up** (5%) and **Soft Edge** (0.25 m); Smooth Inside's **Passes**; Straighten Inside's **Strength** (10%)
-and **Reach** (5 cm); Clone Texture Inside's **Source Size** (0.25 m), **Feather** (5 cm) and **Turn Texture**
-(15 degrees). The view shows each step as it is made.
+step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North**
+and **Stretch Up** (5%) and **Soft Edge** (0.25 m); Straighten's **Strength** (10%) and **Reach** (5 cm). The view
+shows each step as it is made.
 
 Two tools act on the whole model, once each:
 
@@ -99,8 +87,8 @@ only what the edits above it removed. The model's outer edge is never filled, no
 A filled hole 20 cm or more across takes the texture of the surface beside it, repeated across it and blended into
 the colours at its edge, so a removed object leaves lawn, gravel or roof in its place. A smaller hole is coloured
 from its edge, blended across it. Where a removed object's hole joins older holes beside it, the fill spans them
-all and can cover some of the ground around them: draw the shape again, smaller. **Clone Texture Inside** over a
-fill replaces its texture with one you choose.
+all and can cover some of the ground around them: draw the shape again, smaller. The **Clone** brush over a fill
+replaces its texture with one you choose.
 
 The line under the view says how many triangles the model has, how many the edits remove and retexture, how many
 points they move and how many holes they fill. The
@@ -120,7 +108,7 @@ are now. **Cancel**, beside the button while it runs, stops it and leaves the mo
 The first update keeps the model's original files in the task's `data/splatme/model` folder, and every update
 starts from them, so edits never pile up. To make the model whole again, **Clear Edits**, then **Update the
 Model**. The textures the edits make are more images beside the model's, named in the MTL:
-`odm_textured_model_geo_splatme_clone_map_Kd.png` (Clone Texture and the wider fills) and
+`odm_textured_model_geo_splatme_clone_map_Kd.png` (the Clone brush and the wider fills) and
 `odm_textured_model_geo_splatme_fill_map_Kd.png` (the smaller fills); an update that needs neither removes it.
 
 A task processed again gets a new model from WebODM. Its edits stay in the list: press **Update the Model** to

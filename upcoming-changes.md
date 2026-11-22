@@ -10,7 +10,7 @@ other software. The plugin does that step.
 **Up next**
 
 1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
-   14's end: the review, the measurements and the proposed phases; decisions open). The release waits for it.
+   14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user. The release waits for it.
 2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
@@ -3445,3 +3445,32 @@ fixes); the worker's clones step about 1 s for a stroke whose clone chunk is 891
 one of 1.6 s around the first clone (a program compile and the pick's `readPixels`), the rest under 0.6 s. Update
 the Model applied the same edits as shown (1,872 points moved, 44 holes filled) in 7.3 s. Still above the 100 ms
 aim: the remaining time is to be profiled in R7c (the stroke's end to the worker, and the clone chunk's size).
+
+**R7c built (branch `tools-rework`):** shapes keep Remove or Keep Inside, Remove Object and Move Inside (`meshes.py`
+`OPS`, `meshEdits.js` `OPS`); Flatten, Fill Holes, Smooth and Clone Texture Inside and Clone Texture's stamps are gone
+(the server refuses them: no saved edits on the dev stack used them, and none was released). Straighten is its own
+edit, `{"type": "straighten", line, strength, reach}`: the kept surface within reach of the line, no box (a vertex
+on the line counts as no move). The viewer's stamp code, the one-point line, `boxAroundLine` and the screen
+brush's model ops went with them. Fixed on the way: `meshes.shift` broke on a brush or Straighten edit listed after
+a shape (a shape's moved copy took the helper's name).
+
+Found and fixed in R7c's live checks:
+- A Clone stroke is cut into cubes of 3 brush radii (0.5 to 4 m), each a clone of its own with the same offset and
+  frame: one clone a stroke needed a patch as wide as the stroke was long (Clone 1.7 s to 0.5 s).
+- A clone whose source has no surface near it after all the edits is left out in `finishEdits` (its triangles
+  keep their texture; its fills are textured from beside them): its triangles had vanished.
+- The brush's Fill and Clone fill a hole whose rim is all within the radius and borders a triangle facing the
+  strokes (the far side of a gap is often crumpled, facing away), and a loop no wider than 0.5 m (or the brush)
+  whichever way it turns (pinched rims): a 1.9 m stroke across the check roof filled 421 holes instead of 153, the
+  black left in its band 395 pixels instead of 855. The check model's black specks are gaps (0.03% of its roofs'
+  area is textured black); of its 7,459 open loops, 3,499 turn as rims do, most of them flaps joined at a vertex.
+  `__tests__/speck.json` is one real rejected speck, moved to its own middle.
+- A wide fill with no surface beside it to copy takes its rim's colours (it had been left undrawn).
+- The fills' and clones' material and the GPU pick are compiled while the model loads (`warmUp`).
+
+Measured live on the check task, from the mouse's release to the result shown (sm-webapp at about 70%, the other
+stack idle): Fill 0.2 to 0.4 s, Clone 0.5 s, Straighten 0.3 s, a step 0.3 s; the page's long tasks during the
+strokes at most 170 ms. Update the Model matched the preview (2,055 points moved, 122 holes filled, 781
+retextured, 854,797 triangles) in about 8 s. One long task of about 2 s remains while the model loads (at 5 s on
+the page's clock, before it shows). The editor-check skill now prints when each step and long task happened, and
+takes `VIEWPORT`.

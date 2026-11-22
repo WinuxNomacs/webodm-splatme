@@ -1,4 +1,4 @@
-import { insideBox, boxAroundLine, keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, HISTORY_STEPS, floatersStrength, colourEdit, colourMatrix, colourText, newColour, plyPositions } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, HISTORY_STEPS, floatersStrength, colourEdit, colourMatrix, colourText, newColour, plyPositions } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -72,8 +72,8 @@ test("a ring is kept without its closing corner and repeated corners", () => {
 test("the list words an edit by its kind and size", () => {
     expect(editLabel({type: "box", size: [12.345, 3, 1000]})).toBe("Box, 12.3 × 3 × 1,000 m");
     expect(editLabel({type: "polygon", ring: [[0, 0], [1, 0], [1, 1]]})).toBe("Polygon, 3 corners");
-    expect(editLabel({type: "stamps", stamps: [{}]})).toBe("Clone Stamps, 1 stamp");
-    expect(editLabel({type: "stamps", stamps: [{}, {}]})).toBe("Clone Stamps, 2 stamps");
+    expect(editLabel({type: "straighten", line: [[0, 0, 0], [3, 4, 0]]})).toBe("Straighten, 5 m");
+    expect(editLabel({type: "paint", op: "raise", amount: -0.02, strokes: [{}, {}]})).toBe("Lower Brush, 2 strokes");
 });
 
 test("sizes are in megabytes, gigabytes above one", () => {
@@ -267,15 +267,6 @@ describe("the brush", () => {
         expect(edits[0]).toBe(box);
     });
 
-    test("a model's flatten stroke starts an edit of its own after deleting ones, and keeps its op", () => {
-        const camera = {position: [0, 0, 1], target: [0, 0, 0]};
-        let edits = addStroke([], line, identity, 1, camera, true, false, "delete");
-        edits = addStroke(edits, line, identity, 1, camera, false, false, "flatten");
-        expect(edits.map(e => e.op)).toEqual(["delete", "flatten"]);
-        expect(addStroke(edits, line, identity, 1, camera, false, false, "flatten").length).toBe(2);
-        expect(addStroke([], line, identity, 1, camera, true)[0].op).toBeUndefined();
-    });
-
     test("a restore stroke starts an edit of its own after removing ones, and is kept as a restore", () => {
         const camera = {position: [0, 0, 1], target: [0, 0, 0]};
         let edits = addStroke([], line, identity, 1, camera, true);
@@ -432,15 +423,3 @@ test("a canceled Apply says the task's model is as it was", () => {
     expect(applyText({state: "canceled"})).toBe("Applying the edits was canceled: the task's model is as it was.");
 });
 
-describe("boxAroundLine", () => {
-    test("a box is centred on the line, turned along it and wider than it by the margin each way", () => {
-        const box = boxAroundLine([[0, 0, 1], [0, 4, 2]], 0.25);
-        expect(box).toEqual({type: "box", keep: false, center: [0, 2, 1.5], turn: 90, size: [4.5, 0.5, 1.5]});
-        expect(insideBox(box, 0, -0.2, 1)).toBe(true);
-        expect(insideBox(box, 0.3, 2, 1.5)).toBe(false);
-    });
-
-    test("a line pointing west and south turns the box between 180 and 360 degrees", () => {
-        expect(boxAroundLine([[1, 1, 0], [0, 0, 0]], 0.1).turn).toBe(225);
-    });
-});

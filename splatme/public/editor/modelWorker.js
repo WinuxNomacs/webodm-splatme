@@ -143,7 +143,7 @@ function atlasOut(atlas, transfer){
 
 // The edits' result for the view: what each piece draws (its triangles' corners, and its corners' places when the
 // edits moved any), the fills and clones as atlases, the counts the panel shows, and kept and positions for the
-// view's own use (the source square, the stamp)
+// view's own use (the Clone brush's source square)
 function answerFor(edits){
     const { surface, pieces } = model;
     const timing = {}, t0 = performance.now();
