@@ -6,6 +6,8 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
 
     delete   {"op": "delete", <a box, polygon, lasso or brush of edits.py>}: the triangles whose centres the shape
              covers are removed (keep: true removes the rest; a brush with restore puts back what was removed)
+    flatten  {"op": "flatten", <a shape>}: the triangles whose centres the shape covers made flat, their vertices
+             moved onto the plane that best fits the selection's rim (the rim staying put)
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
 
 The rule is public/meshEdits.js, the same code the page's preview runs; Update the Model (apply) runs it in WebODM's
@@ -33,7 +35,7 @@ KIND = "modelapply"  # the update's record and folder (training.get_apply)
 MAX_EDITS = edits.MAX_EDITS
 MAX_FLOATING = 100000  # triangles: as meshEdits.MAX_FLOATING
 SHAPES = ("box", "polygon", "lasso", "brush")
-OPS = ("delete",)
+OPS = ("delete", "flatten")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
@@ -213,7 +215,7 @@ def start_apply(task, username):
     now = time.time()
     record = {
         "state": training.APPLYING, "run": run, "waiting": run, "user": username, "status": "", "error": None,
-        "started": now, "updated": now, "finished": None, "removed": None, "triangles": None,
+        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "triangles": None,
     }  # fmt: skip
     with transaction.atomic():
         training.lock_records()
@@ -338,14 +340,14 @@ def apply(task_id, run):
                 keep_originals(task)
                 replace_model(task, out)
             else:
-                result = {"removed": 0, "triangles": None}
+                result = {"removed": 0, "flattened": 0, "triangles": None}
                 if kept(task):
                     restore_model(task)
             drop_cached_models(task)
             edits.store().set_json(shown_key(task_id), {"edits": made_with})
             task.update_size(commit=True)
         report(task_id, run, state="completed", status="", finished=time.time(), removed=result.get("removed"),
-               triangles=result.get("triangles"))  # fmt: skip
+               flattened=result.get("flattened"), triangles=result.get("triangles"))  # fmt: skip
     except training.Superseded:
         pass
     except (ModelError, training.TrainingError, edits.EditsError, ValueError, OSError, Task.DoesNotExist) as e:

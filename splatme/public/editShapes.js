@@ -349,14 +349,15 @@ export function brushStroke(points, width, height, sizePixels, minPixels){
 // The stroke added to the Brush session's edit, the last of edits, when it was painted in the same view, removes
 // or restores as it does (restore) and has room for it; else a new brush edit after them (the session's first
 // stroke: fresh). Answers the edits
-export function addStroke(edits, stroke, view, aspect, camera, fresh, restore){
+export function addStroke(edits, stroke, view, aspect, camera, fresh, restore, op){
     const last = edits[edits.length - 1];
-    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.aspect === aspect && last.view.length === view.length &&
+    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.op === op && last.aspect === aspect && last.view.length === view.length &&
         last.view.every((v, i) => v === view[i]) && last.strokes.length < MAX_STROKES &&
         last.strokes.reduce((n, s) => n + s.points.length, 0) + stroke.points.length <= MAX_BRUSH_POINTS;
     if (same) return [...edits.slice(0, -1), {...last, strokes: [...last.strokes, stroke]}];
     const edit = {type: "brush", strokes: [stroke], view, aspect, camera};
     if (restore) edit.restore = true;
+    if (op) edit.op = op;
     return [...edits, edit];
 }
 

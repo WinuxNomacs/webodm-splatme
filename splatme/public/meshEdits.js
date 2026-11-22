@@ -149,9 +149,12 @@ export function components(faces, count, kept){
 // A model's edits, kept in the task's local frame as the splats' are (edits.py, meshes.py):
 //   {op: "delete", ...shape}   a Box, Polygon, Lasso or Brush shape of editShapes.js, with its keep (a Brush removes,
 //                              or with restore puts back what the edits before it removed): on the triangles' centres
+//   {op: "flatten", ...shape}  the triangles whose centres the shape covers made flat: their vertices moved onto
+//                              the plane that best fits the selection's rim (its border with the rest), which
+//                              stays where it is; with no rim (a whole piece), the plane of its own vertices
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 // The edits apply in the list's order.
-export const OPS = ["delete"];
+export const OPS = ["delete", "flatten"];
 export const MAX_FLOATING = 100000;  // triangles: the largest size Remove Floating Pieces takes
 
 // The triangles' centres from the surface's vertices, as three arrays (the shapes' tests take them so)
@@ -167,19 +170,113 @@ export function centres(faces, positions){
     return {xs, ys, zs};
 }
 
+// The plane through points that fits them best (least squares): {point: their mean, normal}, or null for fewer than
+// 3 or points along a line. points: the surface's vertices, by number in positions
+export function fitPlane(positions, vertices){
+    const n = vertices.length;
+    if (n < 3) return null;
+    let cx = 0, cy = 0, cz = 0;
+    for (const v of vertices){
+        cx += positions[3 * v];
+        cy += positions[3 * v + 1];
+        cz += positions[3 * v + 2];
+    }
+    cx /= n;
+    cy /= n;
+    cz /= n;
+    // Their covariance; the normal is its eigenvector of the smallest eigenvalue (Jacobi's rotations)
+    const a = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (const v of vertices){
+        const d = [positions[3 * v] - cx, positions[3 * v + 1] - cy, positions[3 * v + 2] - cz];
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) a[i][j] += d[i] * d[j];
+    }
+    const vectors = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (let sweep = 0; sweep < 50; sweep++){
+        const off = Math.abs(a[0][1]) + Math.abs(a[0][2]) + Math.abs(a[1][2]);
+        if (off < 1e-15) break;
+        for (const [p, q] of [[0, 1], [0, 2], [1, 2]]){
+            if (Math.abs(a[p][q]) < 1e-18) continue;
+            const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+            const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+            const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+            for (let k = 0; k < 3; k++){
+                const akp = a[k][p], akq = a[k][q];
+                a[k][p] = c * akp - s * akq;
+                a[k][q] = s * akp + c * akq;
+            }
+            for (let k = 0; k < 3; k++){
+                const apk = a[p][k], aqk = a[q][k];
+                a[p][k] = c * apk - s * aqk;
+                a[q][k] = s * apk + c * aqk;
+            }
+            for (let k = 0; k < 3; k++){
+                const vkp = vectors[k][p], vkq = vectors[k][q];
+                vectors[k][p] = c * vkp - s * vkq;
+                vectors[k][q] = s * vkp + c * vkq;
+            }
+        }
+    }
+    const values = [a[0][0], a[1][1], a[2][2]];
+    const sorted = [0, 1, 2].sort((i, j) => values[i] - values[j]);
+    if (values[sorted[1]] <= 1e-12 * Math.max(1, values[sorted[2]])) return null;  // along a line
+    const i = sorted[0];
+    let normal = [vectors[0][i], vectors[1][i], vectors[2][i]];
+    if (normal[2] < 0) normal = normal.map(x => -x);  // up, for a level surface
+    return {point: [cx, cy, cz], normal};
+}
+
+// A selection's triangles flattened: their vertices but those on the selection's rim moved onto the plane fitted to
+// the rim (to the selection's own vertices without a rim), along its normal, in positions
+function flatten(surface, kept, selected, positions){
+    const { faces, count } = surface;
+    const n = faces.length / 3;
+    const inside = new Uint8Array(count), outside = new Uint8Array(count);
+    for (let f = 0; f < n; f++){
+        if (!kept[f]) continue;
+        const mark = selected[f] ? inside : outside;
+        mark[faces[3 * f]] = mark[faces[3 * f + 1]] = mark[faces[3 * f + 2]] = 1;
+    }
+    const rim = [], moved = [];
+    for (let v = 0; v < count; v++){
+        if (!inside[v]) continue;
+        if (outside[v]) rim.push(v);
+        else moved.push(v);
+    }
+    const plane = fitPlane(positions, rim.length >= 3 ? rim : moved);
+    if (!plane) return 0;
+    const [px, py, pz] = plane.point, [nx, ny, nz] = plane.normal;
+    for (const v of moved){
+        const d = (positions[3 * v] - px) * nx + (positions[3 * v + 1] - py) * ny + (positions[3 * v + 2] - pz) * nz;
+        positions[3 * v] -= d * nx;
+        positions[3 * v + 1] -= d * ny;
+        positions[3 * v + 2] -= d * nz;
+    }
+    return moved.length;
+}
+
 // The edits on the surface: {kept: Uint8Array per triangle, positions: the surface's vertices after them (a copy),
-// removed: triangles taken out, floating: of them, those Remove Floating Pieces took}. applyShape: editShapes.js's,
+// removed: triangles taken out, floating: of them, those Remove Floating Pieces took, flattened: vertices moved}. applyShape: editShapes.js's,
 // given so this module imports nothing.
 export function applyEdits(surface, edits, applyShape){
     const n = surface.faces.length / 3;
     const kept = new Uint8Array(n).fill(1);
     const positions = Float64Array.from(surface.positions);
     let at = null;  // the triangles' centres, made again when the vertices move
-    let floating = 0;
+    let floating = 0, flattened = 0;
     for (const edit of edits){
         if (edit.op === "delete"){
             at = at || centres(surface.faces, positions);
             applyShape(at.xs, at.ys, at.zs, edit, kept, null);
+        } else if (edit.op === "flatten"){
+            at = at || centres(surface.faces, positions);
+            // What the shape covers: what removing it would take out (a shape that keeps its inside: the rest)
+            const covered = applyShape(at.xs, at.ys, at.zs, {...edit, restore: false}, new Uint8Array(n).fill(1), null);
+            for (let f = 0; f < n; f++) covered[f] = covered[f] ? 0 : 1;
+            const count = flatten(surface, kept, covered, positions);
+            if (count){
+                flattened += count;
+                at = null;  // the vertices moved
+            }
         } else if (edit.type === "floating"){
             const parts = components(surface.faces, surface.count, kept);
             let largest = -1;
@@ -195,7 +292,7 @@ export function applyEdits(surface, edits, applyShape){
     }
     let removed = 0;
     for (let f = 0; f < n; f++) if (!kept[f]) removed++;
-    return {kept, positions, removed, floating};
+    return {kept, positions, removed, floating, flattened};
 }
 
 // The model's pieces after the edits, to draw or to write: for each piece its kept triangles, with the surface's

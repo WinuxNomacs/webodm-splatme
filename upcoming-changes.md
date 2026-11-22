@@ -3185,6 +3185,13 @@ made flat, and texture repair of the edited areas. The list to match is the user
 - M1. A Model view in the editor: Splats or Model, the shapes selecting faces, Delete and Remove Floating
   Pieces, the edit list saved, Update the Model writing GLB and OBJ.
 - M2. Flatten. M3. Fill Holes (textured from the surroundings). M4. Remove Object.
+
+**Built so far (branch `model-editing`):** M1 (commit 88a8966) and M2: Flatten is `op: "flatten"` on any shape
+(Flatten Inside in the edit's list, Flatten in the Brush's modes). The selection's vertices but its rim move
+along the normal onto the least-squares plane of the rim (`fitPlane`, Jacobi on the covariance); a selection with
+no rim (a whole piece) uses its own vertices' plane. The preview moves the meshes' corners; the update reports
+`flattened` (points). Live on a copy of the check task: a default box flattened 29,319 points in the preview and
+the same in the update (5 s).
 - M5. Docs, changelog with the headlines, then the release.
 
 **M0, the spike (2026-11-22), on the check task's model:**

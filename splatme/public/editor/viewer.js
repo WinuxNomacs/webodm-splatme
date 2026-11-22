@@ -114,10 +114,25 @@ export function createViewer(container, handlers){
     });
 
     // The model's triangles each edit removes hidden, by meshEdits.js's rule (the one Update the Model runs): each
-    // piece drawn with the triangles kept only
+    // piece drawn with the triangles kept only, its corners where Flatten moved them
     function applyModelMask(){
         const result = applyEdits(model.surface, edits, applyShape);
         model.kept = result;
+        if (result.flattened || model.moved){
+            model.meshes.forEach((m, k) => {
+                const ids = model.surface.vertexOf[k], attribute = m.geometry.attributes.position, array = attribute.array;
+                for (let c = 0; c < ids.length; c++){
+                    const v = 3 * ids[c];
+                    array[3 * c] = result.positions[v];
+                    array[3 * c + 1] = result.positions[v + 1];
+                    array[3 * c + 2] = result.positions[v + 2];
+                }
+                attribute.needsUpdate = true;
+                m.geometry.computeBoundingSphere();
+                m.geometry.computeBoundingBox();
+            });
+            model.moved = result.flattened > 0;
+        }
         const lists = model.pieces.map(() => []);
         const { pieceOf, localOf } = model.surface;
         for (let f = 0; f < result.kept.length; f++) if (result.kept[f]) lists[pieceOf[f]].push(localOf[f]);
@@ -711,9 +726,9 @@ export function createViewer(container, handlers){
             queueMask();
             return {triangles: surface.faces.length / 3, frame};
         },
-        // What the model's edits do now: {removed, floating} triangles (null before the model shows)
+        // What the model's edits do now: {removed, floating} triangles and flattened points (null before the model shows)
         modelResult(){
-            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating} : null;
+            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened} : null;
         },
         // The edits to show, and which one has the handles (-1: none)
         setEdits(list, index){

@@ -122,11 +122,11 @@ def glb_json(path):
     return json.loads(data[20 : 20 + length])
 
 
-def make_textured_model(task, offset=(1000.0, 2000.0)):
+def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0):
     """
     A textured model as WebODM's texturing writes one, small: a GLB (no Draco, one primitive per material) with its
-    OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0; material 1 a lone triangle 10 m away, a
-    floating piece. coords.txt gives the task's offset.
+    OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0 (its vertex at 1, 1 raised by bump); material 1
+    a lone triangle 10 m away, a floating piece. coords.txt gives the task's offset.
     """
     folder = task.assets_path("odm_texturing")
     os.makedirs(folder, exist_ok=True)
@@ -137,7 +137,8 @@ def make_textured_model(task, offset=(1000.0, 2000.0)):
     for i in range(3):
         for j in range(3):
             base = len(grid_positions)
-            grid_positions += [(i, j, 0), (i + 1, j, 0), (i + 1, j + 1, 0), (i, j + 1, 0)]
+            corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+            grid_positions += [(x, y, bump if (x, y) == (1, 1) else 0) for x, y in corners]
             grid_indices += [base, base + 1, base + 2, base, base + 2, base + 3]
     pieces = [(grid_positions, grid_indices), ([(10, 10, 0), (11, 10, 0), (10, 11, 0)], [0, 1, 2])]
     binary, views, accessors, primitives = bytearray(), [], [], []
@@ -183,6 +184,11 @@ def make_textured_model(task, offset=(1000.0, 2000.0)):
     task.available_assets = [*task.available_assets, "textured_model.glb", "textured_model.zip"]
     task.save()
     return folder
+
+
+def obj_heights(path):
+    with open(path) as f:
+        return [float(line.split()[3]) for line in f if line.startswith("v ")]
 
 
 def obj_faces(path):
@@ -545,6 +551,24 @@ class TestSplatMe(BootTestCase):
         with open(os.path.join(folder, meshes.GLB), "rb") as f:
             self.assertEqual(f.read(), original_glb)
         self.assertTrue(self.model_edits(task).data["applied"])
+
+    def test_flatten_moves_what_the_shape_covers_onto_the_plane_of_its_rim(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        # Over the four squares around the raised vertex: their rim (x or y 2) is at z 0
+        flatten = {"op": "flatten", "type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        res = self.model_edits(task, [flatten])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"], [flatten])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["removed"], 0)
+        self.assertEqual(res.data["apply"]["flattened"], 4)
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertTrue(heights and max(abs(z) for z in heights) < 1e-5, max(heights))
+        with open(os.path.join(meshes.model_dir(task), meshes.GLB), "rb") as f:
+            self.assertIn(b"glTF", f.read(4))  # the original, bump and all, kept
 
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)

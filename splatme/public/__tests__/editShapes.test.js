@@ -265,6 +265,15 @@ describe("the brush", () => {
         expect(edits[0]).toBe(box);
     });
 
+    test("a model's flatten stroke starts an edit of its own after deleting ones, and keeps its op", () => {
+        const camera = {position: [0, 0, 1], target: [0, 0, 0]};
+        let edits = addStroke([], line, identity, 1, camera, true, false, "delete");
+        edits = addStroke(edits, line, identity, 1, camera, false, false, "flatten");
+        expect(edits.map(e => e.op)).toEqual(["delete", "flatten"]);
+        expect(addStroke(edits, line, identity, 1, camera, false, false, "flatten").length).toBe(2);
+        expect(addStroke([], line, identity, 1, camera, true)[0].op).toBeUndefined();
+    });
+
     test("a restore stroke starts an edit of its own after removing ones, and is kept as a restore", () => {
         const camera = {position: [0, 0, 1], target: [0, 0, 0]};
         let edits = addStroke([], line, identity, 1, camera, true);

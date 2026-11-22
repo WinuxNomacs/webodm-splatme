@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -123,4 +123,63 @@ describe("a model's edits", () => {
         const at = centres(Int32Array.from([0, 1, 2]), Float64Array.from([0, 0, 0, 3, 0, 0, 0, 3, 3]));
         expect([at.xs[0], at.ys[0], at.zs[0]]).toEqual([1, 1, 1]);
     });
+});
+
+describe("Flatten", () => {
+    // A flat 4 by 4 grid with its middle vertex (2, 2) raised: a bump
+    function bump(){
+        const pieces = grid(4);
+        for (const p of pieces){
+            for (let i = 0; i < p.positions.length; i += 3){
+                if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 0.5;
+            }
+        }
+        return pieces;
+    }
+    // Over the middle 2 by 2 squares: their rim is the ring of vertices around (2, 2), at z 0
+    const middle = {op: "flatten", type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0};
+
+    test("a plane fitted to points finds their mean and normal", () => {
+        const plane = fitPlane(Float64Array.from([0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1]), [0, 1, 2, 3]);
+        expect(plane.point).toEqual([0.5, 0.5, 1]);
+        expect(plane.normal.map(x => Math.round(x * 1e6) / 1e6)).toEqual([0, 0, 1]);
+        expect(fitPlane(Float64Array.from([0, 0, 0, 1, 1, 1, 2, 2, 2]), [0, 1, 2])).toBeNull();  // a line
+    });
+
+    test("lowers a bump onto the plane of the selection's rim, the rim staying where it is", () => {
+        const pieces = bump();
+        const surface = weld(pieces);
+        const result = applyEdits(surface, [middle], applyShape);
+        expect(result.removed).toBe(0);
+        expect(result.flattened).toBe(1);
+        for (let v = 0; v < surface.count; v++) expect(Math.abs(result.positions[3 * v + 2])).toBeLessThan(1e-9);
+    });
+
+    test("moves every corner welded to a vertex, in each piece", () => {
+        const pieces = bump();
+        const surface = weld(pieces);
+        const out = editedPieces(pieces, surface, applyEdits(surface, [middle], applyShape));
+        for (const piece of out) for (let i = 2; i < piece.positions.length; i += 3) expect(Math.abs(piece.positions[i])).toBeLessThan(1e-6);
+    });
+
+    test("a shape covering nothing changes nothing", () => {
+        const surface = weld(bump());
+        const box = {op: "flatten", type: "box", keep: false, center: [50, 50, 0], size: [1, 1, 1], turn: 0};
+        const result = applyEdits(surface, [box], applyShape);
+        expect(result.flattened).toBe(0);
+        expect(Array.from(result.positions)).toEqual(Array.from(surface.positions));
+    });
+});
+
+test("Flatten on a whole piece, with no rim, uses the plane of its own vertices", () => {
+    const pieces = [{positions: Float32Array.from([0, 0, 0, 1, 0, 0, 1, 1, 0.2, 0, 1, 0]), indices: Uint32Array.from([0, 1, 2, 0, 2, 3])}];
+    const surface = weld(pieces);
+    const box = {op: "flatten", type: "box", keep: false, center: [0.5, 0.5, 0], size: [5, 5, 5], turn: 0};
+    const result = applyEdits(surface, [box], applyShape);
+    expect(result.flattened).toBe(4);
+    const plane = fitPlane(result.positions, [0, 1, 2, 3]);
+    for (let v = 0; v < 4; v++){
+        const d = [0, 1, 2].reduce((sum, k) => sum + (result.positions[3 * v + k] - plane.point[k]) * plane.normal[k], 0);
+        expect(Math.abs(d)).toBeLessThan(1e-9);
+    }
 });

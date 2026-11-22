@@ -6,7 +6,7 @@
 //
 //   node meshApply.mjs <original.glb> <original.mtl> <edits.json> <out folder>
 //
-// It writes model.glb, model.obj, model.mtl and report.json ({triangles, removed, floating}) into the out folder, and
+// It writes model.glb, model.obj, model.mtl and report.json ({triangles, removed, floating, flattened}) into the out folder, and
 // exits 1 with the reason on stderr when it cannot. WEBODM_DIR: where WebODM's node_modules are (/webodm).
 import fs from 'fs';
 import path from 'path';
@@ -133,7 +133,7 @@ async function main(){
     writeObj(path.join(out, 'model.obj'), 'odm_textured_model_geo.mtl', materials, edited);
     fs.writeFileSync(path.join(out, 'model.mtl'), mtl);
     const triangles = edited.reduce((sum, p) => sum + p.indices.length / 3, 0);
-    fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({triangles, removed: result.removed, floating: result.floating}));
+    fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({triangles, removed: result.removed, floating: result.floating, flattened: result.flattened}));
 }
 
 main().catch(e => {
