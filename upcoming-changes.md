@@ -3313,3 +3313,25 @@ detail where it was a smooth patch; Fill Holes' preview 2.2 s, the update 10 s.
 **The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
 line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
 area shows while placing the second), then either end draggable.
+
+**Repair buttons (built 2026-11-22, merged):** the tools were only in a drawn shape's list, so the user did not find
+them. A Repair row under the tools: Flatten, Smooth, Move, Remove Object (a box doing it), Straighten (its line
+first, then a box around it, Reach each side), Clone Texture (now the stamp, below).
+
+**R6, Clone Texture as a stamp (asked 2026-11-22, the user trying it on their roof).** The request: Clone Texture
+should work like a brush: the pointer becomes the shape and size of the source area, a left click drops the texture
+under it, and the wheel turns the pointer's shape clockwise or counter-clockwise to line it up.
+
+Design: Repair's Clone Texture asks for the good area (one click), then stamps. The pointer is a square, Source Size
+across, laid on the surface's plane under it (the plane fitted to the triangles near it, through a grid of their
+centres built when stamping starts), its rows level as the source's (`planeFrame`), turned by the stamp's turn. A
+click drops a stamp; each stamp's patch is centred where it lands (not tiled from a region's corner, which would put
+a seam inside a stamp). The stamp covers the triangles whose centres are inside that square (within half its size of
+the plane). Later stamps win over earlier ones; stamps apply after all other edits, as Clone Texture Inside does.
+
+**The user's decisions (2026-11-22):** one edit per stamping session (`type: "stamps"`, `op: "clone"`, `source`,
+`feather`, `stamps: [{center, normal, size, spin}]`), each stamp one Undo; the view keeps moving while stamping (a
+click stamps, a drag turns the view, a right-drag moves it, the wheel turns the stamp 15 degrees a notch, Shift+wheel
+zooms, Done or Esc ends); Clone Texture Inside stays in a shape's list for large areas; the stamp's size changes with
+both Ctrl+wheel and the bracket keys (0.25 m steps). Each stamp keeps the size and turn it was dropped with, so a
+later size change does not change the stamps already down.
