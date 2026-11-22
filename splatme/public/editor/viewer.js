@@ -9,7 +9,7 @@ import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, applyShape, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
-import { weld, applyEdits, fillColours, fillAtlas, splitFills, sampleImage, cloneSource, cloneRegions, cloneAtlas, sampleRegion, regionRect, faceGrid, stampAxes } from "../meshEdits.js";
+import { weld, applyEdits, fillColours, fillAtlas, splitFills, sampleImage, cloneSource, cloneRegions, cloneAtlas, sampleRegion, regionRect, faceGrid, stampAxes, stampSource, stampPatch, stampRegions } from "../meshEdits.js";
 
 const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as meshApply.mjs's)
 
@@ -469,8 +469,55 @@ export function createViewer(container, handlers){
             stamp.object = null;
         }
         if (!stamp.at) return;
-        stamp.object = stampObject({...stamp.at, size: stamp.size, spin: stamp.spin});
+        const at = {...stamp.at, size: stamp.size, spin: stamp.spin};
+        stamp.object = stampObject(at);
+        const map = stampTexture(stamp.size);
+        if (map) stamp.object.add(stampPicture(at, map));
         scene.add(stamp.object);
+    }
+    // The source's patch at a size as a texture, made once a size: what a click drops
+    function stampTexture(size){
+        if (!stamp.textures.has(size)){
+            const found = stampSource(model.surface, model.kept.positions, model.kept.kept, stamp.source, size, stamp.grid);
+            const regions = new Map();
+            if (found){
+                for (const [k, r] of stampRegions(model.surface, model.pieces, found)){
+                    const region = textureRegion(k, r);
+                    if (region) regions.set(k, region);
+                }
+            }
+            const patch = found && stampPatch(model.surface, model.pieces, model.kept.positions, found,
+                (k, u, v) => regions.has(k) ? sampleRegion(regions.get(k), u, v) : [128, 128, 128]);
+            let map = null;
+            if (patch){
+                const rgba = new Uint8Array(patch.size * patch.size * 4);
+                for (let i = 0; i < patch.size * patch.size; i++){
+                    rgba[4 * i] = patch.rgb[3 * i];
+                    rgba[4 * i + 1] = patch.rgb[3 * i + 1];
+                    rgba[4 * i + 2] = patch.rgb[3 * i + 2];
+                    rgba[4 * i + 3] = 255;
+                }
+                map = new THREE.DataTexture(rgba, patch.size, patch.size, THREE.RGBAFormat);
+                map.colorSpace = THREE.SRGBColorSpace;
+                map.magFilter = map.minFilter = THREE.LinearFilter;
+                map.needsUpdate = true;
+            }
+            stamp.textures.set(size, map);
+        }
+        return stamp.textures.get(size);
+    }
+    // The patch on the stamp's square: its rows along the square's sides as renderPart lays them (row 0 at the tick)
+    function stampPicture(at, map){
+        const { n, a, b } = stampAxes(at.normal, at.spin), h = at.size / 2;
+        const c = new THREE.Vector3(...at.center).add(new THREE.Vector3(...n).multiplyScalar(0.005));
+        const A = new THREE.Vector3(...a).multiplyScalar(h), B = new THREE.Vector3(...b).multiplyScalar(h);
+        const corners = [c.clone().sub(A).sub(B), c.clone().add(A).sub(B), c.clone().add(A).add(B), c.clone().sub(A).add(B)];
+        const geometry = new THREE.BufferGeometry().setFromPoints(corners);
+        geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+        geometry.setIndex([0, 1, 2, 0, 2, 3]);
+        const picture = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false}));
+        picture.renderOrder = 9;
+        return picture;
     }
     function stampObject(at){
         const { n, a, b } = stampAxes(at.normal, at.spin), h = at.size / 2;
@@ -492,7 +539,7 @@ export function createViewer(container, handlers){
         cancelLasso();
         endStamp();
         transform.detach();
-        stamp = {source, size, spin, grid: faceGrid(model.surface, model.kept.positions, model.kept.kept, 0.5), at: null, object: null};
+        stamp = {source, size, spin, grid: faceGrid(model.surface, model.kept.positions, model.kept.kept, 0.5), at: null, object: null, textures: new Map()};
         canvas.style.cursor = "crosshair";
     }
     function setStamp(size, spin){
@@ -505,6 +552,7 @@ export function createViewer(container, handlers){
         if (!stamp) return;
         stamp.at = null;
         drawStamp();
+        for (const map of stamp.textures.values()) if (map) map.dispose();
         stamp = null;
         canvas.style.cursor = "";
         if (handlers.onStampEnd) handlers.onStampEnd();
@@ -734,10 +782,18 @@ export function createViewer(container, handlers){
     }
     function onPointerMove(event){
         if (stamp){
-            if (!pointer.down){
-                stamp.at = stampAt(event);
-                drawStamp();
+            // At most once a frame: finding the surface under the pointer takes a while on a large model
+            if (!pointer.down && !stamp.queued){
+                stamp.queued = true;
+                requestAnimationFrame(() => {
+                    if (!stamp) return;
+                    stamp.queued = false;
+                    if (pointer.down || !stamp.last) return;
+                    stamp.at = stampAt(stamp.last);
+                    drawStamp();
+                });
             }
+            stamp.last = {clientX: event.clientX, clientY: event.clientY};
             return;
         }
         if (placing && placing.first){
