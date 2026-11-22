@@ -1,5 +1,6 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, stampAxes, insideStamp, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
+import speck from "./speck.json";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
 // model by texture: the pieces repeat the corners they share
@@ -153,8 +154,9 @@ describe("Flatten", () => {
         }
         return pieces;
     }
-    // Over the middle 2 by 2 squares: their rim is the ring of vertices around (2, 2), at z 0
-    const middle = {op: "flatten", type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0};
+    // The Flatten brush over the middle 2 by 2 squares: their rim is the ring of vertices around (2, 2), at z 0
+    const brush = (point, radius) => ({type: "paint", op: "flatten", strokes: [{points: [point], radius, view: [0, 0, 1]}]});
+    const middle = brush([2, 2, 0], 0.9);
 
     test("a plane fitted to points finds their mean and normal", () => {
         const plane = fitPlane(Float64Array.from([0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1]), [0, 1, 2, 3]);
@@ -179,10 +181,9 @@ describe("Flatten", () => {
         for (const piece of out) for (let i = 2; i < piece.positions.length; i += 3) expect(Math.abs(piece.positions[i])).toBeLessThan(1e-6);
     });
 
-    test("a shape covering nothing changes nothing", () => {
+    test("a stroke covering nothing changes nothing", () => {
         const surface = weld(bump());
-        const box = {op: "flatten", type: "box", keep: false, center: [50, 50, 0], size: [1, 1, 1], turn: 0};
-        const result = applyEdits(surface, [box], applyShape);
+        const result = applyEdits(surface, [brush([50, 50, 0], 1)], applyShape);
         expect(result.flattened).toBe(0);
         expect(Array.from(result.positions)).toEqual(Array.from(surface.positions));
     });
@@ -191,8 +192,8 @@ describe("Flatten", () => {
 test("Flatten on a whole piece, with no rim, uses the plane of its own vertices", () => {
     const pieces = [{positions: Float32Array.from([0, 0, 0, 1, 0, 0, 1, 1, 0.2, 0, 1, 0]), indices: Uint32Array.from([0, 1, 2, 0, 2, 3])}];
     const surface = weld(pieces);
-    const box = {op: "flatten", type: "box", keep: false, center: [0.5, 0.5, 0], size: [5, 5, 5], turn: 0};
-    const result = applyEdits(surface, [box], applyShape);
+    const brush = {type: "paint", op: "flatten", strokes: [{points: [[0.5, 0.5, 0]], radius: 5, view: [0, 0, 1]}]};
+    const result = applyEdits(surface, [brush], applyShape);
     expect(result.flattened).toBe(4);
     const plane = fitPlane(result.positions, [0, 1, 2, 3]);
     for (let v = 0; v < 4; v++){
@@ -249,14 +250,6 @@ describe("filling holes", () => {
         expect(applyEdits(weld(down), [{type: "holes", size: 4}], applyShape).added).toBe(2);
     });
 
-    test("a fill shape closes the holes whose whole rim it covers", () => {
-        const surface = middleGone();
-        const around = {op: "fill", type: "box", keep: false, center: [1.5, 1.5, 0], size: [1.2, 1.2, 1], turn: 0};
-        expect(applyEdits(surface, [around], applyShape).added).toBe(2);
-        const part = {...around, center: [1.2, 1.5, 0], size: [0.6, 1.2, 1]};
-        expect(applyEdits(surface, [part], applyShape).added).toBe(0);
-    });
-
     test("Remove Object takes out what the shape covers and fills the hole it leaves", () => {
         const surface = weld(grid());
         const object = {op: "object", type: "box", keep: false, center: [1.5, 1.5, 0], size: [1, 1, 1], turn: 0};
@@ -302,7 +295,7 @@ describe("filling holes", () => {
     });
 });
 
-describe("Move and Smooth", () => {
+describe("Move and the Smooth brush", () => {
     // Over the middle 2 by 2 squares of a 4 by 4 grid: their 9 vertices, (2, 2) alone not on their rim
     const middle = {type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0};
     const at = (positions, surface, x, y) => {
@@ -351,8 +344,9 @@ describe("Move and Smooth", () => {
         const pieces = grid(4);
         for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 1;
         const surface = weld(pieces);
-        const one = applyEdits(surface, [{...middle, op: "smooth", passes: 1}], applyShape);
-        const five = applyEdits(surface, [{...middle, op: "smooth", passes: 5}], applyShape);
+        const smooth = passes => ({type: "paint", op: "smooth", passes, strokes: [{points: [[2, 2, 0]], radius: 0.9, view: [0, 0, 1]}]});
+        const one = applyEdits(surface, [smooth(1)], applyShape);
+        const five = applyEdits(surface, [smooth(5)], applyShape);
         expect(one.moved).toBe(1);
         expect(at(one.positions, surface, 2, 2)[2]).toBeCloseTo(0.5);
         expect(at(five.positions, surface, 2, 2)[2]).toBeCloseTo(1 / 32);
@@ -367,7 +361,7 @@ describe("Straighten", () => {
         for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 0.3;
         return weld(pieces);
     };
-    const middle = {type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0, op: "straighten", line: [[1, 2, 0], [3, 2, 0]]};
+    const middle = {type: "straighten", line: [[1, 2, 0], [3, 2, 0]]};
     const height = (surface, result, x, y) => {
         for (let v = 0; v < surface.count; v++) if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return result.positions[3 * v + 2];
         return null;
@@ -382,24 +376,20 @@ describe("Straighten", () => {
         expect(z(1)).toBeGreaterThanOrEqual(0);
     });
 
-    test("leaves the vertices beyond its reach, and the selection's rim, where they are", () => {
+    test("leaves the vertices beyond its reach, and those on the line, where they are", () => {
         const surface = surfaceWithBump();
         const far = applyEdits(surface, [{...middle, strength: 1, reach: 0.2}], applyShape);
-        expect(far.moved).toBe(0);
+        expect(far.moved).toBe(0);  // the bump is 0.3 m away; (1, 2), (2, 2)'s neighbours on the line need no move
         expect(height(surface, far, 2, 2)).toBeCloseTo(0.3);
-        const tilted = {...middle, line: [[1, 2, 1], [3, 2, 1]], strength: 1, reach: 5};
-        const result = applyEdits(surface, [tilted], applyShape);
-        expect(height(surface, result, 1, 1)).toBe(0);  // on the rim
+        const raised = {...middle, line: [[1, 2, 1], [3, 2, 1]], strength: 1, reach: 1.5};
+        const result = applyEdits(surface, [raised], applyShape);
+        expect(height(surface, result, 0, 0)).toBe(0);  // 2.4 m from the line
+        expect(height(surface, result, 1, 1)).toBeGreaterThan(0);  // 1.4 m: pulled a little
         expect(height(surface, result, 2, 2)).toBeGreaterThan(0.3);  // toward the line above
     });
 });
 
-describe("Clone Texture", () => {
-    // A 4 by 4 grid, its two pieces' textures plain red (x under 2) and plain blue
-    const pieces = () => grid(4).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
-    const sample = piece => piece === 0 ? [255, 0, 0] : [0, 0, 255];
-    const target = {op: "clone", type: "box", keep: false, center: [3.5, 2, 0], size: [0.9, 3.9, 5], turn: 0, source: [1, 2, 0], patch: 1, spin: 0};
-
+describe("Clone Texture's frames and texture", () => {
     test("a plane's frame has v the most upward, u across", () => {
         const level = planeFrame([0, 0, 1]);
         expect(level.v.map(x => Math.round(x) + 0)).toEqual([0, 1, 0]);
@@ -409,44 +399,10 @@ describe("Clone Texture", () => {
         expect(wall.u.map(x => Math.round(x) + 0)).toEqual([0, 1, 0]);
     });
 
-    test("the covered triangles move to a piece of their own, textured from the source", () => {
-        const model = pieces();
-        const surface = weld(model);
-        const result = applyEdits(surface, [{...target, feather: 0}], applyShape);
-        expect(result.cloned).toBe(8);  // the last column's 4 squares
-        expect(result.removed).toBe(0);
-        const out = editedPieces(model, surface, result);
-        expect(out.reduce((sum, p) => sum + p.indices.length / 3, 0)).toBe(24);
-        const regions = cloneRegions(surface, model, result);
-        expect([...regions.keys()].sort()).toEqual([0, 1]);
-        const atlas = cloneAtlas(surface, model, result, sample);
-        expect(atlas.piece.indices.length).toBe(24);
-        // Every texel the triangles cover is the source's red
-        const u = (atlas.piece.uvs[0] + atlas.piece.uvs[2] + atlas.piece.uvs[4]) / 3, v = (atlas.piece.uvs[1] + atlas.piece.uvs[3] + atlas.piece.uvs[5]) / 3;
-        const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
-        expect(Array.from(atlas.rgba.slice(i, i + 3))).toEqual([255, 0, 0]);
-    });
-
-    test("the feather keeps the triangles' own texture at their edge, the source's further in", () => {
-        const model = pieces();
-        const surface = weld(model);
-        const result = applyEdits(surface, [{...target, feather: 2}], applyShape);
-        const atlas = cloneAtlas(surface, model, result, sample);
-        // Along the middle row of the clone's part: bluer at its edges than at its middle
-        const row = Math.floor(atlas.height / 2);
-        const blues = [];
-        for (let x = 0; x < atlas.width; x++) if (atlas.rgba[4 * (row * atlas.width + x) + 3]) blues.push(atlas.rgba[4 * (row * atlas.width + x) + 2]);
-        expect(blues.length).toBeGreaterThan(0);
-        expect(Math.max(...blues)).toBeGreaterThan(0);
-    });
-
-    test("a later clone over the same triangles wins, and none is textured without a source near", () => {
-        const surface = weld(pieces());
-        const twice = applyEdits(surface, [{...target, feather: 0}, {...target, feather: 0, source: [3, 2, 0]}], applyShape);
-        expect(twice.clones.length).toBe(1);
-        expect(twice.clones[0].edit.source).toEqual([3, 2, 0]);
-        const nowhere = applyEdits(surface, [{...target, source: [50, 50, 0], feather: 0}], applyShape);
-        expect(cloneAtlas(surface, pieces(), nowhere, sample)).toBeNull();
+    test("an anchored clone's square has the normal given, its sides at right angles", () => {
+        const { n, a, b } = cloneAxes([0, 0, 2], 30);
+        expect(n).toEqual([0, 0, 1]);
+        expect(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).toBeCloseTo(0);
     });
 
     test("a loaded region is sampled bilinearly, clamped to its edge", () => {
@@ -458,6 +414,36 @@ describe("Clone Texture", () => {
 });
 
 describe("fills with detail", () => {
+    test("a wide fill with no surface beside it to copy is drawn in its rim's colours, not left out", () => {
+        // A 30 cm opening atop a 60 cm deep box: the walls beside it stand square to it, the bottom is out of reach
+        const corners = [[0, 0], [0.3, 0], [0.3, 0.3], [0, 0.3]];
+        const positions = [...corners.flatMap(([x, y]) => [x, y, 0]), ...corners.flatMap(([x, y]) => [x, y, -0.6])];
+        const indices = [];
+        for (let k = 0; k < 4; k++){
+            const a = k, b = (k + 1) % 4;
+            indices.push(a, b, b + 4, a, b + 4, a + 4);
+        }
+        indices.push(4, 5, 6, 4, 6, 7);
+        // Each triangle facing out of the box
+        for (let t = 0; t < indices.length; t += 3){
+            const [a, b, c] = indices.slice(t, t + 3).map(v => positions.slice(3 * v, 3 * v + 3));
+            const n = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
+            const out = [0, 1, 2].map(i => (a[i] + b[i] + c[i]) / 3 - [0.15, 0.15, -0.3][i]);
+            if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] < 0) [indices[t + 1], indices[t + 2]] = [indices[t + 2], indices[t + 1]];
+        }
+        const pieces = [{positions: Float32Array.from(positions), indices: Uint32Array.from(indices), uvs: new Float32Array(16).fill(0.5)}];
+        const surface = weld(pieces);
+        const result = applyEdits(surface, [{type: "paint", op: "fill", strokes: [{points: [[0.15, 0.15, 0]], radius: 0.5, view: [1, 0, 0.3]}]}], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(splitFills(result.fills).detailed.length).toBe(1);
+        const atlas = cloneAtlas(surface, pieces, result, () => [200, 100, 50]);
+        expect(atlas && atlas.piece.indices.length / 3).toBe(result.added);
+        // Its texels are the rim's colour, around the triangles too (no black at its edge)
+        let dark = 0;
+        for (let i = 0; i < atlas.rgba.length; i += 4) if (atlas.rgba[i] < 100) dark++;
+        expect(dark).toBe(0);
+    });
+
     test("a wide fill is textured from beside it, a narrow one keeps the smooth blend", () => {
         // A 5 by 5 grid, 1 m squares, its middle square missing (0.7 m wide from its middle), all one red texture
         const model = grid(5, (i, j) => i === 2 && j === 2).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
@@ -481,97 +467,6 @@ describe("fills with detail", () => {
     });
 });
 
-describe("Clone Texture's stamps", () => {
-    // A 4 by 4 grid whose texture's colour says where it is: red x / 4, green y / 4 (of 255)
-    const pieces = () => grid(4).map(p => {
-        const uvs = new Float32Array(p.positions.length / 3 * 2);
-        for (let c = 0; c < p.positions.length / 3; c++){
-            uvs[2 * c] = p.positions[3 * c] / 4;
-            uvs[2 * c + 1] = p.positions[3 * c + 1] / 4;
-        }
-        return {...p, uvs};
-    });
-    const sample = (_piece, u, v) => [u * 255, v * 255, 0];
-    const stamp = (center, size, spin = 0) => ({center, normal: [0, 0, 1], size, spin});
-    const stamps = list => ({type: "stamps", op: "clone", source: [1, 1, 0], feather: 0, stamps: list});
-    // The atlas's colour at a point x, y of the level grid
-    function colourAt(atlas, x, y){
-        const p = atlas.piece.positions, uv = atlas.piece.uvs;
-        for (let t = 0; t < p.length / 9; t++){
-            const [ax, ay, bx, by, cx, cy] = [p[9 * t], p[9 * t + 1], p[9 * t + 3], p[9 * t + 4], p[9 * t + 6], p[9 * t + 7]];
-            const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-            const wa = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / area, wb = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / area, wc = 1 - wa - wb;
-            if (wa < 0 || wb < 0 || wc < 0) continue;
-            const u = uv[6 * t] * wa + uv[6 * t + 2] * wb + uv[6 * t + 4] * wc, v = uv[6 * t + 1] * wa + uv[6 * t + 3] * wb + uv[6 * t + 5] * wc;
-            const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
-            return Array.from(atlas.rgba.slice(i, i + 2));
-        }
-        return null;
-    }
-
-    test("a stamp covers the points within half its size of its middle along its sides and its plane", () => {
-        const level = stamp([0, 0, 0], 1);
-        expect(insideStamp(level, 0.45, -0.45, 0)).toBe(true);
-        expect(insideStamp(level, 0.55, 0, 0)).toBe(false);
-        expect(insideStamp(level, 0, 0, 0.6)).toBe(false);
-        const turned = stamp([0, 0, 0], 1, 45);
-        expect(insideStamp(turned, 0.45, -0.45, 0)).toBe(false);  // a corner of the level square, outside the turned one
-        expect(insideStamp(turned, 0.65, 0, 0)).toBe(true);  // toward a corner of the turned one
-        const { n, a, b } = stampAxes([0, 0, 2], 30);
-        expect(n).toEqual([0, 0, 1]);
-        expect(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).toBeCloseTo(0);
-    });
-
-    test("each stamp clones the triangles under it, a later stamp winning over an earlier", () => {
-        const surface = weld(pieces());
-        const result = applyEdits(surface, [stamps([stamp([3.5, 2.5, 0], 1), stamp([3.5, 2.5, 0], 1.1)])], applyShape);
-        expect(result.cloned).toBe(2);
-        expect(result.clones.length).toBe(1);
-        expect(result.clones[0].edit.patch).toBe(1.1);
-        expect(applyEdits(surface, [stamps([stamp([3.5, 2.5, 0], 1), stamp([0.5, 0.5, 0], 1)])], applyShape).cloned).toBe(4);
-    });
-
-    test("a stamp fills the holes whose whole rim it covers, textured in line with the stamp", () => {
-        const model = grid(4, (i, j) => i === 2 && j === 2).map(p => {
-            const uvs = new Float32Array(p.positions.length / 3 * 2);
-            for (let c = 0; c < p.positions.length / 3; c++){
-                uvs[2 * c] = p.positions[3 * c] / 4;
-                uvs[2 * c + 1] = p.positions[3 * c + 1] / 4;
-            }
-            return {...p, uvs};
-        });
-        const surface = weld(model);
-        expect(applyEdits(surface, [stamps([stamp([2.5, 2.5, 0], 0.9)])], applyShape).fills.length).toBe(0);  // its rim is not all inside
-        const result = applyEdits(surface, [stamps([stamp([2.5, 2.5, 0], 1.2)])], applyShape);
-        expect(result.fills.length).toBe(1);
-        expect(splitFills(result.fills).detailed.length).toBe(1);
-        const atlas = cloneAtlas(surface, model, result, sample);
-        for (const [x, y] of [[2.5, 2.5], [2.7, 2.4], [2.3, 2.75]]){
-            const colour = colourAt(atlas, x, y);
-            expect(colour[0]).toBeCloseTo((1 + x - 2.5) / 4 * 255, -0.7);
-            expect(colour[1]).toBeCloseTo((1 + y - 2.5) / 4 * 255, -0.7);
-        }
-    });
-
-    test("a stamp's patch has its middle where the stamp is, turned with it", () => {
-        const model = pieces();
-        const surface = weld(model);
-        for (const spin of [0, 30, -120]){
-            const s = stamp([3.5, 2.5, 0], 2, spin);
-            const result = applyEdits(surface, [stamps([s])], applyShape);
-            const atlas = cloneAtlas(surface, model, result, sample);
-            const { a, b } = stampAxes(s.normal, spin);
-            // 0.4 m along the stamp's sides is 0.4 m along the source's (u east, v north on level ground: b runs south at no turn)
-            for (const [da, db] of [[0, 0], [0.4, 0], [0, 0.4], [-0.3, 0.2]]){
-                const x = 3.5 + da * a[0] + db * b[0], y = 2.5 + da * a[1] + db * b[1];
-                const colour = colourAt(atlas, x, y);
-                expect(colour[0]).toBeCloseTo((1 + da) / 4 * 255, -0.7);
-                expect(colour[1]).toBeCloseTo((1 - db) / 4 * 255, -0.7);
-            }
-        }
-    });
-});
-
 describe("the preview", () => {
     // A 6 by 6 grid with two holes, and edits of each kind
     const surface = weld(grid(6, (i, j) => (i === 1 && j === 1) || (i === 4 && j === 3)));
@@ -579,21 +474,22 @@ describe("the preview", () => {
     const edits = {
         remove: {...box([5.5, 5.5, 0], [0.9, 0.9, 1]), op: "delete"},
         move: {...box([3, 3, 0], [2, 2, 1]), op: "move", offset: [0, 0, 0.5], scale: [1, 1, 1], soft: 1},
-        smooth: {...box([3, 3, 0], [2, 2, 1]), op: "smooth", passes: 3},
+        smooth: {type: "paint", op: "smooth", passes: 3, strokes: [{points: [[3, 3, 0]], radius: 1, view: [0, 0, 1]}]},
+        straighten: {type: "straighten", line: [[1, 2.4, 0], [5, 2.4, 0]], strength: 1, reach: 1},
         holes: {type: "holes", size: 10},
-        clone: {...box([0.5, 4.5, 0], [0.9, 0.9, 5]), op: "clone", source: [2.5, 0.5, 0], patch: 1, feather: 0, spin: 0},
-        stamps: {type: "stamps", op: "clone", source: [2.5, 0.5, 0], feather: 0, stamps: [{center: [1.5, 1.5, 0], normal: [0, 0, 1], size: 1.2, spin: 0}]},
+        clone: {type: "paint", op: "clone", source: [2.5, 0.5, 0], target: [0.5, 4.5, 0], normal: [0, 0, 1], feather: 0,
+            strokes: [{points: [[0.5, 4.5, 0]], radius: 0.45, view: [0, 0, 1]}]},
     };
     const summary = r => ({kept: Array.from(r.kept), positions: Array.from(r.positions), removed: r.removed, moved: r.moved, added: r.added,
         fills: r.fills.map(f => [f.ring, !!f.clone]), clones: r.clones.map(c => [c.edit.op, Array.from(c.faces)]), cloned: r.cloned});
 
     test("answers what applyEdits does, however the list changes", () => {
         const preview = createPreview(surface, applyShape);
-        const { remove, move, smooth, holes, clone, stamps } = edits;
+        const { remove, move, smooth, straighten, holes, clone } = edits;
         const lists = [[], [remove], [remove, move], [remove, {...move, offset: [0, 0, 1]}], [remove, {...move, offset: [0, 0, 1]}, holes],
-            [remove, {...move, offset: [0, 0, 1]}, holes, clone], [remove, smooth, holes, clone], [stamps], [remove, holes, stamps],
-            [remove, holes, {...stamps, stamps: [...stamps.stamps, {center: [4.5, 3.5, 0], normal: [0, 0, 1], size: 1.2, spin: 0}]}],
-            [remove], [], [holes, move, smooth, clone, remove, stamps], [holes, move, smooth, clone, remove, {...stamps, feather: 0.1}]];
+            [remove, {...move, offset: [0, 0, 1]}, holes, clone], [remove, smooth, holes, clone], [straighten], [remove, holes, straighten],
+            [remove, holes, {...straighten, reach: 0.5}], [remove], [], [holes, move, smooth, clone, remove, straighten],
+            [holes, move, smooth, clone, remove, {...straighten, strength: 0.5}]];
         for (const list of lists) expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
     });
 
@@ -697,6 +593,68 @@ describe("the surface brush", () => {
         }
     });
 
+    test("a later clone over the same triangles wins, and none is textured without a surface near its source", () => {
+        const model = textured();
+        const surface = weld(model);
+        const clone = source => paint("clone", [stroke([[4.5, 4.5, 0]], 0.45)], {source, target: [4.5, 4.5, 0], normal: up, feather: 0});
+        const twice = applyEdits(surface, [clone([1.5, 1.5, 0]), clone([2.5, 1.5, 0])], applyShape);
+        expect(twice.clones.length).toBe(1);
+        expect(twice.clones[0].edit.source).toEqual([2.5, 1.5, 0]);
+        expect(cloneAtlas(surface, model, applyEdits(surface, [clone([50, 50, 0])], applyShape), sample)).toBeNull();
+    });
+
+    test("a clone piece with no surface near its source leaves its triangles their own texture, and its fills that beside them", () => {
+        // A 12 m grid, a hole at x 7 to 8: copied from the left edge, the stroke's far end (and the hole) copy from off the model
+        const model = grid(12, (i, j) => i === 7 && j === 5).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
+        const surface = weld(model);
+        const strokes = [stroke([[11.5, 5.5, 0], [5.5, 5.5, 0]], 0.6)];
+        const result = applyEdits(surface, [paint("clone", strokes, {source: [0.5, 5.5, 0], target: [11.5, 5.5, 0], normal: up, feather: 0})], applyShape);
+        expect(result.cloned).toBeGreaterThan(0);  // the pieces near the start copy from the model
+        const drawn = editedPieces(model, surface, result).reduce((sum, p) => sum + p.indices.length / 3, 0);
+        expect(drawn + result.cloned).toBe(surface.faces.length / 3);
+        const atlas = cloneAtlas(surface, model, {...result, fills: []}, () => [9, 9, 9]);
+        expect(atlas.piece.indices.length / 3).toBe(result.cloned);  // every cloned triangle in the clones' texture
+        expect(result.fills.length).toBe(1);
+        expect(result.fills[0].clone).toBeUndefined();
+        expect(splitFills(result.fills).detailed.length).toBe(1);
+    });
+
+    // A 10 cm grid with a hole at (0.2, 0.2) to (0.3, 0.3); flip: the triangles at its far corner (0.3, 0.3) turned to
+    // face away, as the crumpled surface around a hole often does
+    const smallGrid = (flip = false) => {
+        const pieces = grid(6, (i, j) => i === 2 && j === 2).map(p => ({positions: p.positions.map(x => x / 10), indices: p.indices.slice()}));
+        if (flip){
+            for (const p of pieces){
+                for (let t = 0; t < p.indices.length; t += 3){
+                    const uses = [0, 1, 2].some(k => Math.abs(p.positions[3 * p.indices[t + k]] - 0.3) < 1e-6 && Math.abs(p.positions[3 * p.indices[t + k] + 1] - 0.3) < 1e-6);
+                    if (uses) [p.indices[t + 1], p.indices[t + 2]] = [p.indices[t + 2], p.indices[t + 1]];
+                }
+            }
+        }
+        return weld(pieces);
+    };
+
+    test("a hole under the paint is filled though the triangles at its far side face away", () => {
+        const surface = smallGrid(true);
+        const result = applyEdits(surface, [paint("fill", [stroke([[0.25, 0.25, 0]], 0.2)])], applyShape);
+        expect(result.fills.length).toBe(1);
+        // Behind the surface (painted from below, every triangle facing up), nothing is filled
+        expect(applyEdits(smallGrid(), [paint("fill", [stroke([[0.25, 0.25, 0]], 0.2, [0, 0, -1])])], applyShape).fills.length).toBe(0);
+    });
+
+    test("a speck under the paint is filled though its loop turns as a rim does (a real one, from a roof)", () => {
+        // speck.json: a check model's triangles around a 4-edge gap that holes's winding test takes for a piece's rim
+        // (its rim pinches nearby), in metres from the gap's middle, and the view it was painted from
+        const { positions, indices, loop, view } = speck;
+        const surface = weld([{positions: Float32Array.from(positions), indices: Uint32Array.from(indices)}]);
+        const ring = new Set(loop.map(c => surface.vertexOf[0][c]));
+        const result = applyEdits(surface, [paint("fill", [stroke([[0, 0, 0]], 0.3, view)])], applyShape);
+        expect(result.fills.some(f => f.ring.length === ring.size && f.ring.every(v => ring.has(v)))).toBe(true);
+        // Fill Holes, which goes by the winding alone, leaves it
+        const whole = applyEdits(surface, [{type: "holes", size: 50}], applyShape);
+        expect(whole.fills.some(f => f.ring.length === ring.size && f.ring.every(v => ring.has(v)))).toBe(false);
+    });
+
     test("painting over every hole fills those Fill Holes fills (holes found from the painted edges only)", () => {
         const surface = weld(grid(6, (i, j) => (i === 1 && j === 1) || (i === 4 && j === 3) || (i === 3 && j === 4)));
         const painted = applyEdits(surface, [paint("fill", [stroke([[3, 3, 0]], 10)])], applyShape);
@@ -705,12 +663,12 @@ describe("the surface brush", () => {
         expect(painted.fills.length).toBe(3);  // the two touching at a corner are two (a pinched rim)
     });
 
-    test("a clone painted in several strokes copies from the same offset in each, in one frame", () => {
+    test("a clone painted in several strokes copies from the same offset in each of their pieces, in one frame", () => {
         const model = textured();
         const surface = weld(model);
         const strokes = [stroke([[4.5, 4.5, 0], [4.5, 3.5, 0]], 0.6), stroke([[3.5, 4.5, 0], [3.5, 3.5, 0]], 0.6)];
         const result = applyEdits(surface, [paint("clone", strokes, {source: [1.5, 1.5, 0], target: [4.5, 4.5, 0], normal: up, feather: 0})], applyShape);
-        expect(result.clones.length).toBe(2);
+        expect(result.clones.length).toBeGreaterThan(2);  // the strokes cut into pieces, one clone each
         const atlas = cloneAtlas(surface, model, result, sample);
         const p = atlas.piece.positions, uv = atlas.piece.uvs;
         const colourAt = (x, y) => {

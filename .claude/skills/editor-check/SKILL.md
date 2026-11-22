@@ -31,8 +31,12 @@ The dev stack (http://localhost:8008) must be up, and the editor rebuilt after a
 
    It logs in with the dev account from the user's memory (never printed), duplicates the task (the check task by
    default), optionally saves model edits on the copy first, opens its editor on **3D Model**, waits for the tools,
-   runs the scenario, prints each preview's timings (`window.__splatmeTiming`) and the page's long tasks, and deletes
+   runs the scenario, prints each preview's timings (`window.__splatmeTiming`) and the page's long tasks (each with when it
+   started on the page's clock; each step says when it was done on that clock, to tell which step a long task
+   held up), and deletes
    the copy in `finally`. Page errors and console errors (but the expected livereload one) are printed.
+
+   `VIEWPORT=1280x800` sets the page's size (1500x900 otherwise): the documentation's screenshots are 1280x800.
 
 3. Look at the screenshots it wrote to the out dir, then delete them and the scenario.
 

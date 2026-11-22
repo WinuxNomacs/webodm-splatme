@@ -9,7 +9,7 @@ import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
-import { cloneSource, sampleRegion, regionRect, faceGrid, stampAxes, stampSource, stampPatch, stampRegions } from "../meshEdits.js";
+import { cloneSource } from "../meshEdits.js";
 
 
 const DRACO_DECODER = "/plugins/splatme/vendor/draco/";  // three.js's own, vendored (WebODM's is too old for it)
@@ -19,9 +19,7 @@ const CORNER_PIXELS = 10;  // a click this close to the first corner closes the 
 const STROKE_PIXELS = 3;  // a lasso's corners at least this far apart
 const PICK_PIXELS = 12;  // how far from the pointer a double click finds a splat to centre on
 const BRUSH_STEP = 1.25;  // the [ and ] keys' change of the brush's size
-export const STAMP_SIZES = [0.25, 20];  // metres: Clone Texture's stamp, smallest and largest (meshes.py's PATCHES within)
-export const STAMP_STEP = 0.25;  // metres: Ctrl+wheel's and the [ and ] keys' change of the stamp's size
-export const STAMP_TURN = 15;  // degrees: the wheel's turn of the stamp, a notch
+
 export const PAINT_RADII = [0.02, 5];  // metres: the surface brush's radius, smallest and largest (meshes.py's within)
 const PAINT_STEP = 1.25;  // the wheel's and the [ and ] keys' change of the surface brush's radius
 const PAINT_SPACING = 0.3;  // of the radius: how far the pointer moves before a stroke takes another point
@@ -71,10 +69,10 @@ function lineMaterial(color){
 // handlers: onBoxChange(index, box) while a box is dragged, onPolygon(ring) when one is closed, onCorners(count)
 // while one is drawn, onLasso({ring, view, camera}) when a lasso is drawn, onLassoEnd() when lasso drawing stops,
 // onBrushStroke({stroke, view, aspect, camera}) for each brush stroke, onBrushSize(pixels) when a key changes the
-// brush's size, onBrushEnd() when painting stops, onStamp({center, normal, size, spin}) for each Clone Texture stamp,
-// onStampChange(size, spin) when the wheel or a key changes the stamp, onStampEnd() when stamping stops, onModelBusy(busy) when the model's edits start and stop being worked out,
-// onModelMasked(removed, floating) when the textured model's
-// edits have been shown (triangles)
+// brush's size, onBrushEnd() when painting stops, onPaintStroke(stroke, normal), onPaintSource(source, normal),
+// onPaintRadius(radius) and onPaintEnd() for the 3D model's surface brush, onModelBusy(busy) when the model's edits
+// start and stop being worked out, onModelMasked(removed, floating) when the textured model's edits have been shown
+// (triangles)
 export function createViewer(container, handlers){
     const colors = {
         keep: themeColor(container, "theme-background-success", "backgroundColor"),
@@ -108,9 +106,6 @@ export function createViewer(container, handlers){
     let dragging = null;  // an end of the picked edit's Straighten line being dragged: {end: 0 or 1}
     let lasso = null;  // {points: [[x, y] in pixels], down}
     let brush = null;  // {size: pixels across, points: [[x, y] in pixels], down, at: [x, y] the pointer, or null}
-    // Clone Texture's stamping: {source, size, spin, grid (the triangles' centres, to fit the plane under the pointer
-    // quickly), at: the stamp under the pointer or null, object: its square}
-    let stamp = null;
     // The surface brush (the 3D model's Brush): {op, radius, source (Clone's, or null: the next click picks it),
     // stroke: {points, view} while painting, at: the hit under the pointer, cursor: its circle, trail: the stroke drawn}
     let paint = null;
@@ -189,6 +184,24 @@ export function createViewer(container, handlers){
             chunks: result.clones.changed.map(c => c.atlas.width + "x" + c.atlas.height).join(" ")});
     }
     // An atlas from the worker (the fills or the clones) drawn in place of the one before: the new mesh, or null
+    // The programs the fills' and clones' textures and the GPU pick draw with, started while the model loads (the
+    // driver links them meanwhile): started on first use instead, they held up the page for a second or two in the
+    // middle of the first stroke. Hidden meshes with those materials stay in the model, so the programs are kept.
+    function warmUp(){
+        const map = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.needsUpdate = true;
+        const geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(9), 3))
+            .setAttribute("uv", new THREE.Float32BufferAttribute(new Float32Array(6), 2));
+        for (const material of [new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide}), pick && pick.material]){
+            if (!material) continue;
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.visible = false;
+            model.group.add(mesh);
+        }
+        renderer.compile(scene, camera);
+    }
+
     function showAtlas(before, atlas){
         if (before){
             before.parent.remove(before);
@@ -209,23 +222,6 @@ export function createViewer(container, handlers){
         mesh.layers.enable(PICK_LAYER);
         model.meshes[0].parent.add(mesh);
         return mesh;
-    }
-
-    // A part of piece k's texture at full size, read once: {rgba, x0, y0, w, h, width, height} (sampleRegion's)
-    function textureRegion(k, r){
-        const image = model.meshes[k].material && model.meshes[k].material.map && model.meshes[k].material.map.image;
-        if (!image) return null;
-        const rect = regionRect(r, image.width, image.height);
-        const key = k + ":" + rect.x0 + "," + rect.y0 + "," + rect.w + "," + rect.h;
-        if (!model.regions.has(key)){
-            const canvas2 = document.createElement("canvas");
-            canvas2.width = rect.w;
-            canvas2.height = rect.h;
-            const context = canvas2.getContext("2d", {willReadFrequently: true});
-            context.drawImage(image, rect.x0, rect.y0, rect.w, rect.h, 0, 0, rect.w, rect.h);
-            model.regions.set(key, {...rect, rgba: context.getImageData(0, 0, rect.w, rect.h).data, width: image.width, height: image.height});
-        }
-        return model.regions.get(key);
     }
 
     // A clone's source: a square on the surface's plane, its size across, about the point picked
@@ -368,8 +364,7 @@ export function createViewer(container, handlers){
             // Floaters, Colour Adjust and the model's whole-model edits have no shape: an empty group keeps the
             // handles numbered as the edits
             const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) :
-                edit.type === "brush" ? brushObject(edit) : edit.type === "polygon" ? polygonObject(edit) :
-                edit.type === "stamps" ? stampsObject(edit) : new THREE.Group();
+                edit.type === "brush" ? brushObject(edit) : edit.type === "polygon" ? polygonObject(edit) : new THREE.Group();
             // Only the edit picked in the list shows its shape: the others show only in what they hide
             object.visible = i === selected;
             object.renderOrder = 10;
@@ -380,20 +375,12 @@ export function createViewer(container, handlers){
         // The picked edit's Straighten line, apart from its shape (a box's object is scaled and turned)
         const picked = selected >= 0 ? edits[selected] : null;
         if (picked && picked.line) shapes.add(lineObject(new THREE.Vector3(...picked.line[0]), new THREE.Vector3(...picked.line[1])));
-        if (picked && picked.source){
-            // A stamping's source square as big as its last stamp (or the one under the pointer)
-            const size = picked.type !== "stamps" ? picked.patch : stamp ? stamp.size : picked.stamps.length ? picked.stamps[picked.stamps.length - 1].size : 1;
-            const square = sourceObject({...picked, patch: size});
+        if (picked && picked.type === "paint" && picked.source){
+            // The Clone brush's good area: a square as wide as its first stroke
+            const square = sourceObject({source: picked.source, patch: 2 * picked.strokes[0].radius});
             if (square) shapes.add(square);
         }
         if (selected >= 0 && edits[selected] && edits[selected].type === "box") transform.attach(handles[selected]);
-    }
-
-    // A stamping's stamps: each one's square
-    function stampsObject(edit){
-        const group = new THREE.Group();
-        for (const at of edit.stamps) group.add(stampObject(at));
-        return group;
     }
 
     // Straighten's line: a line between its ends, each end a dot
@@ -529,7 +516,6 @@ export function createViewer(container, handlers){
         endBrush();
         cancelPolygon();
         cancelLasso();
-        endStamp();
         endPaint();
         transform.detach();
         paint = {op, radius, source: source || null, stroke: null, at: null, cursor: null, trail: new THREE.Group(), queued: false, last: null};
@@ -609,129 +595,10 @@ export function createViewer(container, handlers){
         });
     }
 
-    // Stamping: the stamp the pointer is over: on the plane fitted to the surface about the point under it, facing
-    // the view, or null off the model
-    function stampAt(event){
-        const point = surfacePoint(event);
-        if (!point) return null;
-        const near = model.kept && cloneSource(model.surface, model.kept.positions, model.kept.kept, {source: point.toArray(), patch: stamp.size}, stamp.grid);
-        let normal = near ? new THREE.Vector3(...near.normal) : camera.getWorldDirection(new THREE.Vector3()).negate();
-        if (normal.dot(camera.position.clone().sub(point)) < 0) normal.negate();
-        return {center: point.toArray().map(round), normal: normal.toArray().map(x => Math.round(x * 10000) / 10000), size: stamp.size, spin: stamp.spin};
-    }
-    // The stamp's square on the surface, a tick from its middle to its top edge (the source's top)
-    function drawStamp(){
-        if (stamp.object){
-            scene.remove(stamp.object);
-            clearGroup(stamp.object);
-            stamp.object = null;
-        }
-        if (!stamp.at) return;
-        const at = {...stamp.at, size: stamp.size, spin: stamp.spin};
-        stamp.object = stampObject(at);
-        const map = stampTexture(stamp.size);
-        if (map) stamp.object.add(stampPicture(at, map));
-        scene.add(stamp.object);
-    }
-    // The source's patch at a size as a texture, made once a size: what a click drops
-    function stampTexture(size){
-        if (!stamp.textures.has(size)){
-            const found = stampSource(model.surface, model.kept.positions, model.kept.kept, stamp.source, size, stamp.grid);
-            const regions = new Map();
-            if (found){
-                for (const [k, r] of stampRegions(model.surface, model.pieces, found)){
-                    const region = textureRegion(k, r);
-                    if (region) regions.set(k, region);
-                }
-            }
-            const patch = found && stampPatch(model.surface, model.pieces, model.kept.positions, found,
-                (k, u, v) => regions.has(k) ? sampleRegion(regions.get(k), u, v) : [128, 128, 128]);
-            let map = null;
-            if (patch){
-                const rgba = new Uint8Array(patch.size * patch.size * 4);
-                for (let i = 0; i < patch.size * patch.size; i++){
-                    rgba[4 * i] = patch.rgb[3 * i];
-                    rgba[4 * i + 1] = patch.rgb[3 * i + 1];
-                    rgba[4 * i + 2] = patch.rgb[3 * i + 2];
-                    rgba[4 * i + 3] = 255;
-                }
-                map = new THREE.DataTexture(rgba, patch.size, patch.size, THREE.RGBAFormat);
-                map.colorSpace = THREE.SRGBColorSpace;
-                map.magFilter = map.minFilter = THREE.LinearFilter;
-                map.needsUpdate = true;
-            }
-            stamp.textures.set(size, map);
-        }
-        return stamp.textures.get(size);
-    }
-    // The patch on the stamp's square: its rows along the square's sides as renderPart lays them (row 0 at the tick)
-    function stampPicture(at, map){
-        const { n, a, b } = stampAxes(at.normal, at.spin), h = at.size / 2;
-        const c = new THREE.Vector3(...at.center).add(new THREE.Vector3(...n).multiplyScalar(0.005));
-        const A = new THREE.Vector3(...a).multiplyScalar(h), B = new THREE.Vector3(...b).multiplyScalar(h);
-        const corners = [c.clone().sub(A).sub(B), c.clone().add(A).sub(B), c.clone().add(A).add(B), c.clone().sub(A).add(B)];
-        const geometry = new THREE.BufferGeometry().setFromPoints(corners);
-        geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
-        geometry.setIndex([0, 1, 2, 0, 2, 3]);
-        const picture = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false}));
-        picture.renderOrder = 9;
-        return picture;
-    }
-    function stampObject(at){
-        const { n, a, b } = stampAxes(at.normal, at.spin), h = at.size / 2;
-        const c = new THREE.Vector3(...at.center).add(new THREE.Vector3(...n).multiplyScalar(0.01));
-        const A = new THREE.Vector3(...a).multiplyScalar(h), B = new THREE.Vector3(...b).multiplyScalar(h);
-        const corners = [c.clone().sub(A).sub(B), c.clone().add(A).sub(B), c.clone().add(A).add(B), c.clone().sub(A).add(B)];
-        const group = new THREE.Group();
-        group.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), lineMaterial(colors.keep)));
-        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([c, c.clone().sub(B.clone().multiplyScalar(0.5))]), lineMaterial(colors.keep)));
-        group.traverse(o => { o.renderOrder = 10; });
-        return group;
-    }
-    // Stamping, from a source picked: a click drops a stamp where the square is; the view still turns and moves
-    function startStamp(source, size, spin){
-        if (!model || !model.kept) return;
-        endPaint();
-        cancelLine();
-        endBrush();
-        cancelPolygon();
-        cancelLasso();
-        endStamp();
-        transform.detach();
-        stamp = {source, size, spin, grid: faceGrid(model.surface, model.kept.positions, model.kept.kept, 0.5), at: null, object: null, textures: new Map()};
-        canvas.style.cursor = "crosshair";
-    }
-    function setStamp(size, spin){
-        if (!stamp) return;
-        stamp.size = size;
-        stamp.spin = spin;
-        drawStamp();
-    }
-    function endStamp(){
-        if (!stamp) return;
-        stamp.at = null;
-        drawStamp();
-        for (const map of stamp.textures.values()) if (map) map.dispose();
-        stamp = null;
-        canvas.style.cursor = "";
-        if (handlers.onStampEnd) handlers.onStampEnd();
-    }
-    // The wheel while stamping: turns the stamp; with Ctrl, sizes it; with Shift, zooms the view (as the wheel does
-    // otherwise). Caught before the view's controls see it.
+    // The wheel while painting: sizes the brush; with Shift, zooms the view (as the wheel does otherwise). Caught
+    // before the view's controls see it.
     function onWheel(event){
-        if (paint){
-            event.preventDefault();
-            event.stopPropagation();
-            const delta = event.deltaY || event.deltaX;
-            if (!delta) return;
-            if (event.shiftKey){
-                const offset = camera.position.clone().sub(controls.target).multiplyScalar(delta > 0 ? 1.1 : 1 / 1.1);
-                camera.position.copy(controls.target).add(offset);
-                controls.update();
-            } else resizePaint(delta < 0 ? 1 : -1);
-            return;
-        }
-        if (!stamp) return;
+        if (!paint) return;
         event.preventDefault();
         event.stopPropagation();
         const delta = event.deltaY || event.deltaX;  // Shift turns some browsers' wheel sideways
@@ -740,24 +607,7 @@ export function createViewer(container, handlers){
             const offset = camera.position.clone().sub(controls.target).multiplyScalar(delta > 0 ? 1.1 : 1 / 1.1);
             camera.position.copy(controls.target).add(offset);
             controls.update();
-            return;
-        }
-        if (event.ctrlKey || event.metaKey) resizeStamp(delta < 0 ? 1 : -1);
-        else {
-            let spin = stamp.spin + (delta < 0 ? -STAMP_TURN : STAMP_TURN);  // up: anticlockwise as seen
-            if (spin > 180) spin -= 360;
-            if (spin < -180) spin += 360;
-            stamp.spin = spin;
-            drawStamp();
-            if (handlers.onStampChange) handlers.onStampChange(stamp.size, stamp.spin);
-        }
-    }
-    function resizeStamp(steps){
-        const size = Math.min(STAMP_SIZES[1], Math.max(STAMP_SIZES[0], Math.round((stamp.size + steps * STAMP_STEP) / STAMP_STEP) * STAMP_STEP));
-        if (size === stamp.size) return;
-        stamp.size = size;
-        drawStamp();
-        if (handlers.onStampChange) handlers.onStampChange(stamp.size, stamp.spin);
+        } else resizePaint(delta < 0 ? 1 : -1);
     }
     container.addEventListener("wheel", onWheel, {capture: true, passive: false});
 
@@ -787,17 +637,15 @@ export function createViewer(container, handlers){
 
     // Placing Straighten's line: a click on the model drops its first end, a line follows the pointer from it, and
     // a second click ends it (onLine(line)); the view still turns between clicks
-    // skip: the edit the line is for, left out of the view meanwhile; count: its points (1: a single point, Clone
-    // Texture's source)
-    function startLine(skip = -1, count = 2){
-        endStamp();
+    // skip: the edit the line is for, left out of the view meanwhile
+    function startLine(skip = -1){
         endPaint();
         endBrush();
         cancelPolygon();
         cancelLasso();
         cancelLine();
         transform.detach();
-        placing = {first: null, object: null, skip, count};
+        placing = {first: null, object: null, skip};
         canvas.style.cursor = "crosshair";
         if (skip >= 0) queueMask();
     }
@@ -825,11 +673,6 @@ export function createViewer(container, handlers){
     function placeLine(event){
         const point = surfacePoint(event);
         if (!point) return;
-        if (placing.count === 1){
-            cancelLine();
-            if (handlers.onLine) handlers.onLine([point.toArray().map(round)]);
-            return;
-        }
         if (!placing.first){
             placing.first = point;
             drawPlacing(null);
@@ -957,21 +800,6 @@ export function createViewer(container, handlers){
             onPaintMove(event);
             return;
         }
-        if (stamp){
-            // At most once a frame: finding the surface under the pointer takes a while on a large model
-            if (!pointer.down && !stamp.queued){
-                stamp.queued = true;
-                requestAnimationFrame(() => {
-                    if (!stamp) return;
-                    stamp.queued = false;
-                    if (pointer.down || !stamp.last) return;
-                    stamp.at = stampAt(stamp.last);
-                    drawStamp();
-                });
-            }
-            stamp.last = {clientX: event.clientX, clientY: event.clientY};
-            return;
-        }
         if (placing && placing.first){
             drawPlacing(surfacePoint(event) || facingPoint(event, placing.first));
             return;
@@ -1062,14 +890,6 @@ export function createViewer(container, handlers){
             if (click) placeLine(event);
             return;
         }
-        if (stamp){
-            const click = pointer.down && event.button === 0 && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= CLICK_PIXELS;
-            pointer.down = false;
-            stamp.at = stampAt(event);
-            drawStamp();
-            if (click && stamp.at && handlers.onStamp) handlers.onStamp({...stamp.at});
-            return;
-        }
         if (brush){
             if (brush.down) endBrushStroke();
             return;
@@ -1110,7 +930,7 @@ export function createViewer(container, handlers){
             if (drawing.corners.length >= 3) finishPolygon();
             return;
         }
-        if (!lasso && !brush && !stamp && !paint) centreOn(event);
+        if (!lasso && !brush && !paint) centreOn(event);
     }
     // A double click with no tool: the view moves (not turns) so that the nearest splat shown under the pointer is
     // its centre, which it then turns about
@@ -1160,10 +980,6 @@ export function createViewer(container, handlers){
             paint.at = null;
             drawPaintCursor();
         }
-        if (stamp){
-            stamp.at = null;
-            drawStamp();
-        }
         if (brush && !brush.down){
             brush.at = null;
             drawBrush();
@@ -1174,10 +990,6 @@ export function createViewer(container, handlers){
         if (paint && !(event.target.closest && event.target.closest("input, textarea, select"))){
             if (event.key === "Escape") endPaint();
             else if (event.key === "[" || event.key === "]") resizePaint(event.key === "]" ? 1 : -1);
-        }
-        if (stamp && !(event.target.closest && event.target.closest("input, textarea, select"))){
-            if (event.key === "Escape") endStamp();
-            else if (event.key === "[" || event.key === "]") resizeStamp(event.key === "]" ? 1 : -1);
         }
         if (lasso && event.key === "Escape") cancelLasso();
         if (brush){
@@ -1204,7 +1016,6 @@ export function createViewer(container, handlers){
 
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
     function startLasso(){
-        endStamp();
         endPaint();
         cancelLine();
         endBrush();
@@ -1227,7 +1038,6 @@ export function createViewer(container, handlers){
     // Painting with the brush: the view holds still while strokes are painted, each letting go one stroke, until
     // endBrush (Done or Escape)
     function startBrush(size, restore){
-        endStamp();
         endPaint();
         cancelLine();
         cancelPolygon();
@@ -1269,7 +1079,6 @@ export function createViewer(container, handlers){
     }
 
     function startPolygon(){
-        endStamp();
         endPaint();
         cancelLine();
         endBrush();
@@ -1360,7 +1169,7 @@ export function createViewer(container, handlers){
                 positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice(),
                 uvs: m.geometry.attributes.uv ? m.geometry.attributes.uv.array : null}));
             // The edits are worked out in a worker, which welds the pieces into one surface and gives it back (the
-            // view uses it for the source square and the stamp)
+            // view uses it for the Clone brush's source square)
             const worker = new Worker(import.meta.resolve("/plugins/splatme/editor/modelWorker.js"), {type: "module"});
             const images = await Promise.all(meshes.map(m => {
                 const image = m.material && m.material.map && m.material.map.image;
@@ -1376,7 +1185,7 @@ export function createViewer(container, handlers){
                     modules: {meshEdits: import.meta.resolve("/plugins/splatme/meshEdits.js"), editShapes: import.meta.resolve("/plugins/splatme/editShapes.js")}},
                 images.filter(Boolean));
             });
-            model = {group: gltf.scene, meshes, pieces, surface, kept: null, counts: null, fills: null, clones: new Map(), regions: new Map(),
+            model = {group: gltf.scene, meshes, pieces, surface, kept: null, counts: null, fills: null, clones: new Map(),
                 worker, seq: 0, shownSeq: 0, busy: false};
             worker.onmessage = event => {
                 if (!model || model.worker !== worker) return;
@@ -1403,6 +1212,7 @@ export function createViewer(container, handlers){
             frameView();
             drawShapes();
             queueMask();
+            warmUp();
             return {triangles: surface.faces.length / 3, frame};
         },
         // What the model's edits do now: {removed, floating, added} triangles, flattened points and filled holes (null
@@ -1464,7 +1274,7 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, startStamp, setStamp, endStamp, startPaint, setPaint, endPaint, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, startPaint, setPaint, endPaint, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
             if (pick){

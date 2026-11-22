@@ -6,21 +6,17 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
 
     delete   {"op": "delete", <a box, polygon, lasso or brush of edits.py>}: the triangles whose centres the shape
              covers are removed (keep: true removes the rest; a brush with restore puts back what was removed)
-    flatten  {"op": "flatten", <a shape>}: the triangles whose centres the shape covers made flat, their vertices
-             moved onto the plane that best fits the selection's rim (the rim staying put)
-    fill     {"op": "fill", <a shape>}: the holes whose whole rim the shape covers filled
     object   {"op": "object", <a shape>}: Remove Object, what the shape covers removed and the hole it leaves filled
     move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
              scaled about its middle and moved, the move fading to nothing over soft metres around it
-    smooth   {"op": "smooth", <a shape>, "passes": n}: what the shape covers smoothed, n passes, its rim fixed
-    clone    {"op": "clone", <a shape>, "source": [x, y, z], "patch": metres, "feather": metres, "spin": degrees}:
-             Clone Texture, what the shape covers textured with the texture around source, tiled and blended in
-    straighten {"op": "straighten", <a shape>, "line": [[x, y, z], [x, y, z]], "strength": 0 to 1, "reach": metres}:
-             what the shape covers pulled toward the line, fading to nothing at reach from it
+    straighten {"type": "straighten", "line": [[x, y, z], [x, y, z]], "strength": 0 to 1, "reach": metres}: the
+             surface within reach of the line pulled toward it, fading to nothing at reach from it
+    paint    {"type": "paint", "op": one of PAINT_OPS, "strokes": [{"points", "radius", "view"}], ...}: the surface
+             brush, on the triangles within radius of each stroke's path that face view
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
     holes    {"type": "holes", "size": n}: Fill Holes, every hole of at most n edges filled
 
-Cloned triangles get CLONE_TEXTURE the same way. A fill's triangles have a texture of their own, made from the colours around each hole: FILL_TEXTURE beside the
+The Clone brush's triangles get CLONE_TEXTURE the same way. A fill's triangles have a texture of their own, made from the colours around each hole: FILL_TEXTURE beside the
 model's textures, a material after the model's in the MTL (and a JPEG inside the GLB).
 
 The rule is public/meshEdits.js, the same code the page's preview runs; Update the Model (apply) runs it in WebODM's
@@ -51,16 +47,14 @@ MAX_HOLE = 5000  # edges: as meshEdits.MAX_HOLE
 MAX_OFFSET = 100  # metres a move goes along each axis, at most
 SCALES = (0.1, 10)  # a move's stretch along each axis
 MAX_SOFT = 20  # metres: a move's soft edge
-MAX_PASSES = 100  # Smooth's passes
+MAX_PASSES = 100  # the Smooth brush's passes
 REACHES = (0.01, 20)  # metres: Straighten's reach
-PATCHES = (0.1, 20)  # metres: Clone Texture's source patch
-MAX_FEATHER = 5  # metres: Clone Texture's blend at the edge
-MAX_STAMPS = 2000  # Clone Texture's stamps in one stamping
+MAX_FEATHER = 5  # metres: the Clone brush's blend at the edge
 PAINT_OPS = ("delete", "restore", "fill", "clone", "smooth", "flatten", "raise")  # as meshEdits.PAINT_OPS
 PAINT_RADII = (0.01, 10)  # metres: a surface brush stroke's radius
 MAX_RAISE = 1  # metres a Raise or Lower stroke moves the surface, at most
 SHAPES = ("box", "polygon", "lasso", "brush")
-OPS = ("delete", "flatten", "fill", "object", "move", "smooth", "straighten", "clone")
+OPS = ("delete", "object", "move")  # the shapes' ops
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
@@ -102,8 +96,8 @@ def clean(given):
                 raise edits.EditsError(f"Edit {i}'s size must be a whole number of {unit} from 1 to {most}.")
             out.append({"type": kind, "size": size})
             continue
-        if edit.get("type") == "stamps":
-            out.append(clean_stamps(edit, i))
+        if edit.get("type") == "straighten":
+            out.append({"type": "straighten", **clean_straighten(edit, i)})
             continue
         if edit.get("type") == "paint":
             out.append(clean_paint(edit, i))
@@ -122,7 +116,7 @@ def clean(given):
 
 
 def clean_params(op, edit, i):
-    """An op's own settings beside its shape (Move's, Smooth's), checked. Raises EditsError."""
+    """An op's own settings beside its shape (Move's), checked. Raises EditsError."""
 
     def axes(name, low, high):
         value = edit.get(name)
@@ -138,64 +132,21 @@ def clean_params(op, edit, i):
         if not 0 <= soft <= MAX_SOFT:
             raise edits.EditsError(f"Edit {i}'s soft edge must be from 0 to {MAX_SOFT} m.")
         return {"offset": axes("offset", -MAX_OFFSET, MAX_OFFSET), "scale": axes("scale", *SCALES), "soft": soft}
-    if op == "smooth":
-        passes = edit.get("passes")
-        if isinstance(passes, bool) or not isinstance(passes, int) or not 1 <= passes <= MAX_PASSES:
-            raise edits.EditsError(f"Edit {i}'s passes must be a whole number from 1 to {MAX_PASSES}.")
-        return {"passes": passes}
-    if op == "straighten":
-        line = edit.get("line")
-        if not isinstance(line, list) or len(line) != 2:
-            raise edits.EditsError(f"Edit {i}'s line must be 2 points.")
-        strength = edits.number(edit.get("strength"), f"Edit {i}'s strength")
-        reach = edits.number(edit.get("reach"), f"Edit {i}'s reach")
-        if not 0 <= strength <= 1:
-            raise edits.EditsError(f"Edit {i}'s strength must be from 0 to 1.")
-        if not REACHES[0] <= reach <= REACHES[1]:
-            raise edits.EditsError(f"Edit {i}'s reach must be from {REACHES[0]} to {REACHES[1]} m.")
-        return {"line": [edits.numbers(p, 3, f"Edit {i}'s line") for p in line], "strength": strength, "reach": reach}
-    if op == "clone":
-        source = edits.numbers(edit.get("source"), 3, f"Edit {i}'s source")
-        patch = edits.number(edit.get("patch"), f"Edit {i}'s source size")
-        feather = edits.number(edit.get("feather"), f"Edit {i}'s feather")
-        spin = edits.number(edit.get("spin"), f"Edit {i}'s turn")
-        if not PATCHES[0] <= patch <= PATCHES[1]:
-            raise edits.EditsError(f"Edit {i}'s source size must be from {PATCHES[0]} to {PATCHES[1]} m.")
-        if not 0 <= feather <= MAX_FEATHER:
-            raise edits.EditsError(f"Edit {i}'s feather must be from 0 to {MAX_FEATHER} m.")
-        if not -180 <= spin <= 180:
-            raise edits.EditsError(f"Edit {i}'s turn must be from -180 to 180 degrees.")
-        return {"source": source, "patch": patch, "feather": feather, "spin": spin}
     return {}
 
 
-def clean_stamps(edit, i):
-    """Clone Texture's stamps, checked. Raises EditsError."""
-    if edit.get("op") != "clone":
-        raise edits.EditsError(f"Edit {i} is of an unknown kind.")
-    source = edits.numbers(edit.get("source"), 3, f"Edit {i}'s source")
-    feather = edits.number(edit.get("feather"), f"Edit {i}'s feather")
-    if not 0 <= feather <= MAX_FEATHER:
-        raise edits.EditsError(f"Edit {i}'s feather must be from 0 to {MAX_FEATHER} m.")
-    given = edit.get("stamps")
-    if not isinstance(given, list) or len(given) > MAX_STAMPS:
-        raise edits.EditsError(f"Edit {i}'s stamps must be a list of at most {MAX_STAMPS}.")
-    stamps = []
-    for stamp in given:
-        if not isinstance(stamp, dict):
-            raise edits.EditsError(f"Edit {i} has a stamp that is not one.")
-        normal = edits.numbers(stamp.get("normal"), 3, f"Edit {i}'s stamp's normal")
-        if not any(normal):
-            raise edits.EditsError(f"Edit {i}'s stamp's normal must not be 0.")
-        size = edits.number(stamp.get("size"), f"Edit {i}'s stamp's size")
-        spin = edits.number(stamp.get("spin"), f"Edit {i}'s stamp's turn")
-        if not PATCHES[0] <= size <= PATCHES[1]:
-            raise edits.EditsError(f"Edit {i}'s stamp's size must be from {PATCHES[0]} to {PATCHES[1]} m.")
-        if not -180 <= spin <= 180:
-            raise edits.EditsError(f"Edit {i}'s stamp's turn must be from -180 to 180 degrees.")
-        stamps.append({"center": edits.numbers(stamp.get("center"), 3, f"Edit {i}'s stamp's centre"), "normal": normal,
-                       "size": size, "spin": spin})
-    return {"type": "stamps", "op": "clone", "source": source, "feather": feather, "stamps": stamps}
+def clean_straighten(edit, i):
+    """Straighten's line, strength and reach, checked. Raises EditsError."""
+    line = edit.get("line")
+    if not isinstance(line, list) or len(line) != 2:
+        raise edits.EditsError(f"Edit {i}'s line must be 2 points.")
+    strength = edits.number(edit.get("strength"), f"Edit {i}'s strength")
+    reach = edits.number(edit.get("reach"), f"Edit {i}'s reach")
+    if not 0 <= strength <= 1:
+        raise edits.EditsError(f"Edit {i}'s strength must be from 0 to 1.")
+    if not REACHES[0] <= reach <= REACHES[1]:
+        raise edits.EditsError(f"Edit {i}'s reach must be from {REACHES[0]} to {REACHES[1]} m.")
+    return {"line": [edits.numbers(p, 3, f"Edit {i}'s line") for p in line], "strength": strength, "reach": reach}
 
 
 def clean_paint(edit, i):
@@ -254,20 +205,12 @@ def shift(given, dx, dy):
         if edit.get("type") == "paint":
             out.append({**edit, "strokes": [{**s, "points": [moved(p) for p in s["points"]]} for s in edit["strokes"]],
                         **({"source": moved(edit["source"]), "target": moved(edit["target"])} if "source" in edit else {})})
-        elif edit.get("type") == "stamps":
-            x, y, z = edit["source"]
-            out.append({**edit, "source": [round(x + dx, 6), round(y + dy, 6), z],
-                        "stamps": [{**s, "center": [round(s["center"][0] + dx, 6), round(s["center"][1] + dy, 6), s["center"][2]]}
-                                   for s in edit["stamps"]]})
+        elif edit.get("type") == "straighten":
+            out.append({**edit, "line": [moved(p) for p in edit["line"]]})
         elif "op" in edit:
             shape = {k: v for k, v in edit.items() if k != "op"}
-            (moved,) = edits.shift([shape], dx, dy)
-            if "line" in moved:
-                moved["line"] = [[round(x + dx, 6), round(y + dy, 6), z] for x, y, z in moved["line"]]
-            if "source" in moved:
-                x, y, z = moved["source"]
-                moved["source"] = [round(x + dx, 6), round(y + dy, 6), z]
-            out.append({"op": edit["op"], **moved})
+            (shifted,) = edits.shift([shape], dx, dy)
+            out.append({"op": edit["op"], **shifted})
         else:
             out.append(dict(edit))
     return out
