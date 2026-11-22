@@ -713,6 +713,39 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(os.path.exists(os.path.join(folder, meshes.CLONE_TEXTURE)))
         self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
 
+    def test_the_surface_brush_is_checked_shifted_with_the_model_and_applied_by_the_update(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, hole=True)
+        stroke = {"points": [[2.5, 1.5, 0], [2.5, 2.5, 0]], "radius": 0.45, "view": [0, 0, 1]}
+        remove = {"type": "paint", "op": "delete", "strokes": [stroke]}
+        for bad in ({**remove, "op": "explode"}, {**remove, "strokes": []}, {**remove, "strokes": [{**stroke, "radius": 0}]},
+                    {**remove, "strokes": [{**stroke, "view": [0, 0, 0]}]}, {**remove, "strokes": [{**stroke, "points": [[1, 2]]}]},
+                    {**remove, "op": "raise", "amount": 2}, {**remove, "op": "clone", "source": [0, 0, 0], "target": [1, 1, 0]}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [remove])
+        self.assertEqual(res.status_code, 200, res.data)
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["strokes"][0]["points"][0], [1002.5, 2001.5, 0])
+        self.assertEqual(meshes.get(task), [remove])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["removed"], 4)  # the last column's two middle squares' triangles
+
+        # Fill: the middle hole, its rim all under the paint, textured from beside it in the clones' texture
+        fill = {"type": "paint", "op": "fill", "strokes": [{"points": [[1.5, 1.5, 0]], "radius": 1.0, "view": [0, 0, 1]}]}
+        res = self.model_edits(task, [fill])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["filled"], 1)
+        self.assertTrue(os.path.exists(os.path.join(folder, meshes.CLONE_TEXTURE)))
+
+        # Raise: the vertex under the dab lifted by the amount
+        lift = {"type": "paint", "op": "raise", "amount": 0.25, "strokes": [{"points": [[2, 2, 0]], "radius": 0.9, "view": [0, 0, 1]}]}
+        res = self.model_edits(task, [lift])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertAlmostEqual(max(obj_heights(os.path.join(folder, meshes.OBJ))), 0.25, places=4)
+
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)
         folder = make_textured_model(task)

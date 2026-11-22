@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, stampAxes, insideStamp, createPreview, PREVIEW_STATES } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, stampAxes, insideStamp, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -605,6 +605,143 @@ describe("the preview", () => {
             expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
             list[i] = {...list[i], center: [i % 6 + 0.5, 4.5, 0]};
             expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
+        }
+    });
+});
+
+describe("the surface brush", () => {
+    // A 6 by 6 grid at z 0, facing up (+z), its texture's colour saying where it is (red x / 6, green y / 6)
+    const textured = hole => grid(6, hole).map(p => {
+        const uvs = new Float32Array(p.positions.length / 3 * 2);
+        for (let c = 0; c < p.positions.length / 3; c++){
+            uvs[2 * c] = p.positions[3 * c] / 6;
+            uvs[2 * c + 1] = p.positions[3 * c + 1] / 6;
+        }
+        return {...p, uvs};
+    });
+    const sample = (_piece, u, v) => [u * 255, v * 255, 0];
+    const up = [0, 0, 1];
+    const stroke = (points, radius, view = up) => ({points, radius, view});
+    const paint = (op, strokes, more = {}) => ({type: "paint", op, strokes, ...more});
+
+    test("a stroke covers the triangles whose centres are within its radius of its path, facing it", () => {
+        const surface = weld(grid(6));
+        const state = startEdits(surface);
+        // Along y = 2.5 from x 1 to 4, radius 0.4: the two triangles of each square on that row from x 1 to 4,
+        // whose centres are 1/6 m off the row's middle (both within 0.4)
+        expect(strokeFaces(surface, state, stroke([[1, 2.5, 0], [4, 2.5, 0]], 0.4)).length).toBe(8);
+        expect(strokeFaces(surface, state, stroke([[1, 2.5, 0], [4, 2.5, 0]], 0.4, [0, 0, -1])).length).toBe(0);  // from below: none face it
+        expect(strokeFaces(surface, state, stroke([[2.5, 2.5, 0]], 0.3)).length).toBe(2);  // a dab
+        expect(strokeFaces(surface, state, stroke([[2.5, 2.5, 3]], 0.5)).length).toBe(0);  // above the surface
+    });
+
+    test("Remove and Restore take out and put back what each stroke covers", () => {
+        const surface = weld(grid(6));
+        const removed = applyEdits(surface, [paint("delete", [stroke([[1, 2.5, 0], [4, 2.5, 0]], 0.4)])], applyShape);
+        expect(removed.removed).toBe(8);
+        const back = applyEdits(surface, [paint("delete", [stroke([[1, 2.5, 0], [4, 2.5, 0]], 0.4)]), paint("restore", [stroke([[2.5, 2.5, 0]], 0.4)])], applyShape);
+        expect(back.removed).toBe(6);
+    });
+
+    test("Raise lifts the surface most on the path, fading to nothing at the radius, and Lower is a negative amount", () => {
+        const surface = weld(grid(6));
+        const height = (r, x, y) => { for (let v = 0; v < surface.count; v++) if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return r.positions[3 * v + 2]; };
+        const lifted = applyEdits(surface, [paint("raise", [stroke([[3, 3, 0]], 1.5)], {amount: 0.1})], applyShape);
+        expect(height(lifted, 3, 3)).toBeCloseTo(0.1);
+        expect(height(lifted, 4, 3)).toBeGreaterThan(0);
+        expect(height(lifted, 4, 3)).toBeLessThan(0.1);
+        expect(height(lifted, 5, 3)).toBe(0);
+        const twice = applyEdits(surface, [paint("raise", [stroke([[3, 3, 0]], 1.5), stroke([[3, 3, 0]], 1.5)], {amount: 0.1})], applyShape);
+        expect(height(twice, 3, 3)).toBeCloseTo(0.2);
+        const lowered = applyEdits(surface, [paint("raise", [stroke([[3, 3, 0]], 1.5)], {amount: -0.1})], applyShape);
+        expect(height(lowered, 3, 3)).toBeCloseTo(-0.1);
+        // The stroke after a raise still finds the triangles it moved
+        expect(applyEdits(surface, [paint("raise", [stroke([[3, 3, 0]], 1.5)], {amount: 0.5}), paint("delete", [stroke([[3, 3, 0.5]], 0.6)])], applyShape).removed).toBeGreaterThan(0);
+    });
+
+    test("Fill fills the holes whose whole rim the paint covers, textured from beside them however small", () => {
+        const surface = weld(textured((i, j) => i === 2 && j === 2));
+        expect(applyEdits(surface, [paint("fill", [stroke([[2.5, 2.5, 0]], 0.5)])], applyShape).fills.length).toBe(0);  // the rim's corners are farther
+        const result = applyEdits(surface, [paint("fill", [stroke([[2.5, 2.5, 0]], 1.4)])], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(splitFills(result.fills).detailed.length).toBe(1);
+        expect(result.removed).toBe(0);
+    });
+
+    test("Clone copies the texture from the source's offset onto what the strokes cover, and into the holes under them", () => {
+        const model = textured((i, j) => i === 4 && j === 4);
+        const surface = weld(model);
+        const clone = paint("clone", [stroke([[4.5, 4.5, 0], [4.5, 3.5, 0]], 1.2)], {source: [1.5, 1.5, 0], target: [4.5, 4.5, 0], normal: up, feather: 0});
+        const result = applyEdits(surface, [clone], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(result.fills[0].clone).toBeTruthy();
+        const atlas = cloneAtlas(surface, model, result, sample);
+        // The colour at a point is the source's 3 m to the left and below
+        const colourAt = (x, y) => {
+            const p = atlas.piece.positions, uv = atlas.piece.uvs;
+            for (let t = 0; t < p.length / 9; t++){
+                const [ax, ay, bx, by, cx, cy] = [p[9 * t], p[9 * t + 1], p[9 * t + 3], p[9 * t + 4], p[9 * t + 6], p[9 * t + 7]];
+                const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+                const wa = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / area, wb = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / area, wc = 1 - wa - wb;
+                if (wa < 0 || wb < 0 || wc < 0) continue;
+                const u = uv[6 * t] * wa + uv[6 * t + 2] * wb + uv[6 * t + 4] * wc, v = uv[6 * t + 1] * wa + uv[6 * t + 3] * wb + uv[6 * t + 5] * wc;
+                const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+                return Array.from(atlas.rgba.slice(i, i + 2));
+            }
+            return null;
+        };
+        for (const [x, y] of [[4.5, 4.5], [4.2, 3.6], [4.7, 4.1]]){
+            const colour = colourAt(x, y);
+            expect(colour[0]).toBeCloseTo((x - 3) / 6 * 255, -0.7);
+            expect(colour[1]).toBeCloseTo((y - 3) / 6 * 255, -0.7);
+        }
+    });
+
+    test("painting over every hole fills those Fill Holes fills (holes found from the painted edges only)", () => {
+        const surface = weld(grid(6, (i, j) => (i === 1 && j === 1) || (i === 4 && j === 3) || (i === 3 && j === 4)));
+        const painted = applyEdits(surface, [paint("fill", [stroke([[3, 3, 0]], 10)])], applyShape);
+        const whole = applyEdits(surface, [{type: "holes", size: 50}], applyShape);
+        expect(painted.fills.map(f => [...f.ring].sort())).toEqual(whole.fills.map(f => [...f.ring].sort()));
+        expect(painted.fills.length).toBe(3);  // the two touching at a corner are two (a pinched rim)
+    });
+
+    test("a clone painted in several strokes copies from the same offset in each, in one frame", () => {
+        const model = textured();
+        const surface = weld(model);
+        const strokes = [stroke([[4.5, 4.5, 0], [4.5, 3.5, 0]], 0.6), stroke([[3.5, 4.5, 0], [3.5, 3.5, 0]], 0.6)];
+        const result = applyEdits(surface, [paint("clone", strokes, {source: [1.5, 1.5, 0], target: [4.5, 4.5, 0], normal: up, feather: 0})], applyShape);
+        expect(result.clones.length).toBe(2);
+        const atlas = cloneAtlas(surface, model, result, sample);
+        const p = atlas.piece.positions, uv = atlas.piece.uvs;
+        const colourAt = (x, y) => {
+            for (let t = 0; t < p.length / 9; t++){
+                const [ax, ay, bx, by, cx, cy] = [p[9 * t], p[9 * t + 1], p[9 * t + 3], p[9 * t + 4], p[9 * t + 6], p[9 * t + 7]];
+                const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+                const wa = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / area, wb = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / area, wc = 1 - wa - wb;
+                if (wa < 0 || wb < 0 || wc < 0) continue;
+                const u = uv[6 * t] * wa + uv[6 * t + 2] * wb + uv[6 * t + 4] * wc, v = uv[6 * t + 1] * wa + uv[6 * t + 3] * wb + uv[6 * t + 5] * wc;
+                const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+                return Array.from(atlas.rgba.slice(i, i + 2));
+            }
+            return null;
+        };
+        for (const [x, y] of [[4.6, 4.2], [3.4, 3.8], [3.9, 4.1], [4.1, 3.7]]){
+            const colour = colourAt(x, y);
+            expect(colour[0]).toBeCloseTo((x - 3) / 6 * 255, -0.7);
+            expect(colour[1]).toBeCloseTo((y - 3) / 6 * 255, -0.7);
+        }
+    });
+
+    test("the preview answers as applyEdits does as strokes are added", () => {
+        const surface = weld(textured((i, j) => i === 2 && j === 2));
+        const preview = createPreview(surface, applyShape);
+        const strokes = [stroke([[2.5, 2.5, 0]], 1.4), stroke([[1, 4.5, 0], [4, 4.5, 0]], 0.4), stroke([[3, 1, 0]], 1)];
+        const summary = r => ({kept: Array.from(r.kept), positions: Array.from(r.positions), fills: r.fills.map(f => f.ring), moved: r.moved});
+        for (const op of ["fill", "delete", "raise", "smooth"]){
+            for (let k = 1; k <= strokes.length; k++){
+                const list = [paint(op, strokes.slice(0, k), {amount: 0.1})];
+                expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
+            }
         }
     });
 });

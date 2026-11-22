@@ -56,6 +56,9 @@ REACHES = (0.01, 20)  # metres: Straighten's reach
 PATCHES = (0.1, 20)  # metres: Clone Texture's source patch
 MAX_FEATHER = 5  # metres: Clone Texture's blend at the edge
 MAX_STAMPS = 2000  # Clone Texture's stamps in one stamping
+PAINT_OPS = ("delete", "restore", "fill", "clone", "smooth", "flatten", "raise")  # as meshEdits.PAINT_OPS
+PAINT_RADII = (0.01, 10)  # metres: a surface brush stroke's radius
+MAX_RAISE = 1  # metres a Raise or Lower stroke moves the surface, at most
 SHAPES = ("box", "polygon", "lasso", "brush")
 OPS = ("delete", "flatten", "fill", "object", "move", "smooth", "straighten", "clone")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
@@ -101,6 +104,9 @@ def clean(given):
             continue
         if edit.get("type") == "stamps":
             out.append(clean_stamps(edit, i))
+            continue
+        if edit.get("type") == "paint":
+            out.append(clean_paint(edit, i))
             continue
         op = edit.get("op")
         if op not in OPS or edit.get("type") not in SHAPES:
@@ -192,11 +198,63 @@ def clean_stamps(edit, i):
     return {"type": "stamps", "op": "clone", "source": source, "feather": feather, "stamps": stamps}
 
 
+def clean_paint(edit, i):
+    """A surface brush edit (meshEdits.js's paint), checked. Raises EditsError."""
+    op = edit.get("op")
+    if op not in PAINT_OPS:
+        raise edits.EditsError(f"Edit {i} is of an unknown kind.")
+    given = edit.get("strokes")
+    if not isinstance(given, list) or not 1 <= len(given) <= edits.MAX_STROKES:
+        raise edits.EditsError(f"Edit {i} must have from 1 to {edits.MAX_STROKES} strokes.")
+    strokes, points = [], 0
+    for stroke in given:
+        if not isinstance(stroke, dict) or not isinstance(stroke.get("points"), list) or not stroke["points"]:
+            raise edits.EditsError(f"Edit {i} has a stroke that is not one.")
+        points += len(stroke["points"])
+        if points > edits.MAX_BRUSH_POINTS:
+            raise edits.EditsError(f"Edit {i} has more than {edits.MAX_BRUSH_POINTS} points.")
+        radius = edits.number(stroke.get("radius"), f"Edit {i}'s stroke's radius")
+        if not PAINT_RADII[0] <= radius <= PAINT_RADII[1]:
+            raise edits.EditsError(f"Edit {i}'s stroke's radius must be from {PAINT_RADII[0]} to {PAINT_RADII[1]} m.")
+        view = edits.numbers(stroke.get("view"), 3, f"Edit {i}'s stroke's view")
+        if not any(view):
+            raise edits.EditsError(f"Edit {i}'s stroke's view must not be 0.")
+        strokes.append({"points": [edits.numbers(p, 3, f"Edit {i}'s stroke's points") for p in stroke["points"]],
+                        "radius": radius, "view": view})
+    out = {"type": "paint", "op": op, "strokes": strokes}
+    if op == "smooth" and "passes" in edit:
+        passes = edit["passes"]
+        if isinstance(passes, bool) or not isinstance(passes, int) or not 1 <= passes <= MAX_PASSES:
+            raise edits.EditsError(f"Edit {i}'s passes must be a whole number from 1 to {MAX_PASSES}.")
+        out["passes"] = passes
+    if op == "raise":
+        amount = edits.number(edit.get("amount"), f"Edit {i}'s amount")
+        if not -MAX_RAISE <= amount <= MAX_RAISE:
+            raise edits.EditsError(f"Edit {i}'s amount must be from -{MAX_RAISE} to {MAX_RAISE} m.")
+        out["amount"] = amount
+    if op == "clone":
+        normal = edits.numbers(edit.get("normal"), 3, f"Edit {i}'s normal")
+        if not any(normal):
+            raise edits.EditsError(f"Edit {i}'s normal must not be 0.")
+        feather = edits.number(edit.get("feather", 0.02), f"Edit {i}'s feather")
+        if not 0 <= feather <= MAX_FEATHER:
+            raise edits.EditsError(f"Edit {i}'s feather must be from 0 to {MAX_FEATHER} m.")
+        out.update({"source": edits.numbers(edit.get("source"), 3, f"Edit {i}'s source"),
+                    "target": edits.numbers(edit.get("target"), 3, f"Edit {i}'s target"), "normal": normal, "feather": feather})
+    return out
+
+
 def shift(given, dx, dy):
     """The edits moved by dx, dy: the shapes as edits.shift moves them, the rest as they are."""
     out = []
+    def moved(point):
+        return [round(point[0] + dx, 6), round(point[1] + dy, 6), point[2]]
+
     for edit in given:
-        if edit.get("type") == "stamps":
+        if edit.get("type") == "paint":
+            out.append({**edit, "strokes": [{**s, "points": [moved(p) for p in s["points"]]} for s in edit["strokes"]],
+                        **({"source": moved(edit["source"]), "target": moved(edit["target"])} if "source" in edit else {})})
+        elif edit.get("type") == "stamps":
             x, y, z = edit["source"]
             out.append({**edit, "source": [round(x + dx, 6), round(y + dy, 6), z],
                         "stamps": [{**s, "center": [round(s["center"][0] + dx, 6), round(s["center"][1] + dy, 6), s["center"][2]]}

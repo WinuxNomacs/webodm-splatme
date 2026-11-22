@@ -315,6 +315,10 @@ export function colourText(edit){
 export function editLabel(edit, count){
     if (edit.type === "colour") return "Colour Adjust";
     if (edit.type === "floating") return "Floating Pieces";
+    if (edit.type === "paint"){
+        const name = {fill: "Fill", clone: "Clone", smooth: "Smooth", flatten: "Flatten", raise: edit.amount < 0 ? "Lower" : "Raise", delete: "Remove", restore: "Restore"}[edit.op] || "Brush";
+        return name + " Brush, " + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
+    }
     if (edit.type === "stamps") return "Clone Stamps, " + edit.stamps.length + (edit.stamps.length === 1 ? " stamp" : " stamps");
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");

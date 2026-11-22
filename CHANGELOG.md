@@ -14,9 +14,11 @@ node refuses a training only when Grow Until is set).
   **Keep Inside**, **Flatten Inside** (onto the plane of its edge), **Fill Holes Inside**, **Remove Object**
   (remove it and fill the hole it leaves), **Move Inside** (raise, shift or stretch it, with a soft edge),
   **Smooth Inside**, **Straighten Inside** (toward a line clicked on the model) or **Clone Texture Inside** (a
-  good area's texture tiled over it and blended in). A **Repair** row starts each repair without drawing first;
-  its **Clone Texture** is a stamp: pick a good area, then click to drop its texture where the square pointer
-  (which shows it) is, filling the holes under it too; the wheel turns it and Ctrl+wheel or [ and ] size it. Their settings change a step at a time with - and +.
+  good area's texture tiled over it and blended in). On the model, the **Brush** paints on
+  the surface, sized in metres: **Fill** (the holes painted over, with the texture beside them), **Clone** (a good
+  area's texture copied where it paints, filling the holes under it), **Smooth**, **Flatten**, **Raise**,
+  **Lower**, **Remove** and **Restore**; the wheel sizes it. A **Repair** row starts each repair without drawing
+  first. Their settings change a step at a time with - and +.
   Filled holes take the texture of the surface beside them. The view shows the edits as
   they change; **Update the Model** writes them into the GLB (WebODM's 3D view and share links) and the OBJ (the
   Textured Model download) in seconds, keeping the original files, so **Clear Edits** then **Update the Model**
