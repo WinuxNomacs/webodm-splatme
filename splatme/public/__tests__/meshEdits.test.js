@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -299,5 +299,178 @@ describe("filling holes", () => {
         expect(sampleImage(rgba, 2, 0.1, 0.1)).toEqual([1, 1, 1]);
         expect(sampleImage(rgba, 2, 0.9, 0.9)).toEqual([4, 4, 4]);
         expect(sampleImage(rgba, 2, 1.9, 0.1)).toEqual([2, 2, 2]);
+    });
+});
+
+describe("Move and Smooth", () => {
+    // Over the middle 2 by 2 squares of a 4 by 4 grid: their 9 vertices, (2, 2) alone not on their rim
+    const middle = {type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0};
+    const at = (positions, surface, x, y) => {
+        for (let v = 0; v < surface.count; v++){
+            if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return Array.from(positions.slice(3 * v, 3 * v + 3));
+        }
+        return null;
+    };
+
+    test("Move raises what the shape covers, the rest staying put without a soft edge", () => {
+        const surface = weld(grid(4));
+        const raise = {...middle, op: "move", offset: [0, 0, 0.5], scale: [1, 1, 1], soft: 0};
+        const result = applyEdits(surface, [raise], applyShape);
+        expect(result.moved).toBe(9);
+        expect(at(result.positions, surface, 1, 1)).toEqual([1, 1, 0.5]);
+        expect(at(result.positions, surface, 0, 0)).toEqual([0, 0, 0]);
+        expect(result.removed).toBe(0);
+    });
+
+    test("Move's soft edge takes the vertices near the selection part of the way, less the farther", () => {
+        const surface = weld(grid(4));
+        const raise = {...middle, op: "move", offset: [0, 0, 1], scale: [1, 1, 1], soft: 1.5};
+        const result = applyEdits(surface, [raise], applyShape);
+        const near = at(result.positions, surface, 0, 2)[2], corner = at(result.positions, surface, 0, 0)[2];
+        expect(near).toBeGreaterThan(0);
+        expect(near).toBeLessThan(1);
+        expect(corner).toBeLessThan(near);  // farther: sqrt(2) from (1, 1)
+        expect(at(result.positions, surface, 2, 2)[2]).toBe(1);
+    });
+
+    test("Move stretches the selection about its middle", () => {
+        const surface = weld(grid(4));
+        const stretch = {...middle, op: "move", offset: [0, 0, 0], scale: [2, 1, 1], soft: 0};
+        const result = applyEdits(surface, [stretch], applyShape);
+        expect(at(result.positions, surface, 1, 1)).toEqual([0, 1, 0]);
+        expect(at(result.positions, surface, 3, 2)).toEqual([4, 2, 0]);
+    });
+
+    test("Smooth lowers a spike toward its neighbours, its rim fixed, more with more passes", () => {
+        const pieces = grid(4);
+        for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 1;
+        const surface = weld(pieces);
+        const one = applyEdits(surface, [{...middle, op: "smooth", passes: 1}], applyShape);
+        const five = applyEdits(surface, [{...middle, op: "smooth", passes: 5}], applyShape);
+        expect(one.moved).toBe(1);
+        expect(at(one.positions, surface, 2, 2)[2]).toBeCloseTo(0.5);
+        expect(at(five.positions, surface, 2, 2)[2]).toBeCloseTo(1 / 32);
+        expect(at(five.positions, surface, 1, 1)[2]).toBe(0);
+    });
+});
+
+describe("Straighten", () => {
+    // A 4 by 4 grid whose vertex (2, 2) sticks up 0.3 m from the line y = 2 along the ground
+    const surfaceWithBump = () => {
+        const pieces = grid(4);
+        for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 0.3;
+        return weld(pieces);
+    };
+    const middle = {type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0, op: "straighten", line: [[1, 2, 0], [3, 2, 0]]};
+    const height = (surface, result, x, y) => {
+        for (let v = 0; v < surface.count; v++) if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return result.positions[3 * v + 2];
+        return null;
+    };
+
+    test("pulls the surface toward the line, more with more strength, none at 0", () => {
+        const surface = surfaceWithBump();
+        const z = strength => height(surface, applyEdits(surface, [{...middle, strength, reach: 1}], applyShape), 2, 2);
+        expect(z(0)).toBeCloseTo(0.3);
+        expect(z(0.5)).toBeLessThan(0.3);
+        expect(z(1)).toBeLessThan(z(0.5));
+        expect(z(1)).toBeGreaterThanOrEqual(0);
+    });
+
+    test("leaves the vertices beyond its reach, and the selection's rim, where they are", () => {
+        const surface = surfaceWithBump();
+        const far = applyEdits(surface, [{...middle, strength: 1, reach: 0.2}], applyShape);
+        expect(far.moved).toBe(0);
+        expect(height(surface, far, 2, 2)).toBeCloseTo(0.3);
+        const tilted = {...middle, line: [[1, 2, 1], [3, 2, 1]], strength: 1, reach: 5};
+        const result = applyEdits(surface, [tilted], applyShape);
+        expect(height(surface, result, 1, 1)).toBe(0);  // on the rim
+        expect(height(surface, result, 2, 2)).toBeGreaterThan(0.3);  // toward the line above
+    });
+});
+
+describe("Clone Texture", () => {
+    // A 4 by 4 grid, its two pieces' textures plain red (x under 2) and plain blue
+    const pieces = () => grid(4).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
+    const sample = piece => piece === 0 ? [255, 0, 0] : [0, 0, 255];
+    const target = {op: "clone", type: "box", keep: false, center: [3.5, 2, 0], size: [0.9, 3.9, 5], turn: 0, source: [1, 2, 0], patch: 1, spin: 0};
+
+    test("a plane's frame has v the most upward, u across", () => {
+        const level = planeFrame([0, 0, 1]);
+        expect(level.v.map(x => Math.round(x) + 0)).toEqual([0, 1, 0]);
+        expect(level.u.map(x => Math.round(x) + 0)).toEqual([1, 0, 0]);
+        const wall = planeFrame([1, 0, 0]);
+        expect(wall.v.map(x => Math.round(x) + 0)).toEqual([0, 0, 1]);
+        expect(wall.u.map(x => Math.round(x) + 0)).toEqual([0, 1, 0]);
+    });
+
+    test("the covered triangles move to a piece of their own, textured from the source", () => {
+        const model = pieces();
+        const surface = weld(model);
+        const result = applyEdits(surface, [{...target, feather: 0}], applyShape);
+        expect(result.cloned).toBe(8);  // the last column's 4 squares
+        expect(result.removed).toBe(0);
+        const out = editedPieces(model, surface, result);
+        expect(out.reduce((sum, p) => sum + p.indices.length / 3, 0)).toBe(24);
+        const regions = cloneRegions(surface, model, result);
+        expect([...regions.keys()].sort()).toEqual([0, 1]);
+        const atlas = cloneAtlas(surface, model, result, sample);
+        expect(atlas.piece.indices.length).toBe(24);
+        // Every texel the triangles cover is the source's red
+        const u = (atlas.piece.uvs[0] + atlas.piece.uvs[2] + atlas.piece.uvs[4]) / 3, v = (atlas.piece.uvs[1] + atlas.piece.uvs[3] + atlas.piece.uvs[5]) / 3;
+        const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+        expect(Array.from(atlas.rgba.slice(i, i + 3))).toEqual([255, 0, 0]);
+    });
+
+    test("the feather keeps the triangles' own texture at their edge, the source's further in", () => {
+        const model = pieces();
+        const surface = weld(model);
+        const result = applyEdits(surface, [{...target, feather: 2}], applyShape);
+        const atlas = cloneAtlas(surface, model, result, sample);
+        // Along the middle row of the clone's part: bluer at its edges than at its middle
+        const row = Math.floor(atlas.height / 2);
+        const blues = [];
+        for (let x = 0; x < atlas.width; x++) if (atlas.rgba[4 * (row * atlas.width + x) + 3]) blues.push(atlas.rgba[4 * (row * atlas.width + x) + 2]);
+        expect(blues.length).toBeGreaterThan(0);
+        expect(Math.max(...blues)).toBeGreaterThan(0);
+    });
+
+    test("a later clone over the same triangles wins, and none is textured without a source near", () => {
+        const surface = weld(pieces());
+        const twice = applyEdits(surface, [{...target, feather: 0}, {...target, feather: 0, source: [3, 2, 0]}], applyShape);
+        expect(twice.clones.length).toBe(1);
+        expect(twice.clones[0].edit.source).toEqual([3, 2, 0]);
+        const nowhere = applyEdits(surface, [{...target, source: [50, 50, 0], feather: 0}], applyShape);
+        expect(cloneAtlas(surface, pieces(), nowhere, sample)).toBeNull();
+    });
+
+    test("a loaded region is sampled bilinearly, clamped to its edge", () => {
+        const region = {rgba: Uint8ClampedArray.from([0, 0, 0, 255, 100, 100, 100, 255]), x0: 2, y0: 0, w: 2, h: 1, width: 4, height: 1};
+        expect(sampleRegion(region, 2.5 / 4, 0.5)[0]).toBeCloseTo(0);
+        expect(sampleRegion(region, 3 / 4, 0.5)[0]).toBeCloseTo(50);
+        expect(sampleRegion(region, 0.99, 0.5)[0]).toBeCloseTo(100);
+    });
+});
+
+describe("fills with detail", () => {
+    test("a wide fill is textured from beside it, a narrow one keeps the smooth blend", () => {
+        // A 5 by 5 grid, 1 m squares, its middle square missing (0.7 m wide from its middle), all one red texture
+        const model = grid(5, (i, j) => i === 2 && j === 2).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
+        const surface = weld(model);
+        const result = applyEdits(surface, [{type: "holes", size: 4}], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(splitFills(result.fills).detailed.length).toBe(1);
+        expect(splitFills(result.fills).smooth.length).toBe(0);
+        const regions = cloneRegions(surface, model, result);
+        expect(regions.size).toBeGreaterThan(0);
+        const atlas = cloneAtlas(surface, model, result, () => [200, 50, 50]);
+        expect(atlas.piece.indices.length).toBe(6);
+        const u = (atlas.piece.uvs[0] + atlas.piece.uvs[2] + atlas.piece.uvs[4]) / 3, v = (atlas.piece.uvs[1] + atlas.piece.uvs[3] + atlas.piece.uvs[5]) / 3;
+        const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+        expect(Array.from(atlas.rgba.slice(i, i + 3)).map(Math.round)).toEqual([200, 50, 50]);
+
+        // The same hole a tenth the size is narrow
+        const small = grid(5, (i, j) => i === 2 && j === 2).map(p => ({...p, positions: p.positions.map(x => x / 10)}));
+        const tiny = applyEdits(weld(small), [{type: "holes", size: 4}], applyShape);
+        expect(splitFills(tiny.fills).smooth.length).toBe(1);
     });
 });

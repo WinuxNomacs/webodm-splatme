@@ -122,11 +122,11 @@ def glb_json(path):
     return json.loads(data[20 : 20 + length])
 
 
-def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False):
+def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False, unit=1.0):
     """
     A textured model as WebODM's texturing writes one, small: a GLB (no Draco, one primitive per material) with its
     OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0 (its vertex at 1, 1 raised by bump; with hole,
-    no middle square); material 1
+    no middle square; unit: its squares' size in metres); material 1
     a lone triangle 10 m away, a floating piece. coords.txt gives the task's offset.
     """
     folder = task.assets_path("odm_texturing")
@@ -141,7 +141,7 @@ def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False):
                 continue
             base = len(grid_positions)
             corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
-            grid_positions += [(x, y, bump if (x, y) == (1, 1) else 0) for x, y in corners]
+            grid_positions += [(x * unit, y * unit, bump if (x, y) == (1, 1) else 0) for x, y in corners]
             grid_indices += [base, base + 1, base + 2, base, base + 2, base + 3]
     pieces = [(grid_positions, grid_indices), ([(10, 10, 0), (11, 10, 0), (10, 11, 0)], [0, 1, 2])]
     binary, views, accessors, primitives = bytearray(), [], [], []
@@ -575,7 +575,7 @@ class TestSplatMe(BootTestCase):
 
     def test_fill_holes_adds_triangles_with_a_texture_of_their_own_which_goes_when_no_fill_needs_it(self):
         task = make_task(self.user)
-        folder = make_textured_model(task, hole=True)
+        folder = make_textured_model(task, hole=True, unit=0.05)  # a narrow hole: the smooth blend
         texture = os.path.join(folder, meshes.FILL_TEXTURE)
         for bad in ([{"type": "holes", "size": 0}], [{"type": "holes", "size": meshes.MAX_HOLE + 1}], [{"type": "holes"}]):
             self.assertEqual(self.model_edits(task, bad).status_code, 400, bad)
@@ -600,6 +600,93 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
         self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertTrue(os.path.exists(texture))
+        self.assertEqual(self.model_edits(task, []).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertFalse(os.path.exists(texture))
+
+    def test_a_wide_fill_is_textured_from_beside_it_in_the_clones_texture(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, hole=True)  # a 1 m hole
+        self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual((res.data["apply"]["filled"], res.data["apply"]["added"]), (1, 2))
+        self.assertTrue(os.path.exists(os.path.join(folder, meshes.CLONE_TEXTURE)))
+        self.assertFalse(os.path.exists(os.path.join(folder, meshes.FILL_TEXTURE)))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl splatme_clone\n", f.read())
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+
+    def test_move_and_smooth_change_the_models_shape_in_steps_checked_by_the_server(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        middle = {"type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        raise_ = {"op": "move", **middle, "offset": [0, 0, 0.5], "scale": [1, 1, 1], "soft": 0}
+        for bad in ({**raise_, "offset": [0, 0]}, {**raise_, "scale": [1, 0, 1]}, {**raise_, "soft": -1},
+                    {**raise_, "offset": [0, 0, 101]}, {"op": "smooth", **middle, "passes": 0},
+                    {"op": "smooth", **middle, "passes": 1.5}, {"op": "smooth", **middle}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [raise_])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"], [{**raise_, "offset": [0.0, 0.0, 0.5], "scale": [1.0, 1.0, 1.0], "soft": 0.0}])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["moved"], 4)  # the middle square's corners
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertAlmostEqual(max(heights), 1.0, places=5)  # the bump's corner, raised with the rest
+        self.assertEqual(sorted({round(z, 4) for z in heights}), [0.0, 0.5, 1.0])
+
+        # Smooth over the four squares around the bump: its vertex settles toward its flat neighbours
+        around = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        self.assertEqual(self.model_edits(task, [{"op": "smooth", **around, "passes": 3}]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertLess(max(heights), 0.5)
+        self.assertGreater(max(heights), 0)
+
+    def test_straighten_keeps_its_line_in_the_tasks_projection_and_pulls_the_surface_to_it(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        around = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        line = {"op": "straighten", **around, "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}
+        for bad in ({**line, "line": [[0, 1, 0]]}, {**line, "strength": 1.5}, {**line, "reach": 0},
+                    {**line, "line": [[0, 1], [2, 1]]}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [line])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"][0]["line"], [[0, 1, 0], [2, 1, 0]])
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["line"], [[1000, 2001, 0], [1002, 2001, 0]])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["moved"], 2)  # within reach and inside the rim: the bump, and (0, 1) on the line
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertAlmostEqual(max(heights), 0.25, places=4)  # 0.5 m from the line, reach 1: half the way
+
+    def test_clone_texture_moves_the_covered_triangles_to_a_texture_of_their_own_which_goes_with_the_clone(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        texture = os.path.join(folder, meshes.CLONE_TEXTURE)
+        column = {"type": "box", "keep": False, "center": [2.5, 1.5, 0], "size": [0.9, 2.9, 5], "turn": 0}
+        clone = {"op": "clone", **column, "source": [0.5, 1.5, 0], "patch": 1, "feather": 0.25, "spin": 0}
+        for bad in ({**clone, "source": [0, 1]}, {**clone, "patch": 0}, {**clone, "feather": 6}, {**clone, "spin": 200}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [clone])
+        self.assertEqual(res.status_code, 200, res.data)
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["source"], [1000.5, 2001.5, 0])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["cloned"], 6)  # the last column's 3 squares
+        self.assertEqual(res.data["apply"]["triangles"], 19)
+        self.assertTrue(os.path.exists(texture))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl splatme_clone\n", f.read())
+        self.assertEqual(len(glb_json(os.path.join(folder, meshes.GLB))["meshes"][0]["primitives"]), 3)
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+
         self.assertEqual(self.model_edits(task, []).status_code, 200)
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)

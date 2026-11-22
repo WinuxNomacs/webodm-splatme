@@ -14,9 +14,9 @@ other software. The plugin does that step.
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
-Model editing (M0 to M4 and its docs) is built: see "13. Model editing". A possible follow-up, after the release:
-detail in the fills (texture from beside each hole, or photo projection), and fills that stay inside the removed
-area when it joins older holes.
+Model editing (M0 to M4) and the repair tools (R1 to R5) are built: see sections 13 and 14. Possible follow-ups,
+after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
+joins older holes.
 
 **Then**
 
@@ -3230,3 +3230,86 @@ photo projection could follow.
   cache, never checked against the GLB's time): Update the Model deletes them. The Textured Model download is
   zipped from `odm_texturing/` as it is when asked for: the originals are kept in `data/splatme`, not there. A
   task's 3D Tiles model (`3d_tiles/model`) is not edited.
+
+### 14. Model repair tools (asked and built 2026-11-22, branch model-repair)
+
+**The request** (the user, with a close-up of a real model: a dormer window under a shingled roof). What users see
+and need to correct:
+
+- holes in the windows and in the shingles;
+- shingles clear in places but broken and curved in others;
+- part of the shingled eave sits in front of the siding below it, where it should be raised above it;
+- the roof sits lower than it should.
+
+Tools asked for: select areas to fill in; raise, shift, align, stretch, straighten and smooth them; copy texture
+from a known good area, tiled and blended into others (windows, shingles, lawn, objects); adjustments made in steps.
+For example: select the gutter, draw a line inside the selection to show how straight it should be, then press + or
+- to pull the selection toward the line in steps, or let it go back.
+
+**What it builds on:** section 13's edit list (shape + `op`, the same rule in the preview and in Update the Model,
+originals kept). Each new tool is one more `op` with its parameters, so a step is a parameter change in the list:
+it can be undone, stays editable, and never piles up.
+
+**Proposed tools, as ops:**
+
+- **Move** (raise, shift, stretch): what the shape covers moved by an offset, scaled or turned with the box's
+  handles, the move fading to nothing across a soft edge (a width in metres), so the surface stretches instead of
+  tearing. Steps: the offset in centimetres (+/-). This raises the roof, and lifts the eave above the siding.
+- **Smooth**: the covered vertices moved toward their neighbours' mean (Laplacian), the rim fixed. Steps: the number
+  of passes (+/-). This settles curved and broken shingles and lumpy walls.
+- **Straighten**: a line drawn inside the selection (two points on the surface); the covered vertices pulled toward
+  it, the pull fading with distance from the line. Steps: the strength, 0 to 100% in tens (+/-). This straightens
+  gutters, eaves, ridges and window frames. Flatten (built) is the same idea for a plane.
+- **Clone Texture**: a source shape (the known good area) and a target shape. The source's texture, rendered flat on
+  its plane at its own resolution, is tiled across the target on the target's plane (rows kept level: each plane's v
+  axis is its most upward direction) and blended into the target's own texture across a feathered edge. Steps: the
+  feather width, and an offset or turn of the tiling. The target's triangles get new uvs into a texture made for
+  them, as fills do. This repairs shingles, siding, lawn and windows.
+- **Fills with detail**: Fill Holes and Remove Object filling with Clone Texture from a ring around each hole,
+  instead of the smooth blend.
+
+**Technical notes:**
+
+- Clone Texture needs the full-resolution textures. In Node: sharp decodes only the textures the source touches. In
+  the browser: those textures read once into a canvas (`getImageData`; Brave's noise does not matter for a preview).
+  The source is rasterised in plain JS (barycentric, in `meshEdits.js`), so the preview and the update share it.
+- Moving vertices never changes uvs, so the texture stretches over a moved area's soft edge. Clone Texture is the
+  repair where that shows.
+- The eave in front of the siding may be geometry (fixed by Move) or texture (shingles painted on the siding's
+  triangles, fixed by Clone Texture from the siding); both tools cover it.
+
+**Proposed phases:** R1 Move and Smooth, with the list's step controls (+/-) for any op with a strength. R2
+Straighten, with the line drawn on the surface. R3 Clone Texture. R4 Fills with detail (R3's renderer). R5 docs.
+
+**Built:** R1 (branch `model-repair`): Move Inside (`op: "move"`, `offset`, `scale`, `soft`) and Smooth Inside
+(`op: "smooth"`, `passes`), as list actions, Smooth also as a Brush mode; the selected edit's settings under the
+list, each with - and + (Up, East, North in 5 cm steps; Stretch in 5%; Soft Edge in 0.25 m; Passes one at a time),
+each step one Undo. Live on a copy of the check task: four Up steps raised a default box's surface 0.2 m (40,167
+points), a Smooth brush stroke, and the update moved the same 60,061 points as the preview, in 9 s.
+
+R2: Straighten Inside (`op: "straighten"`, `line`, `strength` 0 to 1, `reach` m): choosing it starts the line (two
+clicks on the model, a line tethered to the pointer after the first; the edit is left out of the view meanwhile, so
+what it hid can be clicked); the vertices inside the shape but its rim pulled toward the line, fading to nothing
+at the reach; Strength in 10% steps, Reach in 0.05 m; either end dragged on the model; Draw the Line Again. The
+line is shifted with the shape between the task's projection and the model's frame.
+
+R3: Clone Texture Inside (`op: "clone"`, `source` point, `patch` m, `feather` m, `spin` degrees): choosing it asks
+for one click on a good area; the source patch (the triangles within reach of the point, drawn flat on their
+plane at 1 cm texels, at most 1,024 across, gaps filled from neighbours) is tiled mirrored across the target's
+plane (v the most upward direction, north for level ground), turned by spin, and blended into the target's own
+texture over the feather (chamfer distance to the target's edge). The target's triangles move to a piece of their
+own (material `splatme_clone`, `odm_textured_model_geo_splatme_clone_map_Kd.png`); the last clone over a triangle
+wins; applied after all other edits. Only the texture regions involved are read at full size (sharp `extract` in
+Node, a canvas `drawImage` of the sub-rectangle in the browser). Live: a default box retextured with lawn from a
+1 m source (55,375 triangles; preview 1.7 s; update 8 s).
+
+R4: fills with detail: a fill 0.1 m or more from its middle to its rim (`FILL_DETAIL`) is textured as a clone is,
+from a patch as wide as it beside it (of four, one fill-width along its plane's directions, the one with the most
+surface facing as the fill does, found through a grid of triangle centres), blended from the rim's colours over
+half its width; narrower fills keep the smooth blend. Both textures' parts go in the clones' texture
+(`splatme_clone`). Live: Fill Holes Small and Remove Object over the round flower bed: the bed is lawn with grass
+detail where it was a smooth patch; Fill Holes' preview 2.2 s, the update 10 s.
+
+**The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
+line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
+area shows while placing the second), then either end draggable.

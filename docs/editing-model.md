@@ -1,9 +1,11 @@
 # Editing the 3D Model
 
 WebODM's textured 3D model often has small holes where no photo saw the surface, loose bits floating around the
-scene, bumpy roofs and walls, and things you would rather not show (a parked car, a person). **Edit** cleans it up:
-it removes pieces, fills holes, flattens surfaces and removes objects, filling the hole each leaves. The edits are
-kept with the task, and the model's original files are kept too, so nothing is lost.
+scene, bumpy roofs and walls, crooked gutters, broken shingles, parts sitting too low, and things you would rather
+not show (a parked car, a person). **Edit** repairs it: it removes pieces, fills holes, flattens, smooths,
+straightens and moves surfaces, removes objects, and copies the texture of a good area over a bad one. Most
+repairs are adjusted a step at a time. The edits are kept with the task, and the model's original files are kept
+too, so nothing is lost.
 
 ## Opening the Editor
 
@@ -30,9 +32,31 @@ covers. What it does is chosen in the list:
 - **Fill Holes Inside**: fills the holes whose whole edge it covers.
 - **Remove Object**: removes what it covers, then fills the hole that leaves, so the ground under a car or a
   person closes over. Draw it close around the object: the fill spans the hole's whole edge.
+- **Move Inside**: raises, shifts or stretches what it covers: a roof that sits too low, an eave that should sit
+  above the wall below it. The move fades to nothing over a **Soft Edge** around it, so the surface stretches
+  instead of tearing.
+- **Smooth Inside**: evens out what it covers, its edge fixed: lumpy walls, bent or broken shingles. More
+  **Passes**, smoother.
+- **Straighten Inside**: pulls what it covers toward a straight line: a gutter, an eave, a ridge, a window
+  frame. Choosing it asks for the line: click one end on the model, and a line follows the pointer from it; click
+  the other end. While the line is placed, the view leaves this edit out, so what it hid can be clicked. Either
+  end can then be dragged on the model, or **Draw the Line Again**. The pull is strongest at the line and fades to
+  nothing at **Reach** from it.
+- **Clone Texture Inside**: covers what it covers with the texture of a good area: shingles over broken
+  shingles, siding over a smear, lawn over a bare patch. Choosing it asks for one click on the middle of the good
+  area. A square of it, **Source Size** across (shown in the view while the edit is picked), is laid flat and
+  repeated across the shape's surface, with its rows kept level (north up on level ground); **Turn Texture**
+  turns it, and **Feather** blends it into the surface's own texture near the shape's edge. It changes only the
+  texture, after all the other edits.
 
-The **Brush**'s panel has the same choices as buttons: **Remove**, **Restore** (paints back what the edits above
-it removed), **Flatten**, **Fill Holes** and **Remove Object**. Each switch starts a new edit in the list.
+The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
+step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North** and
+**Stretch Up** (5%) and **Soft Edge** (0.25 m); Smooth Inside's **Passes**; Straighten Inside's **Strength** (10%)
+and **Reach** (5 cm); Clone Texture Inside's **Source Size** (0.25 m), **Feather** (5 cm) and **Turn Texture**
+(15 degrees). The view shows each step as it is made.
+
+The **Brush**'s panel has buttons for **Remove**, **Restore** (paints back what the edits above it removed),
+**Smooth**, **Flatten**, **Fill Holes** and **Remove Object**. Each switch starts a new edit in the list.
 
 Two tools act on the whole model, once each:
 
@@ -45,12 +69,14 @@ Two tools act on the whole model, once each:
 The edits apply in the list's order: a fill closes its hole for the edits below it, and a restore brings back
 only what the edits above it removed. The model's outer edge is never filled, nor a hole of more than 5,000 edges.
 
-A filled hole is coloured from the model's texture around its edge, blended across it. It has the right colours
-but no detail, which suits small holes and plain ground better than a large hole in a patterned surface. Where a
-removed object's hole joins older holes beside it, the fill spans them all and can cover some of the ground
-around them: draw the shape again, smaller.
+A filled hole 20 cm or more across takes the texture of the surface beside it, repeated across it and blended into
+the colours at its edge, so a removed object leaves lawn, gravel or roof in its place. A smaller hole is coloured
+from its edge, blended across it. Where a removed object's hole joins older holes beside it, the fill spans them
+all and can cover some of the ground around them: draw the shape again, smaller. **Clone Texture Inside** over a
+fill replaces its texture with one you choose.
 
-The line under the view says how many triangles the model has, and how many the edits remove, flatten and fill. The
+The line under the view says how many triangles the model has, how many the edits remove and retexture, how many
+points they move and how many holes they fill. The
 view shows the edits as they change, by the same rule **Update the Model** uses. **Undo**, **Redo**, **Clear
 Edits**, the keys, moving around (a double-click centres the view on the surface under the pointer) and saving
 work as on [Editing Splats](editing.md#moving-around).
@@ -59,13 +85,14 @@ work as on [Editing Splats](editing.md#moving-around).
 
 **Update the Model** makes the task's textured model again with the edits: the GLB that WebODM's 3D view and the
 share links show, and the OBJ with its MTL that the **Textured Model** download gives. It takes seconds (about 7
-for an 850,000-triangle model). Under the button, the editor says whether the task's model has the edits as they
+to 10 for an 850,000-triangle model). Under the button, the editor says whether the task's model has the edits as they
 are now. **Cancel**, beside the button while it runs, stops it and leaves the model as it was.
 
 The first update keeps the model's original files in the task's `data/splatme/model` folder, and every update
 starts from them, so edits never pile up. To make the model whole again, **Clear Edits**, then **Update the
-Model**. The fills' texture is one more image beside the model's
-(`odm_textured_model_geo_splatme_fill_map_Kd.png`), named in the MTL; an update with no fill removes it.
+Model**. The textures the edits make are more images beside the model's, named in the MTL:
+`odm_textured_model_geo_splatme_clone_map_Kd.png` (Clone Texture and the wider fills) and
+`odm_textured_model_geo_splatme_fill_map_Kd.png` (the smaller fills); an update that needs neither removes it.
 
 A task processed again gets a new model from WebODM. Its edits stay in the list: press **Update the Model** to
 apply them to the new one.

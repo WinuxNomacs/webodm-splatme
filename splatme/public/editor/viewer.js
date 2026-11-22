@@ -9,7 +9,7 @@ import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, applyShape, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
-import { weld, applyEdits, fillColours, fillAtlas, sampleImage } from "../meshEdits.js";
+import { weld, applyEdits, fillColours, fillAtlas, splitFills, sampleImage, cloneSource, cloneRegions, cloneAtlas, sampleRegion, regionRect } from "../meshEdits.js";
 
 const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as meshApply.mjs's)
 
@@ -91,6 +91,8 @@ export function createViewer(container, handlers){
     let rgb = null, colourShown = "";  // the splats' colours as trained; the Colour Adjust shown ("": none)
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
+    let placing = null;  // Straighten's line being placed: {first: its first end (Vector3) or null, object}
+    let dragging = null;  // an end of the picked edit's Straighten line being dragged: {end: 0 or 1}
     let lasso = null;  // {points: [[x, y] in pixels], down}
     let brush = null;  // {size: pixels across, points: [[x, y] in pixels], down, at: [x, y] the pointer, or null}
     // The lasso's stroke, drawn on a flat canvas over the view
@@ -118,9 +120,11 @@ export function createViewer(container, handlers){
     // The model's triangles each edit removes hidden, by meshEdits.js's rule (the one Update the Model runs): each
     // piece drawn with the triangles kept only, its corners where Flatten moved them
     function applyModelMask(){
-        const result = applyEdits(model.surface, edits, applyShape);
+        // While Straighten's line is placed, the edit it is for is left out: what it hid can be clicked on
+        const shown = placing && placing.skip >= 0 ? edits.filter((_e, i) => i !== placing.skip) : edits;
+        const result = applyEdits(model.surface, shown, applyShape);
         model.kept = result;
-        if (result.flattened || model.moved){
+        if (result.moved || model.moved){
             model.meshes.forEach((m, k) => {
                 const ids = model.surface.vertexOf[k], attribute = m.geometry.attributes.position, array = attribute.array;
                 for (let c = 0; c < ids.length; c++){
@@ -133,12 +137,14 @@ export function createViewer(container, handlers){
                 m.geometry.computeBoundingSphere();
                 m.geometry.computeBoundingBox();
             });
-            model.moved = result.flattened > 0;
+            model.moved = result.moved > 0;
         }
         showFills(result);
+        showClones(result);
+        if (selected >= 0 && edits[selected] && edits[selected].source) drawShapes();  // its source square follows the surface
         const lists = model.pieces.map(() => []);
         const { pieceOf, localOf } = model.surface;
-        for (let f = 0; f < result.kept.length; f++) if (result.kept[f]) lists[pieceOf[f]].push(localOf[f]);
+        for (let f = 0; f < result.kept.length; f++) if (result.kept[f] && result.cloneOf[f] < 0) lists[pieceOf[f]].push(localOf[f]);
         model.meshes.forEach((m, k) => {
             const source = model.pieces[k].indices, list = lists[k];
             const index = new Uint32Array(list.length * 3);
@@ -171,6 +177,65 @@ export function createViewer(container, handlers){
         return model.copies.get(k);
     }
 
+    // A part of piece k's texture at full size, read once: {rgba, x0, y0, w, h, width, height} (sampleRegion's)
+    function textureRegion(k, r){
+        const image = model.meshes[k].material && model.meshes[k].material.map && model.meshes[k].material.map.image;
+        if (!image) return null;
+        const rect = regionRect(r, image.width, image.height);
+        const key = k + ":" + rect.x0 + "," + rect.y0 + "," + rect.w + "," + rect.h;
+        if (!model.regions.has(key)){
+            const canvas2 = document.createElement("canvas");
+            canvas2.width = rect.w;
+            canvas2.height = rect.h;
+            const context = canvas2.getContext("2d", {willReadFrequently: true});
+            context.drawImage(image, rect.x0, rect.y0, rect.w, rect.h, 0, 0, rect.w, rect.h);
+            model.regions.set(key, {...rect, rgba: context.getImageData(0, 0, rect.w, rect.h).data, width: image.width, height: image.height});
+        }
+        return model.regions.get(key);
+    }
+
+    // The triangles Clone Texture covers, drawn with the texture Update the Model makes for them
+    function showClones(result){
+        if (model.clones){
+            model.clones.parent.remove(model.clones);
+            model.clones.geometry.dispose();
+            model.clones.material.map.dispose();
+            model.clones.material.dispose();
+            model.clones = null;
+        }
+        if (!result.clones.length && !splitFills(result.fills).detailed.length) return;
+        const regions = new Map();
+        for (const [k, r] of cloneRegions(model.surface, model.pieces, result)){
+            const region = textureRegion(k, r);
+            if (region) regions.set(k, region);
+        }
+        const atlas = cloneAtlas(model.surface, model.pieces, result, (k, u, v) => regions.has(k) ? sampleRegion(regions.get(k), u, v) : [128, 128, 128]);
+        if (!atlas) return;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(atlas.piece.positions, 3));
+        geometry.setAttribute("uv", new THREE.BufferAttribute(atlas.piece.uvs, 2));
+        geometry.setIndex(new THREE.BufferAttribute(atlas.piece.indices, 1));
+        const map = new THREE.DataTexture(new Uint8Array(atlas.rgba.buffer), atlas.width, atlas.height, THREE.RGBAFormat);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.magFilter = map.minFilter = THREE.LinearFilter;
+        map.needsUpdate = true;
+        model.clones = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide}));
+        model.meshes[0].parent.add(model.clones);
+    }
+
+    // A clone's source: a square on the surface's plane, its size across, about the point picked
+    function sourceObject(edit){
+        if (!model || !model.kept) return null;
+        const source = cloneSource(model.surface, model.kept.positions, model.kept.kept, edit);
+        if (!source) return null;
+        const c = new THREE.Vector3(...source.point), u = new THREE.Vector3(...source.u).multiplyScalar(source.half);
+        const v = new THREE.Vector3(...source.v).multiplyScalar(source.half);
+        const corners = [c.clone().sub(u).sub(v), c.clone().add(u).sub(v), c.clone().add(u).add(v), c.clone().sub(u).add(v)];
+        const object = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), lineMaterial(colors.keep));
+        object.renderOrder = 10;
+        return object;
+    }
+
     // The holes the edits fill, drawn with the texture Update the Model makes for them
     function showFills(result){
         if (model.fills){
@@ -180,12 +245,13 @@ export function createViewer(container, handlers){
             model.fills.material.dispose();
             model.fills = null;
         }
-        if (!result.fills.length) return;
-        const colours = fillColours(model.surface, model.pieces, result.fills, (k, u, v) => {
+        const smooth = splitFills(result.fills).smooth;  // the wider ones are textured as clones are
+        if (!smooth.length) return;
+        const colours = fillColours(model.surface, model.pieces, smooth, (k, u, v) => {
             const copy = textureCopy(k);
             return copy ? sampleImage(copy, SAMPLE_SIZE, u, v) : [128, 128, 128];
         });
-        const atlas = fillAtlas(result.fills, colours, result.positions);
+        const atlas = fillAtlas(smooth, colours, result.positions);
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.BufferAttribute(atlas.piece.positions, 3));
         geometry.setAttribute("uv", new THREE.BufferAttribute(atlas.piece.uvs, 2));
@@ -333,7 +399,115 @@ export function createViewer(container, handlers){
             shapes.add(object);
             return object;
         });
+        // The picked edit's Straighten line, apart from its shape (a box's object is scaled and turned)
+        const picked = selected >= 0 ? edits[selected] : null;
+        if (picked && picked.line) shapes.add(lineObject(new THREE.Vector3(...picked.line[0]), new THREE.Vector3(...picked.line[1])));
+        if (picked && picked.source){
+            const square = sourceObject(picked);
+            if (square) shapes.add(square);
+        }
         if (selected >= 0 && edits[selected] && edits[selected].type === "box") transform.attach(handles[selected]);
+    }
+
+    // Straighten's line: a line between its ends, each end a dot
+    function lineObject(a, b){
+        const group = new THREE.Group();
+        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), lineMaterial(colors.keep)));
+        const dots = new THREE.Points(new THREE.BufferGeometry().setFromPoints([a, b]),
+            new THREE.PointsMaterial({color: colors.keep, size: 10, sizeAttenuation: false, depthTest: false, transparent: true}));
+        group.add(dots);
+        group.traverse(o => { o.renderOrder = 10; });
+        return group;
+    }
+
+    // The model's surface under the pointer (its fills included), or null
+    function surfacePoint(event){
+        if (!model) return null;
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const targets = model.meshes.filter(m => m.visible);
+        if (model.fills) targets.push(model.fills);
+        const hit = raycaster.intersectObjects(targets, false)[0];
+        return hit ? hit.point.clone() : null;
+    }
+
+    // Where the pointer is on the plane through a point that faces the view (for a line off the model)
+    function facingPoint(event, through){
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const normal = camera.getWorldDirection(new THREE.Vector3());
+        return raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, through), new THREE.Vector3());
+    }
+
+    // An end of the picked edit's line within reach of the pointer on screen: 0, 1 or -1
+    function lineEndAt(event){
+        const edit = selected >= 0 ? edits[selected] : null;
+        if (!edit || !edit.line) return -1;
+        const rect = canvas.getBoundingClientRect();
+        camera.updateMatrixWorld();
+        for (const end of [0, 1]){
+            const p = new THREE.Vector3(...edit.line[end]).project(camera);
+            const x = (p.x + 1) / 2 * rect.width, y = (1 - p.y) / 2 * rect.height;
+            if (Math.hypot(x - (event.clientX - rect.left), y - (event.clientY - rect.top)) <= CORNER_PIXELS) return end;
+        }
+        return -1;
+    }
+
+    // Placing Straighten's line: a click on the model drops its first end, a line follows the pointer from it, and
+    // a second click ends it (onLine(line)); the view still turns between clicks
+    // skip: the edit the line is for, left out of the view meanwhile; count: its points (1: a single point, Clone
+    // Texture's source)
+    function startLine(skip = -1, count = 2){
+        endBrush();
+        cancelPolygon();
+        cancelLasso();
+        cancelLine();
+        transform.detach();
+        placing = {first: null, object: null, skip, count};
+        canvas.style.cursor = "crosshair";
+        if (skip >= 0) queueMask();
+    }
+    function cancelLine(){
+        if (!placing) return;
+        if (placing.object){
+            scene.remove(placing.object);
+            clearGroup(placing.object);
+        }
+        const skipped = placing.skip >= 0;
+        placing = null;
+        canvas.style.cursor = "";
+        drawShapes();
+        if (skipped) queueMask();
+        if (handlers.onLineEnd) handlers.onLineEnd();
+    }
+    function drawPlacing(to){
+        if (placing.object){
+            scene.remove(placing.object);
+            clearGroup(placing.object);
+        }
+        placing.object = lineObject(placing.first, to || placing.first);
+        scene.add(placing.object);
+    }
+    function placeLine(event){
+        const point = surfacePoint(event);
+        if (!point) return;
+        if (placing.count === 1){
+            cancelLine();
+            if (handlers.onLine) handlers.onLine([point.toArray().map(round)]);
+            return;
+        }
+        if (!placing.first){
+            placing.first = point;
+            drawPlacing(null);
+            return;
+        }
+        const line = [placing.first, point].map(v => v.toArray().map(round));
+        cancelLine();
+        if (handlers.onLine) handlers.onLine(line);
     }
 
     // The dragged box back as an edit: its turn only about the vertical (the view's own ring may tilt it)
@@ -449,6 +623,19 @@ export function createViewer(container, handlers){
         return [event.clientX - rect.left, event.clientY - rect.top];
     }
     function onPointerMove(event){
+        if (placing && placing.first){
+            drawPlacing(surfacePoint(event) || facingPoint(event, placing.first));
+            return;
+        }
+        if (dragging){
+            const point = surfacePoint(event);
+            if (!point) return;
+            const edit = {...edits[selected], line: edits[selected].line.slice()};
+            edit.line[dragging.end] = point.toArray().map(round);
+            edits[selected] = edit;
+            drawShapes();
+            return;
+        }
         if (brush){
             brush.at = strokePoint(event);
             if (brush.down) brush.points.push(brush.at);
@@ -489,11 +676,33 @@ export function createViewer(container, handlers){
             canvas.setPointerCapture(event.pointerId);
             return;
         }
+        if (!placing && !drawing){
+            const end = lineEndAt(event);
+            if (end >= 0){
+                dragging = {end};
+                controls.enabled = false;
+                canvas.setPointerCapture(event.pointerId);
+                return;
+            }
+        }
         pointer.x = event.clientX;
         pointer.y = event.clientY;
         pointer.down = true;
     }
     function onPointerUp(event){
+        if (dragging){
+            dragging = null;
+            controls.enabled = true;
+            queueMask();
+            if (handlers.onLineChange) handlers.onLineChange(selected, edits[selected].line);
+            return;
+        }
+        if (placing){
+            const click = pointer.down && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= CLICK_PIXELS;
+            pointer.down = false;
+            if (click) placeLine(event);
+            return;
+        }
         if (brush){
             if (brush.down) endBrushStroke();
             return;
@@ -586,6 +795,7 @@ export function createViewer(container, handlers){
         }
     }
     function onKey(event){
+        if (placing && event.key === "Escape") cancelLine();
         if (lasso && event.key === "Escape") cancelLasso();
         if (brush){
             if (event.key === "Escape") endBrush();
@@ -611,6 +821,7 @@ export function createViewer(container, handlers){
 
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
     function startLasso(){
+        cancelLine();
         endBrush();
         cancelPolygon();
         cancelLasso();
@@ -631,6 +842,7 @@ export function createViewer(container, handlers){
     // Painting with the brush: the view holds still while strokes are painted, each letting go one stroke, until
     // endBrush (Done or Escape)
     function startBrush(size, restore){
+        cancelLine();
         cancelPolygon();
         cancelLasso();
         endBrush();
@@ -670,6 +882,7 @@ export function createViewer(container, handlers){
     }
 
     function startPolygon(){
+        cancelLine();
         endBrush();
         cancelLasso();
         cancelPolygon();
@@ -757,7 +970,7 @@ export function createViewer(container, handlers){
                 positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice(),
                 uvs: m.geometry.attributes.uv ? m.geometry.attributes.uv.array : null}));
             const surface = weld(pieces);
-            model = {group: gltf.scene, meshes, pieces, surface, kept: null, copies: new Map(), fills: null};
+            model = {group: gltf.scene, meshes, pieces, surface, kept: null, copies: new Map(), fills: null, clones: null, regions: new Map()};
             scene.add(gltf.scene);
             const n = surface.count;
             xs = new Float64Array(n);
@@ -777,7 +990,7 @@ export function createViewer(container, handlers){
         // What the model's edits do now: {removed, floating, added} triangles, flattened points and filled holes (null
         // before the model shows)
         modelResult(){
-            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened,
+            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened, moved: model.kept.moved, cloned: model.kept.cloned,
                 filled: model.kept.fills.length, added: model.kept.added} : null;
         },
         // The edits to show, and which one has the handles (-1: none)
@@ -834,7 +1047,7 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
             observer.disconnect();

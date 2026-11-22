@@ -10,10 +10,17 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
              moved onto the plane that best fits the selection's rim (the rim staying put)
     fill     {"op": "fill", <a shape>}: the holes whose whole rim the shape covers filled
     object   {"op": "object", <a shape>}: Remove Object, what the shape covers removed and the hole it leaves filled
+    move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
+             scaled about its middle and moved, the move fading to nothing over soft metres around it
+    smooth   {"op": "smooth", <a shape>, "passes": n}: what the shape covers smoothed, n passes, its rim fixed
+    clone    {"op": "clone", <a shape>, "source": [x, y, z], "patch": metres, "feather": metres, "spin": degrees}:
+             Clone Texture, what the shape covers textured with the texture around source, tiled and blended in
+    straighten {"op": "straighten", <a shape>, "line": [[x, y, z], [x, y, z]], "strength": 0 to 1, "reach": metres}:
+             what the shape covers pulled toward the line, fading to nothing at reach from it
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
     holes    {"type": "holes", "size": n}: Fill Holes, every hole of at most n edges filled
 
-A fill's triangles have a texture of their own, made from the colours around each hole: FILL_TEXTURE beside the
+Cloned triangles get CLONE_TEXTURE the same way. A fill's triangles have a texture of their own, made from the colours around each hole: FILL_TEXTURE beside the
 model's textures, a material after the model's in the MTL (and a JPEG inside the GLB).
 
 The rule is public/meshEdits.js, the same code the page's preview runs; Update the Model (apply) runs it in WebODM's
@@ -41,12 +48,21 @@ KIND = "modelapply"  # the update's record and folder (training.get_apply)
 MAX_EDITS = edits.MAX_EDITS
 MAX_FLOATING = 100000  # triangles: as meshEdits.MAX_FLOATING
 MAX_HOLE = 5000  # edges: as meshEdits.MAX_HOLE
+MAX_OFFSET = 100  # metres a move goes along each axis, at most
+SCALES = (0.1, 10)  # a move's stretch along each axis
+MAX_SOFT = 20  # metres: a move's soft edge
+MAX_PASSES = 100  # Smooth's passes
+REACHES = (0.01, 20)  # metres: Straighten's reach
+PATCHES = (0.1, 20)  # metres: Clone Texture's source patch
+MAX_FEATHER = 5  # metres: Clone Texture's blend at the edge
 SHAPES = ("box", "polygon", "lasso", "brush")
-OPS = ("delete", "flatten", "fill", "object")
+OPS = ("delete", "flatten", "fill", "object", "move", "smooth", "straighten", "clone")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
 FILL_TEXTURE = "odm_textured_model_geo_splatme_fill_map_Kd.png"  # as meshApply.mjs's
+CLONE_TEXTURE = "odm_textured_model_geo_splatme_clone_map_Kd.png"  # as meshApply.mjs's
+TEXTURES = (FILL_TEXTURE, CLONE_TEXTURE)
 NODE_TIMEOUT = 30 * 60  # seconds Node may take to make the model (the check task's takes about 5)
 STOP_WAIT = 10  # seconds a stopped Node has to end before it is killed
 MESH_APPLY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meshApply.mjs")
@@ -85,13 +101,62 @@ def clean(given):
         op = edit.get("op")
         if op not in OPS or edit.get("type") not in SHAPES:
             raise edits.EditsError(f"Edit {i} is of an unknown kind.")
-        shape = {k: v for k, v in edit.items() if k != "op"}
+        params = clean_params(op, edit, i)
+        shape = {k: v for k, v in edit.items() if k != "op" and k not in params}
         try:
             (clean_shape,) = edits.clean([shape])
         except edits.EditsError as e:
             raise edits.EditsError(str(e).replace("Edit 1", f"Edit {i}", 1)) from None
-        out.append({"op": op, **clean_shape})
+        out.append({"op": op, **clean_shape, **params})
     return out
+
+
+def clean_params(op, edit, i):
+    """An op's own settings beside its shape (Move's, Smooth's), checked. Raises EditsError."""
+
+    def axes(name, low, high):
+        value = edit.get(name)
+        if not isinstance(value, list) or len(value) != 3:
+            raise edits.EditsError(f"Edit {i}'s {name} must be 3 numbers.")
+        out = [edits.number(v, f"Edit {i}'s {name}") for v in value]
+        if not all(low <= v <= high for v in out):
+            raise edits.EditsError(f"Edit {i}'s {name} must be from {low} to {high}.")
+        return out
+
+    if op == "move":
+        soft = edits.number(edit.get("soft"), f"Edit {i}'s soft edge")
+        if not 0 <= soft <= MAX_SOFT:
+            raise edits.EditsError(f"Edit {i}'s soft edge must be from 0 to {MAX_SOFT} m.")
+        return {"offset": axes("offset", -MAX_OFFSET, MAX_OFFSET), "scale": axes("scale", *SCALES), "soft": soft}
+    if op == "smooth":
+        passes = edit.get("passes")
+        if isinstance(passes, bool) or not isinstance(passes, int) or not 1 <= passes <= MAX_PASSES:
+            raise edits.EditsError(f"Edit {i}'s passes must be a whole number from 1 to {MAX_PASSES}.")
+        return {"passes": passes}
+    if op == "straighten":
+        line = edit.get("line")
+        if not isinstance(line, list) or len(line) != 2:
+            raise edits.EditsError(f"Edit {i}'s line must be 2 points.")
+        strength = edits.number(edit.get("strength"), f"Edit {i}'s strength")
+        reach = edits.number(edit.get("reach"), f"Edit {i}'s reach")
+        if not 0 <= strength <= 1:
+            raise edits.EditsError(f"Edit {i}'s strength must be from 0 to 1.")
+        if not REACHES[0] <= reach <= REACHES[1]:
+            raise edits.EditsError(f"Edit {i}'s reach must be from {REACHES[0]} to {REACHES[1]} m.")
+        return {"line": [edits.numbers(p, 3, f"Edit {i}'s line") for p in line], "strength": strength, "reach": reach}
+    if op == "clone":
+        source = edits.numbers(edit.get("source"), 3, f"Edit {i}'s source")
+        patch = edits.number(edit.get("patch"), f"Edit {i}'s source size")
+        feather = edits.number(edit.get("feather"), f"Edit {i}'s feather")
+        spin = edits.number(edit.get("spin"), f"Edit {i}'s turn")
+        if not PATCHES[0] <= patch <= PATCHES[1]:
+            raise edits.EditsError(f"Edit {i}'s source size must be from {PATCHES[0]} to {PATCHES[1]} m.")
+        if not 0 <= feather <= MAX_FEATHER:
+            raise edits.EditsError(f"Edit {i}'s feather must be from 0 to {MAX_FEATHER} m.")
+        if not -180 <= spin <= 180:
+            raise edits.EditsError(f"Edit {i}'s turn must be from -180 to 180 degrees.")
+        return {"source": source, "patch": patch, "feather": feather, "spin": spin}
+    return {}
 
 
 def shift(given, dx, dy):
@@ -101,6 +166,11 @@ def shift(given, dx, dy):
         if "op" in edit:
             shape = {k: v for k, v in edit.items() if k != "op"}
             (moved,) = edits.shift([shape], dx, dy)
+            if "line" in moved:
+                moved["line"] = [[round(x + dx, 6), round(y + dy, 6), z] for x, y, z in moved["line"]]
+            if "source" in moved:
+                x, y, z = moved["source"]
+                moved["source"] = [round(x + dx, 6), round(y + dy, 6), z]
             out.append({"op": edit["op"], **moved})
         else:
             out.append(dict(edit))
@@ -231,7 +301,7 @@ def start_apply(task, username):
     now = time.time()
     record = {
         "state": training.APPLYING, "run": run, "waiting": run, "user": username, "status": "", "error": None,
-        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "filled": None, "added": None,
+        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "moved": None, "filled": None, "added": None, "cloned": None,
         "triangles": None,
     }  # fmt: skip
     with transaction.atomic():
@@ -309,16 +379,15 @@ def stop(process):
 def replace_model(task, out):
     """
     The task's GLB, OBJ and MTL replaced by those made: each written beside its place, then renamed in place. The
-    fills' texture goes in first, so the new MTL never names a texture not there, and goes once nothing names it.
+    textures made (fills', clones') go in first, so the new MTL never names a texture not there, and those not made
+    go once nothing names them.
     """
     folder = texturing_dir(task)
     made = {GLB: "model.glb", OBJ: "model.obj", MTL: "model.mtl"}
-    texture = os.path.join(out, FILL_TEXTURE)
-    if os.path.exists(texture):
-        shutil.move(texture, os.path.join(folder, FILL_TEXTURE) + training.NEW)
-        os.replace(os.path.join(folder, FILL_TEXTURE) + training.NEW, os.path.join(folder, FILL_TEXTURE))
-    else:
-        texture = None
+    textures = [name for name in TEXTURES if os.path.exists(os.path.join(out, name))]
+    for name in textures:
+        shutil.move(os.path.join(out, name), os.path.join(folder, name) + training.NEW)
+        os.replace(os.path.join(folder, name) + training.NEW, os.path.join(folder, name))
     try:
         for name, source in made.items():
             shutil.move(os.path.join(out, source), os.path.join(folder, name) + training.NEW)
@@ -330,8 +399,7 @@ def replace_model(task, out):
                 os.remove(os.path.join(folder, name) + training.NEW)
             except FileNotFoundError:
                 pass
-    if texture is None:
-        remove_fill_texture(task)
+    remove_textures(task, keep=textures)
 
 
 def restore_model(task):
@@ -341,14 +409,18 @@ def restore_model(task):
         shutil.copyfile(os.path.join(model_dir(task), name), os.path.join(folder, name) + training.NEW)
     for name in FILES:
         os.replace(os.path.join(folder, name) + training.NEW, os.path.join(folder, name))
-    remove_fill_texture(task)
+    remove_textures(task)
 
 
-def remove_fill_texture(task):
-    try:
-        os.remove(os.path.join(texturing_dir(task), FILL_TEXTURE))
-    except FileNotFoundError:
-        pass
+def remove_textures(task, keep=()):
+    """The textures an update made, but those in keep, removed from the model's folder."""
+    for name in TEXTURES:
+        if name in keep:
+            continue
+        try:
+            os.remove(os.path.join(texturing_dir(task), name))
+        except FileNotFoundError:
+            pass
 
 
 def apply(task_id, run):
@@ -376,14 +448,14 @@ def apply(task_id, run):
                 keep_originals(task)
                 replace_model(task, out)
             else:
-                result = {"removed": 0, "flattened": 0, "filled": 0, "added": 0, "triangles": None}
+                result = {"removed": 0, "flattened": 0, "moved": 0, "filled": 0, "added": 0, "cloned": 0, "triangles": None}
                 if kept(task):
                     restore_model(task)
             drop_cached_models(task)
             edits.store().set_json(shown_key(task_id), {"edits": made_with})
             task.update_size(commit=True)
         report(task_id, run, state="completed", status="", finished=time.time(), removed=result.get("removed"),
-               flattened=result.get("flattened"), filled=result.get("filled"), added=result.get("added"),
+               flattened=result.get("flattened"), moved=result.get("moved"), cloned=result.get("cloned"), filled=result.get("filled"), added=result.get("added"),
                triangles=result.get("triangles"))  # fmt: skip
     except training.Superseded:
         pass

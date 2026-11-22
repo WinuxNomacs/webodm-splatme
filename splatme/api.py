@@ -99,7 +99,7 @@ def describe(request, task, job):
     return summary(request, task, job, can_train(request, task))
 
 
-MODEL_APPLY_PUBLIC = ("state", "status", "error", "user", "started", "finished", "removed", "flattened", "filled", "added", "triangles")
+MODEL_APPLY_PUBLIC = ("state", "status", "error", "user", "started", "finished", "removed", "flattened", "moved", "filled", "added", "cloned", "triangles")
 
 
 def describe_model_apply(record):
