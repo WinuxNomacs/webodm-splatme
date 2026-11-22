@@ -1453,7 +1453,7 @@ def get_apply(task_id):
                 return
             error = "The edits were not applied: WebODM's worker did not start applying them. Restart WebODM, then apply them again."
         else:
-            error = "The edits were not applied: WebODM's worker stopped. Apply them again."
+            error = "The edits were not applied: WebODM's worker stopped. Update the model again."
         record.update(state="failed", run=None, waiting=None, status="", error=error, finished=time.time())
 
     record = store().get_json(apply_key(task_id), None)
@@ -1497,7 +1497,7 @@ def start_apply(task, username):
         lock_records()
         job = get_job(task.id)
         if job and job["state"] in ACTIVE:
-            raise TrainingError("This task's splats are being trained: apply the edits when the training is done.")
+            raise TrainingError("This task's splats are being trained: update the model when the training is done.")
         if applying(task.id):
             raise TrainingError("This task's edits are already being applied.")
         store().set_json(apply_key(task.id), record)
@@ -1569,7 +1569,7 @@ def apply(task_id, run):
             check_apply(task_id, run)  # canceled, or no longer this run's (its record lost): the model stays
             task.refresh_from_db()
             if task.status != status_codes.COMPLETED or trained_steps(task) != steps:
-                raise TrainingError("The task's splat model changed while the edits were applied. Apply them again.")
+                raise TrainingError("The task's splat model changed while the edits were applied. Update the model again.")
             dest = task.get_asset_file_or_stream("splats.rad")
             try:
                 shutil.move(model, dest + NEW)

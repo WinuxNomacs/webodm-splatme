@@ -211,12 +211,31 @@ export function framing(xs, ys, zs){
     return {min, max, center: min.map((v, i) => (v + max[i]) / 2), size: min.map((v, i) => Math.max(max[i] - v, 0.01))};
 }
 
-// A new box: over the middle of what the view frames, half its size
+// A new box: over the middle of what the view frames, a third of its width, removing what is inside (a box that
+// kept its inside would hide nearly the whole model at once)
 export function newBox(frame){
     return {
-        type: "box", keep: true, center: frame.center.map(round), turn: 0,
-        size: [frame.size[0] / 2, frame.size[1] / 2, frame.size[2] * 1.5].map(round)
+        type: "box", keep: false, center: frame.center.map(round), turn: 0,
+        size: [frame.size[0] / 3, frame.size[1] / 3, frame.size[2] * 1.5].map(round)
     };
+}
+
+// Undo and Redo: the edit lists before each change (undo) and those taken back (redo). A new change clears Redo.
+export const HISTORY_STEPS = 200;
+export function newHistory(){
+    return {undo: [], redo: []};
+}
+export function recordChange(history, before){
+    return {undo: [...history.undo, before].slice(-HISTORY_STEPS), redo: []};
+}
+// Answers {history, edits} (the edits to show), or null when there is nothing to take back
+export function undoChange(history, current){
+    if (!history.undo.length) return null;
+    return {history: {undo: history.undo.slice(0, -1), redo: [...history.redo, current]}, edits: history.undo[history.undo.length - 1]};
+}
+export function redoChange(history, current){
+    if (!history.redo.length) return null;
+    return {history: {undo: [...history.undo, current], redo: history.redo.slice(0, -1)}, edits: history.redo[history.redo.length - 1]};
 }
 
 // To the centimetre, which is all a field shows
@@ -342,17 +361,26 @@ export function sizeText(bytes){
     return Math.max(1, Math.round(bytes / 1024 / 1024)) + " MB";
 }
 
-// What the panel says of the last Apply Edits, or "" when there is none
+// What the panel says of the last Apply Edits (Update the Model) while it runs, or when it failed or was
+// canceled; "" otherwise
 export function applyText(apply){
     if (!apply || !apply.state) return "";
     if (apply.state === "applying") return "Applying the edits: " + (apply.status || "starting") + ".";
     if (apply.state === "failed") return "Applying the edits failed: " + (apply.error || "unknown error.");
     if (apply.state === "canceled") return "Applying the edits was canceled: the task's model is as it was.";
-    if (apply.state === "completed"){
-        const removed = apply.edited ? Number(apply.edited).toLocaleString("en-US") + (apply.edited === 1 ? " splat" : " splats") + " removed." : "No splat removed.";
-        return "Edits applied. " + removed;
-    }
     return "";
+}
+
+// Whether the task's model has the saved edits (applied: true, false, or null when it is not known, for a model made
+// before SplatMe kept it), with the last Update's count while it made the model shown
+export function modelText(applied, apply){
+    if (applied === false) return "The edits changed since the task's model was made: Update the Model for its 3D view, download and share links to show them.";
+    if (applied !== true) return "";
+    if (apply && apply.state === "completed"){
+        const removed = apply.edited ? Number(apply.edited).toLocaleString("en-US") + (apply.edited === 1 ? " splat" : " splats") + " removed" : "no splat removed";
+        return "The task's model has these edits (" + removed + ").";
+    }
+    return "The task's model has these edits.";
 }
 
 const PLY_TYPES = {char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4,
