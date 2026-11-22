@@ -177,24 +177,32 @@ export function keepMask(xs, ys, zs, edits, out, base, floaters){
             if (floaters) for (const i of floaters) if (i >= 0 && i < n) keep[i] = 0;
             continue;
         }
-        if (edit.type === "brush"){
-            brushOut(edit, xs, ys, zs, keep, base);
-            continue;
-        }
-        // A polygon's bounding box first: most splats are far from it
-        let minX = -Infinity, maxX = Infinity, minY = -Infinity, maxY = Infinity;
-        if (edit.type === "polygon"){
-            minX = Math.min(...edit.ring.map(p => p[0]));
-            maxX = Math.max(...edit.ring.map(p => p[0]));
-            minY = Math.min(...edit.ring.map(p => p[1]));
-            maxY = Math.max(...edit.ring.map(p => p[1]));
-        }
-        for (let i = 0; i < n; i++){
-            if (!keep[i]) continue;
-            const x = xs[i], y = ys[i];
-            const within = x >= minX && x <= maxX && y >= minY && y <= maxY && inside(edit, x, y, zs[i]);
-            if (within !== edit.keep) keep[i] = 0;
-        }
+        applyShape(xs, ys, zs, edit, keep, base);
+    }
+    return keep;
+}
+
+// One shape or brush on keep, in place, as keepMask applies each: a removing shape takes out what it covers, a
+// keeping one the rest, a restore puts back what it covers (never what base, the boundary, hides). The model's edits
+// (meshEdits.js) apply theirs to the triangles' centres the same way.
+export function applyShape(xs, ys, zs, edit, keep, base){
+    if (edit.type === "brush"){
+        brushOut(edit, xs, ys, zs, keep, base);
+        return keep;
+    }
+    // A polygon's bounding box first: most points are far from it
+    let minX = -Infinity, maxX = Infinity, minY = -Infinity, maxY = Infinity;
+    if (edit.type === "polygon"){
+        minX = Math.min(...edit.ring.map(p => p[0]));
+        maxX = Math.max(...edit.ring.map(p => p[0]));
+        minY = Math.min(...edit.ring.map(p => p[1]));
+        maxY = Math.max(...edit.ring.map(p => p[1]));
+    }
+    for (let i = 0; i < xs.length; i++){
+        if (!keep[i]) continue;
+        const x = xs[i], y = ys[i];
+        const within = x >= minX && x <= maxX && y >= minY && y <= maxY && inside(edit, x, y, zs[i]);
+        if (within !== edit.keep) keep[i] = 0;
     }
     return keep;
 }
@@ -295,6 +303,7 @@ export function colourText(edit){
 // The list's words for an edit (floaters: with how many splats they are, once known)
 export function editLabel(edit, count){
     if (edit.type === "colour") return "Colour Adjust";
+    if (edit.type === "floating") return "Floating Pieces";
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
     }
@@ -340,14 +349,15 @@ export function brushStroke(points, width, height, sizePixels, minPixels){
 // The stroke added to the Brush session's edit, the last of edits, when it was painted in the same view, removes
 // or restores as it does (restore) and has room for it; else a new brush edit after them (the session's first
 // stroke: fresh). Answers the edits
-export function addStroke(edits, stroke, view, aspect, camera, fresh, restore){
+export function addStroke(edits, stroke, view, aspect, camera, fresh, restore, op){
     const last = edits[edits.length - 1];
-    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.aspect === aspect && last.view.length === view.length &&
+    const same = !fresh && last && last.type === "brush" && !!last.restore === !!restore && last.op === op && last.aspect === aspect && last.view.length === view.length &&
         last.view.every((v, i) => v === view[i]) && last.strokes.length < MAX_STROKES &&
         last.strokes.reduce((n, s) => n + s.points.length, 0) + stroke.points.length <= MAX_BRUSH_POINTS;
     if (same) return [...edits.slice(0, -1), {...last, strokes: [...last.strokes, stroke]}];
     const edit = {type: "brush", strokes: [stroke], view, aspect, camera};
     if (restore) edit.restore = true;
+    if (op) edit.op = op;
     return [...edits, edit];
 }
 
@@ -372,12 +382,14 @@ export function applyText(apply){
 }
 
 // Whether the task's model has the saved edits (applied: true, false, or null when it is not known, for a model made
-// before SplatMe kept it), with the last Update's count while it made the model shown
-export function modelText(applied, apply){
+// before SplatMe kept it), with the last Update's count while it made the model shown. kind: "splats" (the count
+// is apply.edited, in splats) or "model" (the textured model: apply.removed, in triangles)
+export function modelText(applied, apply, kind = "splats"){
     if (applied === false) return "The edits changed since the task's model was made: Update the Model for its 3D view, download and share links to show them.";
     if (applied !== true) return "";
     if (apply && apply.state === "completed"){
-        const removed = apply.edited ? Number(apply.edited).toLocaleString("en-US") + (apply.edited === 1 ? " splat" : " splats") + " removed" : "no splat removed";
+        const count = kind === "model" ? apply.removed : apply.edited, unit = kind === "model" ? "triangle" : "splat";
+        const removed = count ? Number(count).toLocaleString("en-US") + " " + unit + (count === 1 ? "" : "s") + " removed" : "no " + unit + " removed";
         return "The task's model has these edits (" + removed + ").";
     }
     return "The task's model has these edits.";

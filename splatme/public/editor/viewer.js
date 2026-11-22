@@ -6,7 +6,14 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
-import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import { keepMask, applyShape, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
+import { weld, applyEdits, fillColours, fillAtlas, sampleImage } from "../meshEdits.js";
+
+const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as meshApply.mjs's)
+
+const DRACO_DECODER = "/plugins/splatme/vendor/draco/";  // three.js's own, vendored (WebODM's is too old for it)
 
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
@@ -55,7 +62,8 @@ function lineMaterial(color){
 // handlers: onBoxChange(index, box) while a box is dragged, onPolygon(ring) when one is closed, onCorners(count)
 // while one is drawn, onLasso({ring, view, camera}) when a lasso is drawn, onLassoEnd() when lasso drawing stops,
 // onBrushStroke({stroke, view, aspect, camera}) for each brush stroke, onBrushSize(pixels) when a key changes the
-// brush's size, onBrushEnd() when painting stops
+// brush's size, onBrushEnd() when painting stops, onModelMasked(removed, floating) when the textured model's
+// edits have been shown (triangles)
 export function createViewer(container, handlers){
     const colors = {
         keep: themeColor(container, "theme-background-success", "backgroundColor"),
@@ -78,6 +86,8 @@ export function createViewer(container, handlers){
     scene.add(transform.getHelper());
 
     let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null, floaters = null;
+    // The task's textured model, when this view shows it instead of splats: {group, meshes, pieces, surface, kept}
+    let model = null;
     let rgb = null, colourShown = "";  // the splats' colours as trained; the Colour Adjust shown ("": none)
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
@@ -105,9 +115,96 @@ export function createViewer(container, handlers){
         renderer.render(scene, camera);
     });
 
+    // The model's triangles each edit removes hidden, by meshEdits.js's rule (the one Update the Model runs): each
+    // piece drawn with the triangles kept only, its corners where Flatten moved them
+    function applyModelMask(){
+        const result = applyEdits(model.surface, edits, applyShape);
+        model.kept = result;
+        if (result.flattened || model.moved){
+            model.meshes.forEach((m, k) => {
+                const ids = model.surface.vertexOf[k], attribute = m.geometry.attributes.position, array = attribute.array;
+                for (let c = 0; c < ids.length; c++){
+                    const v = 3 * ids[c];
+                    array[3 * c] = result.positions[v];
+                    array[3 * c + 1] = result.positions[v + 1];
+                    array[3 * c + 2] = result.positions[v + 2];
+                }
+                attribute.needsUpdate = true;
+                m.geometry.computeBoundingSphere();
+                m.geometry.computeBoundingBox();
+            });
+            model.moved = result.flattened > 0;
+        }
+        showFills(result);
+        const lists = model.pieces.map(() => []);
+        const { pieceOf, localOf } = model.surface;
+        for (let f = 0; f < result.kept.length; f++) if (result.kept[f]) lists[pieceOf[f]].push(localOf[f]);
+        model.meshes.forEach((m, k) => {
+            const source = model.pieces[k].indices, list = lists[k];
+            const index = new Uint32Array(list.length * 3);
+            for (let j = 0; j < list.length; j++){
+                const t = 3 * list[j];
+                index[3 * j] = source[t];
+                index[3 * j + 1] = source[t + 1];
+                index[3 * j + 2] = source[t + 2];
+            }
+            m.geometry.setIndex(new THREE.BufferAttribute(index, 1));
+            m.visible = list.length > 0;
+        });
+        if (handlers.onModelMasked) handlers.onModelMasked(result.removed, result.floating);
+    }
+
+    // A small copy of piece k's texture (SAMPLE_SIZE square, RGBA), made once; null for a piece with none
+    function textureCopy(k){
+        if (!model.copies.has(k)){
+            const image = model.meshes[k].material && model.meshes[k].material.map && model.meshes[k].material.map.image;
+            let copy = null;
+            if (image){
+                const canvas2 = document.createElement("canvas");
+                canvas2.width = canvas2.height = SAMPLE_SIZE;
+                const context = canvas2.getContext("2d", {willReadFrequently: true});
+                context.drawImage(image, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+                copy = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
+            }
+            model.copies.set(k, copy);
+        }
+        return model.copies.get(k);
+    }
+
+    // The holes the edits fill, drawn with the texture Update the Model makes for them
+    function showFills(result){
+        if (model.fills){
+            model.fills.parent.remove(model.fills);
+            model.fills.geometry.dispose();
+            model.fills.material.map.dispose();
+            model.fills.material.dispose();
+            model.fills = null;
+        }
+        if (!result.fills.length) return;
+        const colours = fillColours(model.surface, model.pieces, result.fills, (k, u, v) => {
+            const copy = textureCopy(k);
+            return copy ? sampleImage(copy, SAMPLE_SIZE, u, v) : [128, 128, 128];
+        });
+        const atlas = fillAtlas(result.fills, colours, result.positions);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(atlas.piece.positions, 3));
+        geometry.setAttribute("uv", new THREE.BufferAttribute(atlas.piece.uvs, 2));
+        geometry.setIndex(new THREE.BufferAttribute(atlas.piece.indices, 1));
+        const map = new THREE.DataTexture(new Uint8Array(atlas.rgba.buffer), atlas.width, atlas.height, THREE.RGBAFormat);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.magFilter = map.minFilter = THREE.LinearFilter;
+        map.needsUpdate = true;
+        model.fills = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide}));
+        model.meshes[0].parent.add(model.fills);
+    }
+
     // The splats each edit removes hidden (opacity 0), the others as trained
     function applyMask(){
         maskQueued = false;
+        if (model){
+            applyModelMask();
+            return;
+        }
         if (!mesh) return;
         keepMask(xs, ys, zs, edits, keep, base, floaters);
         const packed = mesh.packedSplats.packedArray, encoding = mesh.packedSplats.splatEncoding;
@@ -225,9 +322,10 @@ export function createViewer(container, handlers){
         transform.detach();
         clearGroup(shapes);
         handles = edits.map((edit, i) => {
-            // Floaters and Colour Adjust have no shape: an empty group keeps the handles numbered as the edits
+            // Floaters, Colour Adjust and the model's whole-model edits have no shape: an empty group keeps the
+            // handles numbered as the edits
             const object = edit.type === "box" ? boxObject(edit) : edit.type === "lasso" ? lassoObject(edit) :
-                edit.type === "brush" ? brushObject(edit) : edit.type === "floaters" || edit.type === "colour" ? new THREE.Group() : polygonObject(edit);
+                edit.type === "brush" ? brushObject(edit) : edit.type === "polygon" ? polygonObject(edit) : new THREE.Group();
             // Only the edit picked in the list shows its shape: the others show only in what they hide
             object.visible = i === selected;
             object.renderOrder = 10;
@@ -441,6 +539,10 @@ export function createViewer(container, handlers){
     // A double click with no tool: the view moves (not turns) so that the nearest splat shown under the pointer is
     // its centre, which it then turns about
     function centreOn(event){
+        if (model){
+            centreOnModel(event);
+            return;
+        }
         if (!mesh || !shown) return;
         const rect = canvas.getBoundingClientRect();
         const px = event.clientX - rect.left, py = event.clientY - rect.top;
@@ -463,6 +565,18 @@ export function createViewer(container, handlers){
         const point = new THREE.Vector3(xs[best], ys[best], zs[best]);
         camera.position.add(point.clone().sub(controls.target));
         controls.target.copy(point);
+        controls.update();
+    }
+    // The same for the textured model: the surface under the pointer
+    function centreOnModel(event){
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const hit = raycaster.intersectObjects(model.meshes.filter(m => m.visible), false)[0];
+        if (!hit) return;
+        camera.position.add(hit.point.clone().sub(controls.target));
+        controls.target.copy(hit.point);
         controls.update();
     }
     function onPointerLeave(){
@@ -631,6 +745,41 @@ export function createViewer(container, handlers){
             queueMask();
             return {splats: n, frame, outside};
         },
+        // The task's textured model (WebODM's GLB, at url) instead of splats, loaded whole: answers {triangles,
+        // frame}. Its pieces are welded into one surface (meshEdits.js), which the edits then cut.
+        async loadModel(url, onProgress){
+            const bytes = await fetchBytes(url, onProgress);
+            const loader = new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath(DRACO_DECODER));
+            const gltf = await new Promise((resolve, reject) => loader.parse(bytes.buffer, "", resolve, reject));
+            const meshes = [];
+            gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+            const pieces = meshes.map(m => ({
+                positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice(),
+                uvs: m.geometry.attributes.uv ? m.geometry.attributes.uv.array : null}));
+            const surface = weld(pieces);
+            model = {group: gltf.scene, meshes, pieces, surface, kept: null, copies: new Map(), fills: null};
+            scene.add(gltf.scene);
+            const n = surface.count;
+            xs = new Float64Array(n);
+            ys = new Float64Array(n);
+            zs = new Float64Array(n);
+            for (let i = 0; i < n; i++){
+                xs[i] = surface.positions[3 * i];
+                ys[i] = surface.positions[3 * i + 1];
+                zs[i] = surface.positions[3 * i + 2];
+            }
+            frame = framing(xs, ys, zs);
+            frameView();
+            drawShapes();
+            queueMask();
+            return {triangles: surface.faces.length / 3, frame};
+        },
+        // What the model's edits do now: {removed, floating, added} triangles, flattened points and filled holes (null
+        // before the model shows)
+        modelResult(){
+            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened,
+                filled: model.kept.fills.length, added: model.kept.added} : null;
+        },
         // The edits to show, and which one has the handles (-1: none)
         setEdits(list, index){
             edits = list.map(edit => ({...edit}));
@@ -700,6 +849,15 @@ export function createViewer(container, handlers){
             controls.dispose();
             clearGroup(shapes);
             if (mesh) mesh.dispose();
+            if (model){
+                model.group.traverse(o => {
+                    if (o.geometry) o.geometry.dispose();
+                    if (o.material){
+                        if (o.material.map) o.material.map.dispose();
+                        o.material.dispose();
+                    }
+                });
+            }
             renderer.dispose();
             if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
             if (overlay.parentNode) overlay.parentNode.removeChild(overlay);

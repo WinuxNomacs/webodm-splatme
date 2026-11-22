@@ -101,6 +101,10 @@ describe("whether the task's model has the edits", () => {
         expect(modelText(true, null)).toBe("The task's model has these edits.");
         expect(modelText(true, {state: "failed"})).toBe("The task's model has these edits.");
     });
+    test("counts the textured model's triangles", () => {
+        expect(modelText(true, {state: "completed", removed: 53471}, "model")).toBe("The task's model has these edits (53,471 triangles removed).");
+        expect(modelText(true, {state: "completed", removed: 0}, "model")).toBe("The task's model has these edits (no triangle removed).");
+    });
     test("says nothing when it is not known", () => {
         expect(modelText(null, null)).toBe("");
         expect(modelText(undefined, {state: "completed"})).toBe("");
@@ -259,6 +263,15 @@ describe("the brush", () => {
         expect(addStroke(edits, line, identity, 1.5, camera, false).length).toBe(3);
         expect(addStroke(edits, line, identity, 1, camera, true).length).toBe(3);
         expect(edits[0]).toBe(box);
+    });
+
+    test("a model's flatten stroke starts an edit of its own after deleting ones, and keeps its op", () => {
+        const camera = {position: [0, 0, 1], target: [0, 0, 0]};
+        let edits = addStroke([], line, identity, 1, camera, true, false, "delete");
+        edits = addStroke(edits, line, identity, 1, camera, false, false, "flatten");
+        expect(edits.map(e => e.op)).toEqual(["delete", "flatten"]);
+        expect(addStroke(edits, line, identity, 1, camera, false, false, "flatten").length).toBe(2);
+        expect(addStroke([], line, identity, 1, camera, true)[0].op).toBeUndefined();
     });
 
     test("a restore stroke starts an edit of its own after removing ones, and is kept as a restore", () => {

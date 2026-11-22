@@ -77,7 +77,8 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     steps) on 22 Nov 2026: 4 min 30 s of training."; after **Continue From Step**, the model's whole training
     time and the last part's), then apart the time spent finding the sky and the time spent preparing, sending and
     waiting (for WebODM's worker or the splat node's queue). **View in 3D** opens the model; **Edit** and
-    **Download .ply** are in [Editing Splats](editing.md). On a phone, **View in 3D** and **Download .ply** are in
+    **Download .ply** are in [Editing Splats](editing.md). A task with a textured 3D model has **Edit** too, even
+    untrained: [Editing the 3D Model](editing-model.md). On a phone, **View in 3D** and **Download .ply** are in
     the menu beside **Edit**. Once someone has opened the model in **Edit Splats**, the row shows a picture of
     it, which opens it in 3D. A task that cannot be trained (failed or canceled
     processing; for users who may only look at the project, any task) says why.

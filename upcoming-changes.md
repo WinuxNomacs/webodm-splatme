@@ -9,11 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Model editing, before the release (the user's decision, 2026-11-22): 3D model cleanup and the splat training
-   improvements are the release's headlines. Remove Floating Pieces, Flatten, Fill Holes and Remove Object on
-   WebODM's textured model. Steps M0 to M5 in "13. Model editing (planned)".
-2. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
-   (CHANGELOG's Unreleased; Getting Started's node upgrade steps on its branch).
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+   Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
+   `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
+   user pushes and tags.
+
+Model editing (M0 to M4 and its docs) is built: see "13. Model editing". A possible follow-up, after the release:
+detail in the fills (texture from beside each hole, or photo projection), and fills that stay inside the removed
+area when it joins older holes.
 
 **Then**
 
@@ -3097,7 +3100,7 @@ thumbnail taken again; a real training on node 0.2.3 (5,000 steps, Image Size 80
 thumbnail dropped, the row reading "Splats trained (5,000 steps) on 22 Nov 2026: 2 min 36 s of training.
 Preparing, transfers and waiting took 24 s. Cropped to the task's boundary."
 
-### 13. Model editing (planned)
+### 13. Model editing (built 2026-11-22, branch model-editing)
 
 Asked by the user (2026-11-22, from `new.md`): a major update of SplatMe's own editor so its users can touch up
 WebODM's 3D models as well as the splats, approached the way DJI Modify does: fill and repair holes, remove
@@ -3185,4 +3188,45 @@ made flat, and texture repair of the edited areas. The list to match is the user
 - M1. A Model view in the editor: Splats or Model, the shapes selecting faces, Delete and Remove Floating
   Pieces, the edit list saved, Update the Model writing GLB and OBJ.
 - M2. Flatten. M3. Fill Holes (textured from the surroundings). M4. Remove Object.
+
+**Built so far (branch `model-editing`):** M1 (commit 88a8966) and M2: Flatten is `op: "flatten"` on any shape
+(Flatten Inside in the edit's list, Flatten in the Brush's modes). The selection's vertices but its rim move
+along the normal onto the least-squares plane of the rim (`fitPlane`, Jacobi on the covariance); a selection with
+no rim (a whole piece) uses its own vertices' plane. The preview moves the meshes' corners; the update reports
+`flattened` (points). Live on a copy of the check task: a default box flattened 29,319 points in the preview and
+the same in the update (5 s).
+
+M3 and M4: Fill Holes (`{type: "holes", size}`, Small/Medium/Large: up to 10, 50, 200 edges), Fill Holes Inside
+(`op: "fill"`: holes whose whole rim the shape covers) and Remove Object (`op: "object"`: delete, then fill the
+holes the delete touched), also as Brush modes. A hole is a loop of open edges turning clockwise around the
+triangles beside it (an outer rim turns the other way; the longest-loop rule failed once pinched rims split the
+outer rim). `loops()` walks open edges regardless of direction (WebODM's mesh has inconsistently wound triangles:
+the directed walk lost the box's rim) and splits pinched rims. Fills: ear clipping on the rim's plane, at most 5,000
+edges. Texture: rim colours sampled from 256-pixel copies of the textures, blended by inverse distance into an atlas
+(`fillAtlas`), the same in the preview (a DataTexture) and in the update (PNG beside the textures,
+`odm_textured_model_geo_splatme_fill_map_Kd.png`, material `splatme_fill` after the model's; JPEG in the GLB).
+On the check task: Fill Holes Small fills 3,900 to 5,000 holes in 0.5 to 0.8 s; Remove Object on a default box
+fills its 2,692-edge hole; the update takes 7 s. Known limits, for the docs: the fill is smooth colour (no grain),
+and a hole merged with older holes beside it can spread over neighbouring ground; detail from nearby texture or
+photo projection could follow.
 - M5. Docs, changelog with the headlines, then the release.
+
+**M0, the spike (2026-11-22), on the check task's model:**
+
+- The GLB is in the OBJ's frame: the task's local coordinates, z up, offset by `CESIUM_RTC` (410977, 4661816,
+  0), which is `coords.txt`; edits can be kept in the task's projection, as the splats' are.
+- Node in `sm-worker` (v20.20.2) reads it with WebODM's gltf-transform in 0.7 s and writes it back Draco-encoded
+  in 1.4 s (39.2 MB), 324 MB of memory; it loads a plain `.js` ES module from an `.mjs` script.
+- In the browser (headless Chromium, the RTX 5060): the GLB through `/api/projects/<p>/tasks/<t>/textured_model/`
+  in 1.4 s, 271 meshes, 854,042 triangles, 45 frames a second turning, 225 MB of JS heap. WebODM's own Draco
+  decoder fails with three.js 0.187's DRACOLoader ("Unexpected geometry type"): the decoder from the same
+  three.js package is vendored (`public/vendor/draco`, Apache-2.0).
+- `meshEdits.js` (weld, open edges, loops, components) in Node: weld 0.5 s (463,483 surface vertices), open edges
+  0.35 s (85,771), loops 0.05 s (3,521 holes and the rim; 2,702 of 10 edges or fewer), components 0.03 s (458:
+  738,524 and 112,890 triangles, then 453 under 100 triangles, 2,024 triangles in all). The OBJ's exact topology
+  has 85,790 open edges and no non-manifold edge: the holes are real (texturing drops faces no photo saw), and
+  the weld's tolerance (1 mm to 2 cm) hardly changes them.
+- WebODM caches smaller copies of a large GLB for its 3D view (`get_safe_textured_model`, in the task's assets
+  cache, never checked against the GLB's time): Update the Model deletes them. The Textured Model download is
+  zipped from `odm_texturing/` as it is when asked for: the originals are kept in `data/splatme`, not there. A
+  task's 3D Tiles model (`3d_tiles/model`) is not edited.

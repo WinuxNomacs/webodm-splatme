@@ -28,7 +28,7 @@ from nodeodm import status_codes
 from PIL import Image
 from rest_framework.test import APIClient
 
-from .. import crop, edits, sky, thermal, training
+from .. import crop, edits, meshes, sky, thermal, training
 from .fake_node import MODEL, OPTIONS, FakeNode, trained
 
 API = "/api/plugins/splatme"
@@ -114,6 +114,91 @@ def make_task(user, images=IMAGES, status=status_codes.COMPLETED, rotation=(0.1,
     return task
 
 
+def glb_json(path):
+    """A GLB's JSON part."""
+    with open(path, "rb") as f:
+        data = f.read()
+    length = int.from_bytes(data[12:16], "little")
+    return json.loads(data[20 : 20 + length])
+
+
+def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False):
+    """
+    A textured model as WebODM's texturing writes one, small: a GLB (no Draco, one primitive per material) with its
+    OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0 (its vertex at 1, 1 raised by bump; with hole,
+    no middle square); material 1
+    a lone triangle 10 m away, a floating piece. coords.txt gives the task's offset.
+    """
+    folder = task.assets_path("odm_texturing")
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(task.assets_path("odm_georeferencing"), exist_ok=True)
+    with open(task.assets_path("odm_georeferencing", "coords.txt"), "w") as f:
+        f.write(f"WGS84 UTM 16N\n{offset[0]:.0f} {offset[1]:.0f}\n")
+    grid_positions, grid_indices = [], []
+    for i in range(3):
+        for j in range(3):
+            if hole and (i, j) == (1, 1):
+                continue
+            base = len(grid_positions)
+            corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+            grid_positions += [(x, y, bump if (x, y) == (1, 1) else 0) for x, y in corners]
+            grid_indices += [base, base + 1, base + 2, base, base + 2, base + 3]
+    pieces = [(grid_positions, grid_indices), ([(10, 10, 0), (11, 10, 0), (10, 11, 0)], [0, 1, 2])]
+    binary, views, accessors, primitives = bytearray(), [], [], []
+    for k, (positions, indices) in enumerate(pieces):
+        attrs = {}
+        for name, values, kind, count in (
+            ("POSITION", [c for p in positions for c in p], "VEC3", len(positions)),
+            ("TEXCOORD_0", [c for p in positions for c in (p[0] / 20, p[1] / 20)], "VEC2", len(positions)),
+        ):
+            data = np.array(values, dtype=np.float32).tobytes()
+            views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(data)})
+            binary += data
+            accessor = {"bufferView": len(views) - 1, "componentType": 5126, "count": count, "type": kind}
+            if name == "POSITION":
+                accessor["min"] = [min(p[i] for p in positions) for i in range(3)]
+                accessor["max"] = [max(p[i] for p in positions) for i in range(3)]
+            accessors.append(accessor)
+            attrs[name] = len(accessors) - 1
+        data = np.array(indices, dtype=np.uint32).tobytes()
+        views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(data)})
+        binary += data
+        accessors.append({"bufferView": len(views) - 1, "componentType": 5125, "count": len(indices), "type": "SCALAR"})
+        primitives.append({"attributes": attrs, "indices": len(accessors) - 1, "material": k, "mode": 4})
+    while len(binary) % 4:
+        binary += b"\0"
+    doc = {
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": primitives}], "materials": [{"name": "m0"}, {"name": "m1"}],
+        "buffers": [{"byteLength": len(binary)}], "bufferViews": views, "accessors": accessors,
+        "extensionsUsed": ["CESIUM_RTC"], "extensions": {"CESIUM_RTC": {"center": [offset[0], offset[1], 0]}},
+    }  # fmt: skip
+    text = json.dumps(doc).encode()
+    while len(text) % 4:
+        text += b" "
+    glb = b"glTF" + (2).to_bytes(4, "little") + (12 + 8 + len(text) + 8 + len(binary)).to_bytes(4, "little")
+    glb += len(text).to_bytes(4, "little") + b"JSON" + text + len(binary).to_bytes(4, "little") + b"BIN\0" + bytes(binary)
+    with open(os.path.join(folder, meshes.GLB), "wb") as f:
+        f.write(glb)
+    with open(os.path.join(folder, meshes.MTL), "w") as f:
+        f.write("newmtl material0000\nmap_Kd a.png\nnewmtl material0001\nmap_Kd b.png\n")
+    with open(os.path.join(folder, meshes.OBJ), "w") as f:
+        f.write("mtllib odm_textured_model_geo.mtl\n")  # its content is not read: the GLB is the source
+    task.available_assets = [*task.available_assets, "textured_model.glb", "textured_model.zip"]
+    task.save()
+    return folder
+
+
+def obj_heights(path):
+    with open(path) as f:
+        return [float(line.split()[3]) for line in f if line.startswith("v ")]
+
+
+def obj_faces(path):
+    with open(path) as f:
+        return sum(1 for line in f if line.startswith("f "))
+
+
 class TestSplatMe(BootTestCase):
     def setUp(self):
         self.node = FakeNode()
@@ -178,7 +263,7 @@ class TestSplatMe(BootTestCase):
             self.status(task),
             {
                 "state": None, "active": False, "has_splats": False, "can_train": True,
-                "task_status": status_codes.COMPLETED, "editable": False, "apply": None, "thumbnail": None,
+                "task_status": status_codes.COMPLETED, "editable": False, "apply": None, "thumbnail": None, "model_editable": False, "model_apply": None,
                 "auto": {"enabled": False, "options": training.DEFAULTS}, "listening": None,
             },
         )  # fmt: skip
@@ -380,6 +465,226 @@ class TestSplatMe(BootTestCase):
             self.assertEqual(res.status_code, 400, body[:20])
             self.assertIn("thumbnail", res.data["error"])
         self.assertIsNone(self.status(task)["thumbnail"])
+
+    # Model edits (meshes.py)
+
+    def model_edits(self, task, given=None):
+        url = f"{API}/task/{task.id}/model-edits"
+        if given is None:
+            return self.client.get(url)
+        return self.client.put(url, {"edits": given}, format="json")
+
+    def test_model_edits_are_kept_in_the_tasks_projection_and_given_in_the_models_frame(self):
+        task = make_task(self.user)
+        self.assertEqual(self.model_edits(task).data["editable"], "This task has no textured 3D model.")
+        make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        res = self.model_edits(task, [box, {"type": "floating", "size": 10}])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"], [box, {"type": "floating", "size": 10}])
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["center"], [1001.5, 2001.5, 0])
+        self.assertEqual(res.data["model"]["url"], f"/api/plugins/splatme/task/{task.id}/model-original")
+        self.assertIsNone(res.data["applied"])
+        for bad in ([{**box, "op": "melt"}], [{"type": "floating", "size": 0}], [{"type": "floating", "size": True}],
+                    [{**box, "size": [1, -1, 1]}], "not a list"):
+            res = self.model_edits(task, bad)
+            self.assertEqual(res.status_code, 400, bad)
+        self.assertEqual(len(self.model_edits(task).data["edits"]), 2)  # the bad ones changed nothing
+
+    def test_only_those_who_may_change_the_project_edit_the_model_or_read_its_original(self):
+        task = make_task(self.user)
+        make_textured_model(task)
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        res = other.get(f"{API}/task/{task.id}/model-edits")
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["can_edit"])
+        self.assertIsNone(res.data["model"])
+        self.assertEqual(other.put(f"{API}/task/{task.id}/model-edits", {"edits": []}, format="json").status_code, 404)
+        self.assertEqual(other.get(f"{API}/task/{task.id}/model-original").status_code, 404)
+        self.assertEqual(other.post(f"{API}/task/{task.id}/model-apply").status_code, 404)
+        got = self.client.get(f"{API}/task/{task.id}/model-original")
+        self.assertEqual(got.status_code, 200)
+        self.assertEqual(b"".join(got.streaming_content)[:4], b"glTF")
+
+    def test_updating_the_model_replaces_its_glb_and_obj_keeps_the_originals_and_clearing_puts_them_back(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        with open(os.path.join(folder, meshes.GLB), "rb") as f:
+            original_glb = f.read()
+        cache = task.get_task_assets_cache()
+        os.makedirs(cache, exist_ok=True)
+        cached = os.path.join(cache, "odm_textured_model_geo-2.glb")
+        with open(cached, "wb") as f:
+            f.write(b"an old smaller copy")
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box, {"type": "floating", "size": 5}]).status_code, 200)
+
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["removed"], 3)  # the box's square and the floating triangle
+        self.assertEqual(res.data["apply"]["triangles"], 16)
+        self.assertTrue(res.data["applied"])
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 16)
+        doc = glb_json(os.path.join(folder, meshes.GLB))
+        self.assertEqual(len(doc["meshes"][0]["primitives"]), 1)  # the floating triangle's piece went
+        self.assertEqual(doc["extensions"]["CESIUM_RTC"], {"center": [1000, 2000, 0]})
+        self.assertIn("KHR_draco_mesh_compression", doc["extensionsUsed"])
+        with open(os.path.join(meshes.model_dir(task), meshes.GLB), "rb") as f:
+            self.assertEqual(f.read(), original_glb)
+        self.assertFalse(os.path.exists(cached))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl material0001", f.read())
+
+        # The edits changed since: the model no longer has them
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        self.assertFalse(self.model_edits(task).data["applied"])
+
+        # A second update starts again from the originals: the floating triangle is back
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["triangles"], 17)
+
+        # No edits: the original files back, as they were
+        self.assertEqual(self.model_edits(task, []).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        with open(os.path.join(folder, meshes.GLB), "rb") as f:
+            self.assertEqual(f.read(), original_glb)
+        self.assertTrue(self.model_edits(task).data["applied"])
+
+    def test_flatten_moves_what_the_shape_covers_onto_the_plane_of_its_rim(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        # Over the four squares around the raised vertex: their rim (x or y 2) is at z 0
+        flatten = {"op": "flatten", "type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        res = self.model_edits(task, [flatten])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"], [flatten])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["removed"], 0)
+        self.assertEqual(res.data["apply"]["flattened"], 4)
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertTrue(heights and max(abs(z) for z in heights) < 1e-5, max(heights))
+        with open(os.path.join(meshes.model_dir(task), meshes.GLB), "rb") as f:
+            self.assertIn(b"glTF", f.read(4))  # the original, bump and all, kept
+
+    def test_fill_holes_adds_triangles_with_a_texture_of_their_own_which_goes_when_no_fill_needs_it(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, hole=True)
+        texture = os.path.join(folder, meshes.FILL_TEXTURE)
+        for bad in ([{"type": "holes", "size": 0}], [{"type": "holes", "size": meshes.MAX_HOLE + 1}], [{"type": "holes"}]):
+            self.assertEqual(self.model_edits(task, bad).status_code, 400, bad)
+        self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual((res.data["apply"]["filled"], res.data["apply"]["added"]), (1, 2))
+        self.assertEqual(res.data["apply"]["triangles"], 19)  # 16 of the grid, the floating one and the fill's 2
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+        self.assertTrue(os.path.exists(texture))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl splatme_fill\n", f.read())
+        doc = glb_json(os.path.join(folder, meshes.GLB))
+        self.assertEqual(len(doc["meshes"][0]["primitives"]), 3)
+        self.assertEqual(doc["images"][-1]["mimeType"], "image/jpeg")
+
+        # An update that fills nothing, then no edits at all: the texture goes with the fill
+        box = {"op": "delete", "type": "box", "keep": False, "center": [0.5, 0.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertFalse(os.path.exists(texture))
+        self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertTrue(os.path.exists(texture))
+        self.assertEqual(self.model_edits(task, []).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertFalse(os.path.exists(texture))
+
+    def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        with open(os.path.join(folder, meshes.GLB), "wb") as f:
+            f.write(b"not a glb")
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "failed")
+        self.assertTrue(res.data["apply"]["error"].startswith("The model could not be made: "), res.data)
+        with open(os.path.join(folder, meshes.GLB), "rb") as f:
+            self.assertEqual(f.read(), b"not a glb")
+        self.assertFalse(meshes.kept(task))
+        self.assertFalse(os.path.exists(training.apply_dir(task.id, kind=meshes.KIND)))
+
+    def test_an_update_that_takes_too_long_or_is_canceled_stops_node(self):
+        task = make_task(self.user)
+        make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        started = []
+
+        def hanging():
+            # A Node that never ends, and ignores SIGTERM: only the forced stop ends it
+            return [sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"]
+
+        real_popen = subprocess.Popen
+
+        def popen(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            started.append(process)
+            return process
+
+        with mock.patch.object(meshes, "node_command", hanging), mock.patch.object(meshes, "NODE_TIMEOUT", 1), \
+                mock.patch.object(meshes, "STOP_WAIT", 1), mock.patch.object(meshes.subprocess, "Popen", popen):
+            began = time.time()
+            res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertLess(time.time() - began, 15)
+        self.assertEqual(res.data["apply"]["state"], "failed")
+        self.assertIn("took too long", res.data["apply"]["error"])
+        self.assertIsNotNone(started[0].poll())  # ended
+
+        # Canceled while Node runs: it is stopped, and the model stays as it was
+        def cancel_soon(task_id, run):
+            training.cancel_apply(task_id, meshes.KIND)
+            training.check_apply(task_id, run, meshes.KIND)
+
+        with mock.patch.object(meshes, "node_command", hanging), mock.patch.object(meshes, "STOP_WAIT", 1), \
+                mock.patch.object(meshes, "check", cancel_soon), mock.patch.object(meshes.subprocess, "Popen", popen):
+            res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "canceled")
+        self.assertIsNotNone(started[1].poll())
+        self.assertFalse(meshes.kept(task))
+
+    def test_processing_the_task_again_keeps_its_model_edits_for_the_new_model_and_drops_the_old_originals(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertTrue(meshes.kept(task))
+        # Processed again: WebODM writes a new model (here the same one, whole)
+        make_textured_model(task)
+        training.completed(task.id)
+        self.assertFalse(meshes.kept(task))
+        res = self.model_edits(task)
+        self.assertEqual(res.data["edits"], [box])
+        self.assertIsNone(res.data["applied"])
+        self.assertIsNone(res.data["apply"])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["triangles"], 17)  # cut from the new model
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 17)
+
+    def test_a_removed_task_forgets_its_model_edits(self):
+        task = make_task(self.user)
+        make_textured_model(task)
+        self.assertEqual(self.model_edits(task, [{"type": "floating", "size": 5}]).status_code, 200)
+        task_id = task.id
+        training.removed(task_id)
+        self.assertIsNone(edits.store().get_json(meshes.edits_key(task_id), None))
 
     def find_sky(self, sky_rows):
         """Stands in for the sky model: the top rows of every photo are sky."""
