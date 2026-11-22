@@ -113,11 +113,25 @@ describe("the dialog's options", () => {
         expect(optionsFromForm({steps: "", image_size: "1600"}, ranges).error).toBe("Steps is needed.");
         expect(optionsFromForm({steps: "7e3", image_size: "1600"}, ranges).error).toBe("Steps is a whole number.");
         expect(optionsFromForm({steps: "0", image_size: "1600"}, ranges).error).toBe("Steps is between 1 and 200000.");
-        expect(optionsFromForm({steps: "7000", image_size: "8"}, ranges).error).toBe("Image Size is between 16 and 100000, or 0.");
+        expect(optionsFromForm({steps: "7000", image_size: "8"}, ranges).error).toBe("Image Size is between 16 and 100000, or blank for full size.");
     });
 
     test("without the node's ranges the server is left to judge", () => {
         expect(optionsFromForm({steps: "999999999", image_size: "1600"}, null)).toEqual({options: {steps: 999999999, image_size: 1600}});
+    });
+});
+
+describe("Image Size left blank", () => {
+    test("is full size, sent as 0, as 0 still is", () => {
+        expect(optionsFromForm({steps: "7000", image_size: " "}, null).options).toEqual({steps: 7000, image_size: 0});
+        expect(optionsFromForm({steps: "7000", image_size: "0"}, null).options).toEqual({steps: 7000, image_size: 0});
+    });
+    test("keeps the photos as they are in the Image Size table", () => {
+        expect(imageSizeRows([[4000, 3000]], "")[0].trained).toBe("4,000 × 3,000");
+    });
+    test("is how full size is shown", () => {
+        expect(formFromOptions({steps: 7000, image_size: 0}).image_size).toBe("");
+        expect(formFromOptions({steps: 7000}).image_size).toBe("1600");
     });
 });
 
@@ -187,7 +201,7 @@ describe("a task's automatic training", () => {
 
     test("saved options fill the form, and the form gives them back", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(form).toEqual({steps: "2000", image_size: "0", max_gaussians: "500000", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(form).toEqual({steps: "2000", image_size: "", max_gaussians: "500000", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
         expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(formFromOptions({steps: 30000, image_size: 1600, densify_until: 20000}), null).options)
@@ -420,7 +434,7 @@ describe("the photos' size under Image Size", () => {
     test("each camera's photos have a row, and a number the training does not take shows dashes", () => {
         const rows = imageSizeRows([[5280, 3956], [640, 512]], "8");
         expect(rows.map(r => [r.source, r.trained, r.side, r.pixels])).toEqual([["5,280 × 3,956", "–", "–", "–"], ["640 × 512", "–", "–", "–"]]);
-        expect(imageSizeRows([[640, 512]], "")[0].trained).toBe("–");
+        expect(imageSizeRows([[640, 512]], "")[0].trained).toBe("640 × 512");  // blank: full size
         expect(imageSizeRows([], "1600")).toEqual([]);
     });
 });

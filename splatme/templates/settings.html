@@ -6,19 +6,14 @@ SplatMe → Settings, for everyone: the splat node's state and address, and the 
 The node's settings are on the admin page (admin.html), under Administration.
 {% endcomment %}
 <h3><i class="fa fa-splat fa-fw"></i> SplatMe Settings</h3>
-<p>Trains a task's Gaussian splats on a splat node: a container on a machine with an NVIDIA GPU, WebODM's or another. Training starts
-    from <b>Train Splats</b> on <a href="/plugins/splatme/">SplatMe → Tasks</a>, or by itself when a task created
-    with <b>New Task With Splats</b> completes.</p>
+<p>The splat node SplatMe trains on, and your options for New Task With Splats.
+    <a href="https://winuxnomacs.github.io/webodm-splatme/using/" target="_blank" rel="noopener noreferrer">Learn more</a></p>
 
 <h4>Splat Node</h4>
 {% include node_part %}
 
 <h4>New Task With Splats</h4>
-<p><b>New Task With Splats</b>, in each project on <a href="/plugins/splatme/">SplatMe → Tasks</a> (and beside
-    Select Images and GCP in a project on the Dashboard, which opens it there), opens WebODM's New Task panel with
-    SplatMe's panel above it: <b>Train Splats When Completed</b>, ticked, with your options here.
-    The task is then trained by itself when it completes processing, and again each time it is processed again.
-    On SplatMe → Tasks, a task's <b>Train Splats When Completed</b> with <b>Change</b> changes them or switches the
-    training on or off. Until you save your own options, the administrators' defaults are used.</p>
+<p>A task created with <b>New Task With Splats</b> on <a href="/plugins/splatme/">SplatMe → Tasks</a> is trained
+    with these options when it completes processing. Until you save your own, the administrators' are used.</p>
 {% include options_part %}
 {% endblock %}

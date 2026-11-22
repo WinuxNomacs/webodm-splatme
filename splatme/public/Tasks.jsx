@@ -6,6 +6,8 @@ import { request, webodm, thumbnailUrl } from './api';
 import { ACCEPT, projectByName } from './taskUpload';
 import { panelMode, rowNote, taskStatusText, nextRefresh, runningPercent, resultText, justCompleted, dashboardLink,
     TASK_FAILED, TASK_QUEUED, TASK_RUNNING, FAST, SLOW, SETTLE } from './trainingView';
+
+const DOCS = "https://winuxnomacs.github.io/webodm-splatme/";  // SplatMe's documentation
 import './TrainSplats.scss';
 
 // SplatMe → Tasks (templates/tasks.html): the tasks the user may see, by project, each with its splats and what
@@ -279,7 +281,8 @@ export default class Tasks extends React.Component {
         const shown = projects.filter(p => !known || String(p.id) === known);
         return (
             <div className="splatme-tasks">
-                <p>{_("Create a task whose Gaussian splats are trained when it completes processing, train a completed task's splats on the splat node, follow a training, choose whether a task is trained when it completes, and edit or download a trained model.")}</p>
+                <p>{_("Train your tasks' Gaussian splats, follow each training, and edit or download the models.")}{" "}
+                    <a href={DOCS + "using/"} target="_blank" rel="noopener noreferrer">{_("Learn more")}</a></p>
                 <input type="file" multiple accept={ACCEPT} className="hidden" ref={el => { this.fileInput = el; }} onChange={this.handlePicked} />
                 {error ? <div className="alert alert-warning">{error}</div> : ""}
                 {newTask ?
@@ -312,13 +315,6 @@ export default class Tasks extends React.Component {
                     <div key={p.id} className="splatme-project">
                         <h4 className="splatme-project-head">
                             <span><i className="fa fa-folder fa-fw"></i> {p.name}</span>
-                            {p.can_train ?
-                                <button type="button" className="btn btn-default btn-sm splatme-new-task"
-                                        disabled={this.state.newTaskBusy || (!!newTask && newTask.projectId === String(p.id))}
-                                        onClick={() => this.pick(String(p.id))}
-                                        title={_("Create a task whose Gaussian splats are trained when it completes processing")}>
-                                    <i className="fa fa-splat fa-fw"></i> <span className="hidden-xs">{_("New Task With Splats")}</span>
-                                </button> : ""}
                         </h4>
                         {p.tasks.length ?
                             <ul className="list-group">{p.tasks.map(t => this.renderTask(p, t))}</ul> :

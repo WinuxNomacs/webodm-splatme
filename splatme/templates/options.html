@@ -40,10 +40,10 @@ shared (the admin page) the administrators', for users who saved none, which onl
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-auto-size">Image Size</label>
         <div class="col-sm-9">
-            <input type="number" min="0" class="form-control" id="splatme-auto-size">
+            <input type="number" min="0" class="form-control" id="splatme-auto-size" placeholder="Full size">
             <span class="help-block">The photos' longer side in pixels as the trainer sees them. Larger photos are
                 scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost. GPU
-                memory depends on it most: lower it when the GPU runs out of memory. 0 keeps the photos as they
+                memory depends on it most: lower it when the GPU runs out of memory. Blank keeps the photos as they
                 are.</span>
         </div>
     </div>
@@ -212,7 +212,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
         }
         form.style.display = "";
         steps.value = options.steps == null ? "" : options.steps;
-        size.value = options.image_size == null ? "" : options.image_size;
+        size.value = options.image_size == null || options.image_size === 0 ? "" : options.image_size;  // 0: full size
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
         grow.value = options.densify_until == null ? "" : options.densify_until;
         sky.checked = !!options.ignore_sky;
@@ -253,7 +253,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
 
     form.addEventListener("submit", function(e){
         e.preventDefault();
-        save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value,
+        save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value.trim() === "" ? 0 : size.value,
             max_gaussians: gaussians.value, densify_until: grow.value, ignore_sky: sky.checked, crop: crop.checked, palette: palette.value});
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });

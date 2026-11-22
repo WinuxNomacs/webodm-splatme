@@ -119,10 +119,10 @@ function change(ratio){
 
 // The Image Size table's rows, one per size of the task's photos ([[width, height]]): {source, trained, side,
 // pixels} as text, the changes those of the longer side and of the pixels; a dash for each but the source when
-// the Image Size is not a number the training takes
+// the Image Size is not a number the training takes (blank is full size)
 export function imageSizeRows(photoSizes, imageSize){
     const text = String(imageSize == null ? "" : imageSize).trim();
-    const value = /^\d+$/.test(text) ? parseInt(text, 10) : NaN;
+    const value = text === "" ? 0 : /^\d+$/.test(text) ? parseInt(text, 10) : NaN;  // blank: full size
     const valid = value === 0 || value >= 16;
     return (photoSizes || []).map(([width, height]) => {
         const source = width.toLocaleString("en-US") + " \u00d7 " + height.toLocaleString("en-US");
@@ -194,7 +194,7 @@ export function panelMode(status){
 export function optionsFromForm(form, ranges){
     const fields = [
         {name: "steps", label: "Steps", required: true},
-        {name: "image_size", label: "Image Size", required: true, zero: true},
+        {name: "image_size", label: "Image Size", required: false, zero: true, blank: 0},  // blank: full size
         {name: "max_gaussians", label: "Max Gaussians", required: false},
         {name: "densify_until", label: "Grow Until", required: false, range: {min: GROW_AT_LEAST, max: 200000}}
     ];
@@ -203,13 +203,14 @@ export function optionsFromForm(form, ranges){
         const text = String(form[field.name] == null ? "" : form[field.name]).trim();
         if (text === ""){
             if (field.required) return {error: field.label + " is needed."};
+            if (field.blank !== undefined) options[field.name] = field.blank;
             continue;
         }
         if (!/^\d+$/.test(text)) return {error: field.label + " is a whole number."};
         const value = parseInt(text, 10);
         const range = field.name === "image_size" ? {min: 16, max: 100000} : (ranges || {})[field.name] || field.range;
         if (range && !(field.zero && value === 0) && (value < range.min || value > range.max)){
-            return {error: field.label + " is between " + range.min + " and " + range.max + (field.zero ? ", or 0." : ".")};
+            return {error: field.label + " is between " + range.min + " and " + range.max + (field.zero ? ", or blank for full size." : ".")};
         }
         options[field.name] = value;
     }
@@ -264,7 +265,8 @@ export function defaultMoreSteps(trained, ranges){
 export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
-    return {steps: text(options.steps, 30000), image_size: text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), densify_until: text(options.densify_until, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    // Image Size 0 (the photos as they are) shows as blank, with the placeholder "Full size"
+    return {steps: text(options.steps, 30000), image_size: options.image_size === 0 ? "" : text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), densify_until: text(options.densify_until, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"
