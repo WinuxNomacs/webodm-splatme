@@ -1217,6 +1217,24 @@ class TestSplatMe(BootTestCase):
         admin.login(username="testsuperuser", password="test1234")
         self.assertIn("127.0.0.1:9 does not answer", admin.get(f"{API}/task/{task.id}/check").data["node_error"])
 
+    def test_the_editor_page_maps_its_own_modules_to_urls_that_change_with_their_files(self):
+        from coreplugins.splatme import plugin
+
+        res = self.client.get("/plugins/splatme/edit/b3a01458-ca71-4988-841f-83d0a22814e7/")
+        self.assertEqual(res.status_code, 200)
+        for name in plugin.EDITOR_MODULES:
+            self.assertRegex(res.content.decode(), rf'"/plugins/splatme/{name}": "/plugins/splatme/{name}\?v=[0-9a-f]{{12}}"')
+        before = plugin.editor_modules()
+        path = os.path.join(os.path.dirname(plugin.__file__), "public", "meshEdits.js")
+        info = os.stat(path)
+        try:
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 1000))
+            after = plugin.editor_modules()
+        finally:
+            os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+        self.assertNotEqual(before["/plugins/splatme/meshEdits.js"], after["/plugins/splatme/meshEdits.js"])
+        self.assertEqual(before["/plugins/splatme/editShapes.js"], after["/plugins/splatme/editShapes.js"])
+
     def test_the_tasks_and_settings_pages_are_in_the_menu_and_need_a_login(self):
         res = self.client.get("/plugins/splatme/")
         self.assertEqual(res.status_code, 200)
