@@ -9,11 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Model editing, before the release (the user's decision, 2026-11-22): 3D model cleanup and the splat training
-   improvements are the release's headlines. Remove Floating Pieces, Flatten, Fill Holes and Remove Object on
-   WebODM's textured model. Steps M0 to M5 in "13. Model editing (planned)".
-2. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
-   (CHANGELOG's Unreleased; Getting Started's node upgrade steps on its branch).
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+   Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
+   `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
+   user pushes and tags.
+
+Model editing (M0 to M4 and its docs) is built: see "13. Model editing". A possible follow-up, after the release:
+detail in the fills (texture from beside each hole, or photo projection), and fills that stay inside the removed
+area when it joins older holes.
 
 **Then**
 
@@ -3097,7 +3100,7 @@ thumbnail taken again; a real training on node 0.2.3 (5,000 steps, Image Size 80
 thumbnail dropped, the row reading "Splats trained (5,000 steps) on 22 Nov 2026: 2 min 36 s of training.
 Preparing, transfers and waiting took 24 s. Cropped to the task's boundary."
 
-### 13. Model editing (planned)
+### 13. Model editing (built 2026-11-22, branch model-editing)
 
 Asked by the user (2026-11-22, from `new.md`): a major update of SplatMe's own editor so its users can touch up
 WebODM's 3D models as well as the splats, approached the way DJI Modify does: fill and repair holes, remove

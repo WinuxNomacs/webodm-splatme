@@ -31,6 +31,8 @@ and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-
 - [Using SplatMe](using.md): training, its options, following a training, and training automatically.
 - [Editing Splats](editing.md): cropping a trained model, removing floaters, adjusting its colours, and
   downloading it.
+- [Editing the 3D Model](editing-model.md): cleaning up WebODM's textured model: removing floating pieces,
+  filling holes, flattening surfaces and removing objects.
 - [The Splat Node](splat-node.md): the GPU container, its settings and API, and HTTPS to a node on another
   machine.
 - [How It Works](how-it-works.md): what SplatMe takes from WebODM, and how OpenSplat trains a model from it.

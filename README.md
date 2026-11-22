@@ -16,7 +16,7 @@ experimental.
 **[Getting Started](https://winuxnomacs.github.io/webodm-splatme/getting-started/)**: a fresh install from start
 to a first trained model, and an upgrade, step by step.
 **[Documentation](https://winuxnomacs.github.io/webodm-splatme/)**: installing, upgrading and uninstalling,
-using SplatMe, editing splats, the splat node, how it works, the plugin's API and development.
+using SplatMe, editing splats and the 3D model, the splat node, how it works, the plugin's API and development.
 
 ## Thanks
 

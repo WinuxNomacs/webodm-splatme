@@ -5,10 +5,22 @@ where a release needs a newer one.
 
 ## Unreleased
 
-Needs splat node 0.2.3 for Grow Until (an older node refuses a training only when Grow Until is set).
+Cleaning up WebODM's textured 3D model, and better splat training. Needs splat node 0.2.3 for Grow Until (an older
+node refuses a training only when Grow Until is set).
 
-- **Grow Until**, under Advanced and on **Continue From Step**: the step the model stops growing at (blank keeps
-  the trainer's own: half the steps, at most 15,000), so a long training or a continued one can add gaussians.
+- **3D model cleanup**: **Edit** now edits the task's textured 3D model too (**Splats** and **3D Model** above the
+  editor's view; a task with a textured model but no splats opens on it). **Remove Floating Pieces** and **Fill
+  Holes** act on the whole model; each shape (box, polygon, lasso, brush) can **Remove** or **Keep Inside**,
+  **Flatten Inside** (onto the plane of its edge), **Fill Holes Inside**, or **Remove Object** (remove it and
+  fill the hole it leaves). Filled holes are coloured from the texture around them. The view shows the edits as
+  they change; **Update the Model** writes them into the GLB (WebODM's 3D view and share links) and the OBJ (the
+  Textured Model download) in seconds, keeping the original files, so **Clear Edits** then **Update the Model**
+  puts the model back. See [Editing the 3D Model](https://winuxnomacs.github.io/webodm-splatme/editing-model/).
+- **Splat training**: **Grow Until**, under Advanced and on **Continue From Step**, sets the step the model stops
+  growing at (blank keeps the trainer's own: half the steps, at most 15,000), so a long training or a continued
+  one can add gaussians; **Continue From Step** shows the stages table only when the added steps grow the model.
+  The summary on **SplatMe → Tasks** gives the day and the trainer's own time (a continued model's whole training
+  included), with Ignore Sky's and the waiting apart.
 - **Edit Splats**: **Apply** is now **Update the Model**, with a line under it saying whether the task's model
   has the edits as they are; **Side View** is **Reset View**, and a double-click centres the view on the splat
   under the pointer; the tool in use is highlighted, and another tool's button ends it; **Redo**, and keys:
@@ -16,12 +28,15 @@ Needs splat node 0.2.3 for Grow Until (an older node refuses a training only whe
   removes what is inside it.
 - **SplatMe → Tasks**: each row has its status line above its buttons, **Edit** beside **Train Splats** as a main
   action, and **View in 3D** and **Download .ply** in a menu on a phone; a picture of the model, taken by Edit
-  Splats; the summary gives the day and the trainer's own time (a continued model's whole training included),
-  with Ignore Sky's and the waiting apart. One **New Task With Splats** button, at the top.
-- **Continue From Step** shows the stages table only when the added steps grow the model.
+  Splats. One **New Task With Splats** button, at the top.
 - **Image Size** left blank means full size (it showed 0).
 - Shorter page introductions, each with a link into the documentation.
-- **API**: `task/<id>/thumbnail` (GET, PUT); `status` adds `times`, `resume`, `earlier_training` and `thumbnail`.
+- **API**: `task/<id>/model-edits` (GET, PUT), `model-original` and `model-apply` (with `cancel`);
+  `task/<id>/thumbnail` (GET, PUT); `status` adds `times`, `resume`, `earlier_training`, `thumbnail`,
+  `model_editable` and `model_apply`.
+- The 3D model's editor uses three.js 0.187.0's GLTF and Draco loaders (MIT) and the Draco decoder from the same
+  package (Apache-2.0), vendored with their hashes.
+- **Documentation**: a new page, **Editing the 3D Model**.
 - Fixed: on a case-insensitive disk (a WebODM whose media folder is on one), New Task With Splats showed nothing.
 
 ## 0.3.0 (2026-11-19)
