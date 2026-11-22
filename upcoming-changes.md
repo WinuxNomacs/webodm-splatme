@@ -9,15 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The 0.3.0 directory entry: SplatMe 0.3.0 was released 2026-11-19 (tag `v0.3.0` on 9d4fee8; the release's
-   `splatme-0.3.0.zip`, SHA-256 `092648bf4bc0fe13435ccbb63bf69e721b578af391672cb3b244c6f99eb2a52b`, has the same
-   files as the zip the release check ran on, its timestamps the tag's commit time; node 0.2.2 not built again; the
-   docs site published). Its entry in WebODM-Plugins' `directory.json` (SplatMe's line moved from 0.2.0 to 0.3.0,
-   the hash checked against the release's download) is branch `splatme-0.3.0` on the user's fork, from upstream's
-   `main` at 28e61d0, pushed 2026-11-19 with their approval. Left: the user's pull request, then a look at
-   https://plugins.webodm.org/index.json once it is merged.
-
-The rest of the UX review, "10. UX review", is possible for later.
+1. The rest of the UX review (asked 2026-11-22: all twelve findings of "10. UX review"), in three branches:
+   A. Edit Splats (findings 1 to 5), B. SplatMe → Tasks and its dialogs (6, 7, 8, 12), C. the pages (9, 10, 11).
+   Then the next release, with Grow Until and the file names apart from their case. See "12. UX review, the
+   rest".
 
 **Then**
 
@@ -45,7 +40,7 @@ The rest of the UX review, "10. UX review", is possible for later.
   every option it does not set now. OpenSplat itself gives no guidance on them (its README, `--help`, the
   maintainers' issue replies and WebODM's docs, checked 2026-11-18 at e33f9dd). See "7. OpenSplat's other
   training options (dropped)".
-  Except `--densify-until`, asked for on 2026-11-21 as Grow Until (Up next).
+  Except `--densify-until`, asked for on 2026-11-21 as Grow Until (built, see "11. Grow Until (built)").
 
 - Native Windows app (2026-11-15, the user's decision after checking their native install): WebODM's native
   app is not ready for it. It ships no `splat-tools` (WebODM's own Splats import cannot convert there either)
@@ -59,6 +54,10 @@ The rest of the UX review, "10. UX review", is possible for later.
 
 **Done**
 
+- The 0.3.0 directory entry (2026-11-19): the user's pull request,
+  https://github.com/WebODM/WebODM-Plugins/pull/13, was merged on 2026-11-19 (branch `splatme-0.3.0` on the
+  user's fork, from upstream's `main` at 28e61d0; the release zip's SHA-256 `092648bf...`). Checked 2026-11-22
+  in https://plugins.webodm.org/index.json: SplatMe 0.3.0, `experimental: true`, WebODM 4.0.0 or later.
 - File names apart from their case (2026-11-21, found on the first setup on macOS): `public/newTask.js` (the
   upload) is now `public/taskUpload.js`. Beside `NewTask.jsx`, on a case-insensitive disk (the dev stack's mount on
   a Mac or Windows; a WebODM whose media folder, where uploaded plugins live, is on one) `import NewTask from
@@ -3001,3 +3000,69 @@ version); a node without the option is refused only when the field is set ("Upda
 table following it in `trainingView.js` (refining empty when growing ends after polishing would start),
 `OptionsFields.jsx`, `TrainDialog.jsx` (Continue) and `options.html`; the docs (Using SplatMe, How It Works, the
 APIs).
+
+### 12. UX review, the rest (asked 2026-11-22)
+
+The user chose all twelve findings of "10. UX review", to build without further questions unless one is needed.
+The choices made for them (the user can change any): Apply renamed Update the Model; Add Box starts as Remove
+Inside; the per-project New Task With Splats buttons go; thumbnails are taken by Edit Splats in the browser.
+
+**What the code does now (read 2026-11-22):**
+
+- Edit Splats already knows whether the task's model has the saved edits: `edits.fingerprint` of the edits a
+  model was made with is kept under `shown::<id>` and compared by `training.shown_current`, served as
+  `info.applied`; the page shows a warning when it is false, but also the last Apply's "Edits applied." line.
+- Tool state is three keys (`drawing`, `lassoing`, `brushing`); while any is set, every tool button is
+  disabled. Undo is `this.history` in `Editor.jsx`, whole edit lists, with drags and typing merged within 1 s;
+  no Redo, no shortcuts outside a tool (`viewer.js` `onKey`). Navigation is three.js `OrbitControls`; Side View
+  is `frameView` (`place([0, -0.8, 0.8])`), the oblique start view. `newBox` starts as Keep Inside at half the
+  model's width.
+- The training summary is `trainingView.resultText`: `job.finished - job.started`, where `started` is the API
+  request's time, so it counts WebODM's queue, export, Ignore Sky, upload, the node's queue and the import; a
+  Continue writes a new job record, so the time is the last continuation's while the steps are the total. No
+  stage keeps its own time.
+- Continue's Stages table already counts only the added steps (`stagesCells(total, from)`), yet reads as
+  0% when they are all refining.
+- No page links to the docs; Image Size's 0 means "as they are" (`parse_options`); the top New Task With Splats
+  button already asks for a project (`newTaskAnyProject`).
+
+**A. Edit Splats** (branch `ux-editor`)
+
+1. Under **Update the Model** (was Apply), one line from `info.applied` and the Apply's state: "The task's model
+   has these edits." or "The edits changed since the task's model was made." (no record: nothing said); the
+   last Apply's count stays only while it is current; failures and Cancel as now.
+2. **Reset View** (was Side View); double-click on the model (no tool active) moves the orbit's centre to the
+   nearest splat under the pointer; a line under the views: "Drag to turn, right-drag to move, scroll to zoom,
+   double-click to centre."
+3. One `tool` in the page's state; its button `btn-primary active`; the other tools stay available, and
+   choosing one ends the current tool as Esc would (a Polygon's corners are dropped).
+4. Add Box starts as Remove Inside, a third of the model's width.
+5. `editHistory` in `editShapes.js` (pure, Jest): undo and redo stacks, merging, a new change clearing redo.
+   Keys: Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y, Delete (the selected edit), B, L, P, X (Brush, Lasso, Polygon, Box),
+   ignored while typing in a field; each button's title names its key.
+
+**B. SplatMe → Tasks and its dialogs** (branch `ux-tasks`)
+
+6. The row: a head line (name, WebODM's state, images), the status line, then the buttons: Train Splats
+   (Again) primary, Edit the second strong action, View in 3D and Download .ply after it; under 768 px the last
+   two in a dropdown. Theme variables only.
+7. The job keeps `times` (seconds per stage: waiting, export, sky, upload, node queue, training, import) and,
+   on Continue, the trained model's earlier training time (`splatme-model.json` keeps `trained_seconds`).
+   Summary: "Splats trained (7,000 steps) on 22 Nov 2026: 4 min 30 s of training." then "Ignore Sky took 2 min;
+   waiting and transfers 3 min." Records without `times` keep today's sentence.
+8. Continue in Train Splats: the Stages table hidden; the sentence below stays.
+12. A thumbnail: Edit Splats sends a 320 px JPEG of its view (after loading and after an Update) to
+   `task/<id>/thumbnail` (PUT: change permission, at most 200 kB, JPEG checked; GET: view permission), kept as
+   `data/splatme/thumbnail.jpg`; a training deletes it. The row shows it when there is one.
+
+**C. The pages** (branch `ux-pages`)
+
+9. SplatMe → Tasks, SplatMe → Settings and Administration → SplatMe: one sentence and "Learn more" into the
+   docs page for it.
+10. Image Size empty with the placeholder "Full size", sent as 0; 0 loaded as empty (stored value unchanged).
+11. New Task With Splats: the top button and the Dashboard's (the latter labelled on a phone); the projects'
+    buttons go.
+
+**Docs** with each branch (Editing Splats, Using SplatMe, the API), and the changelog's next version.
+
+**Build.** (to be filled in as each branch is merged)
