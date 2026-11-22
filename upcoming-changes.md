@@ -9,7 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
+   14's end: the review, the measurements and the proposed phases; decisions open). The release waits for it.
+2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
@@ -3359,3 +3361,69 @@ by a dynamic `import()`, so the browser kept an earlier copy (the stamps without
 Fixed: the page's import map gives them URLs with a version made from each file's modification time and size
 (`plugin.py`'s `editor_modules`); a Django test checks the map and that the version changes with the file. Also
 matters for users upgrading SplatMe: the new panel would otherwise run with the old 3D view.
+
+**R7, the tools reviewed (asked 2026-11-22).** The request: the tools are cumbersome and don't work well; they all
+revolve around a box, which suits some things but not all. Hole filling needs a brush: a selectable size, painting
+over areas, the gaps filled from the surrounding texture. Review the tools for their purpose and make them
+intuitive and fast.
+
+Measured (Node, the check model, 854,042 triangles; the browser is slower): weld on load 0.94 s; with no edits
+24 ms; a Remove box 71 ms; a Move box 677 ms (its soft edge scans every vertex); Smooth 101 ms; Fill Holes Large
+640 ms for the geometry, then 4.7 s to texture its 1,200 wider fills; any clone stamp 0.8 to 1.3 s (each stamping
+scans the whole model for holes). Every change recomputes the whole list from scratch, so a list holding Fill Holes
+Large spends over 5 s on each later change, a stamp click included.
+
+Review, tool by tool:
+
+- The Brush paints a flat circle on the screen, through to the back: painting a roof also takes the walls and
+  ground behind it. Its size is in pixels, so its size on the model changes with the zoom. The view holds still
+  while it paints. Fill Holes under it fills a hole only when its whole edge is painted, and a narrow hole is
+  coloured with a blend of its edge's colours (a smooth blotch), not texture.
+- Boxes do Flatten, Smooth, Move, Straighten, Clone Texture and Remove Object: one box per repair, moved and sized
+  with 3D handles. Right for a large straight area (a roof face to lift, a car to remove); clumsy for a repair here
+  and there, which is most of them.
+- Straighten needs a box and a line; the line alone (with its Reach) says where it acts.
+- The Clone Texture stamp works, but one click a square, each recomputing everything.
+- Fill Holes (whole model) and Remove Floating Pieces are right as they are, but slow everything after them.
+
+Proposed phases:
+
+- R7a Fast preview: each edit's result kept, so a change recomputes only from the edit changed (a stroke added to
+  the last edit, only that stroke); the holes found once and kept up to date; each fill's and clone's texture part
+  made once and kept; the work in a Web Worker so the view never freezes; triangles found through a grid, never a
+  scan of the whole model per stroke. Aim: a brush dab shown within about 100 ms on the check model (to be
+  measured, not promised).
+- R7b A surface brush for the 3D model: the pointer a circle lying on the surface, its size in metres (wheel or
+  [ and ]); it paints only the surface within that circle around the point under the pointer, not what is behind;
+  dragging paints, and the view turns between strokes. Modes: Fill (the holes under the paint filled with texture
+  from the surface beside them, any size), Smooth, Flatten, Raise and Lower (a step per dab), Remove, Restore, and
+  Clone (a source picked, then painting copies its texture at that offset, as photo editors' clone brushes do).
+- R7c The rest simplified: boxes, polygons and lassos for Remove, Keep and Move of large areas; Straighten as a line
+  with a reach, no box; the Repair row becomes the brush's modes plus Straighten; the step controls kept.
+- R7d Docs, and a live check on a roof with the user.
+
+**The user's decisions (2026-11-22):** a clone brush (pick the source, then paint, copying at that offset; holes
+under the paint fill too) replaces the stamp; shapes keep only large-area work (Remove Inside, Keep Inside, Move
+Inside, Remove Object), with Flatten, Smooth, Fill Holes and Clone moving to the brush and Straighten becoming a
+line with a reach; the brush's size is in metres on the surface; performance first (R7a, then R7b, R7c, R7d).
+
+**R7a built (branch `tools-rework`):** `meshEdits.js` `startEdits`, `applyEdit`, `finishEdits`, `copyEdits` and
+`createPreview` (the state before the first changed edit kept, at most PREVIEW_STATES besides the start; Jest checks
+it answers as applyEdits through a sequence of changes); clones keep face lists, not masks; Move's soft edge looks
+only near the selection; `cloneParts` and `packParts` (cloneAtlas is both) with a part cache keyed by a part's
+settings, triangles and corners' places; the wide fills' sources, rim colours and grid made only for parts being
+made (the grid only around them); `cornersOf` once a surface. `editor/modelWorker.js`, a module Web Worker: the
+weld, the preview, the atlases, each piece's triangles; textures read as 256-texel tiles when first needed (bilinear,
+clamped, as meshApply reads them); answers carry only the pieces and 8 m chunks of the clones' texture that changed.
+The worker imports the versioned module URLs the page's map gives (`import.meta.resolve`); `editor/modelWorker.js`
+is in `EDITOR_MODULES`. The panel says "Showing the edits…" while the worker works.
+
+A cached wide fill's texture is kept while its rim is where it was: when surface beside it changes (a removal near
+its source patch) the preview keeps the old texture, Update the Model picks a fresh source. Rare and small.
+
+Measured live (the check task with Fill Holes Large, before another WebODM stack on the machine started using 1.5
+to 2.5 CPUs; later runs were 3 to 6 times slower and are not comparable): changes after the heavy edit 0.6 to 1.2 s
+end to end, the worker's edits step 90 to 140 ms, the clones step 250 to 450 ms (16 fills re-made a Move step, about
+50 ms of it in Node: the rest was texel reads, since made faster but not measured on a quiet machine); the page's
+long tasks from several of 150 to 490 ms to one of about 110 ms. The first preview with Fill Holes Large takes about
+12 s in the browser (4.9 s in Node), now in the worker with the view usable. To measure again on a quiet machine.

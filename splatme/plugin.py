@@ -33,7 +33,7 @@ from .api import (
 
 # The editor's plain ES modules (not built by webpack): their URLs carry a version made from their files, so that a
 # browser fetches them again once they change (the server gives them no Cache-Control)
-EDITOR_MODULES = ("editor/viewer.js", "meshEdits.js", "editShapes.js")
+EDITOR_MODULES = ("editor/viewer.js", "editor/modelWorker.js", "meshEdits.js", "editShapes.js")
 
 
 def editor_modules():

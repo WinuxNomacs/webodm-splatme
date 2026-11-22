@@ -463,9 +463,16 @@ function move(surface, kept, selected, positions, edit){
             if (!cells.has(k)) cells.set(k, []);
             cells.get(k).push(v);
         }
+        // Only the vertices within soft of the selection's bounds can be within soft of it
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (const v of list) for (let i = 0; i < 3; i++){
+            lo[i] = Math.min(lo[i], p[3 * v + i] - soft);
+            hi[i] = Math.max(hi[i], p[3 * v + i] + soft);
+        }
         for (let v = 0; v < count; v++){
             if (inside[v] || !outside[v]) continue;
             const x = p[3 * v], y = p[3 * v + 1], z = p[3 * v + 2];
+            if (x < lo[0] || x > hi[0] || y < lo[1] || y > hi[1] || z < lo[2] || z > hi[2]) continue;
             const gx = Math.floor(x / soft), gy = Math.floor(y / soft), gz = Math.floor(z / soft);
             let best = soft * soft;
             for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++){
@@ -591,103 +598,157 @@ function straighten(surface, kept, selected, positions, edit){
 // moved}. applyShape: editShapes.js's,
 // given so this module imports nothing.
 export function applyEdits(surface, edits, applyShape){
+    const state = startEdits(surface);
+    for (const edit of edits) applyEdit(surface, state, edit, applyShape);
+    return finishEdits(surface, state);
+}
+
+// applyEdits a step at a time, so that a caller can keep the state between edits (createPreview): the state before
+// any edit, one edit applied to it, and the result. copyEdits: a state to go on from without changing this one.
+export function startEdits(surface){
     const n = surface.faces.length / 3;
-    const kept = new Uint8Array(n).fill(1);
-    const positions = Float64Array.from(surface.positions);
-    let at = null;  // the triangles' centres, made again when the vertices move
-    let floating = 0, flattened = 0, moved = 0;
+    return {
+        n, kept: new Uint8Array(n).fill(1), positions: Float64Array.from(surface.positions),
+        at: null,  // the triangles' centres, made again when the vertices move (never changed in place)
+        floating: 0, flattened: 0, moved: 0,
+        fills: [], fillClone: [],  // the holes filled, and the stamp clone each one takes its texture from (or none)
+        clones: [],  // [edit, the triangles it covered (Int32Array)]
+    };
+}
+export function copyEdits(state){
+    return {...state, kept: state.kept.slice(), positions: state.positions.slice(), fills: state.fills.slice(),
+        fillClone: state.fillClone.slice(), clones: state.clones.slice()};
+}
+function maskFaces(mask){
+    let count = 0;
+    for (let f = 0; f < mask.length; f++) if (mask[f]) count++;
+    const out = new Int32Array(count);
+    for (let f = 0, i = 0; f < mask.length; f++) if (mask[f]) out[i++] = f;
+    return out;
+}
+export function applyEdit(surface, state, edit, applyShape){
+    const { n, kept, positions, fills } = state;
+    const centresNow = () => (state.at = state.at || centres(surface.faces, positions));
     // The triangles a shape covers: what removing it would take out (a shape that keeps its inside: the rest)
-    const coveredBy = edit => {
-        at = at || centres(surface.faces, positions);
-        const covered = applyShape(at.xs, at.ys, at.zs, {...edit, restore: false}, new Uint8Array(n).fill(1), null);
+    const coveredBy = shape => {
+        const at = centresNow();
+        const covered = applyShape(at.xs, at.ys, at.zs, {...shape, restore: false}, new Uint8Array(n).fill(1), null);
         for (let f = 0; f < n; f++) covered[f] = covered[f] ? 0 : 1;
         return covered;
     };
-    const fills = [];
-    const clones = [];  // [edit, the triangles it covered]
     const fill = chosen => {
         for (const hole of chosen){
             if (hole.rim.length > MAX_HOLE) continue;
             const made = fillHole(positions, hole.rim);
-            if (made) fills.push(made);
+            if (made){
+                fills.push(made);
+                state.fillClone.push(null);
+            }
         }
     };
-    for (const edit of edits){
-        if (edit.op === "object"){
-            at = at || centres(surface.faces, positions);
-            const before = kept.slice();
-            applyShape(at.xs, at.ys, at.zs, {...edit, keep: false, restore: false}, kept, null);
-            const touched = new Uint8Array(surface.count);
-            for (let f = 0; f < n; f++){
-                if (before[f] && !kept[f]) touched[surface.faces[3 * f]] = touched[surface.faces[3 * f + 1]] = touched[surface.faces[3 * f + 2]] = 1;
-            }
-            fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.some(v => touched[v])));
-        } else if (edit.op === "fill"){
-            const xs = new Float64Array(surface.count), ys = new Float64Array(surface.count), zs = new Float64Array(surface.count);
-            for (let v = 0; v < surface.count; v++){
-                xs[v] = positions[3 * v];
-                ys[v] = positions[3 * v + 1];
-                zs[v] = positions[3 * v + 2];
-            }
-            const outside = applyShape(xs, ys, zs, {...edit, keep: false, restore: false}, new Uint8Array(surface.count).fill(1), null);
-            fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.every(v => !outside[v])));
-        } else if (edit.type === "stamps"){
-            at = at || centres(surface.faces, positions);
-            // The holes whose whole rim a stamp covers are filled, and every fill inside a stamp takes its texture
-            const open = edit.stamps.length ? holes(surface, kept, fills, positions) : [];
-            const inside = (stamp, ring) => ring.every(v => insideStamp(stamp, positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]));
-            for (const stamp of edit.stamps){
-                const covered = new Uint8Array(n);
-                for (let f = 0; f < n; f++) covered[f] = insideStamp(stamp, at.xs[f], at.ys[f], at.zs[f]) ? 1 : 0;
-                const clone = {op: "clone", source: edit.source, patch: stamp.size, feather: edit.feather, spin: stamp.spin,
-                    anchor: stamp.center, normal: stamp.normal};
-                fill(open.filter(hole => !hole.taken && inside(stamp, hole.rim) && (hole.taken = true)));
-                for (const made of fills) if (inside(stamp, made.ring)) made.clone = clone;
-                clones.push([clone, covered]);
-            }
-        } else if (edit.op === "clone"){
-            clones.push([edit, coveredBy(edit)]);
-        } else if (edit.type === "holes"){
-            fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.length <= edit.size));
-        } else if (edit.op === "delete"){
-            at = at || centres(surface.faces, positions);
-            applyShape(at.xs, at.ys, at.zs, edit, kept, null);
-        } else if (["flatten", "move", "smooth", "straighten"].includes(edit.op)){
-            const covered = coveredBy(edit);
-            const count = edit.op === "flatten" ? flatten(surface, kept, covered, positions) :
-                edit.op === "move" ? move(surface, kept, covered, positions, edit) :
-                edit.op === "smooth" ? smooth(surface, kept, covered, positions, edit.passes) : straighten(surface, kept, covered, positions, edit);
-            if (count){
-                if (edit.op === "flatten") flattened += count;
-                moved += count;
-                at = null;  // the vertices moved
-            }
-        } else if (edit.type === "floating"){
-            const parts = components(surface.faces, surface.count, kept);
-            let largest = -1;
-            parts.sizes.forEach((size, i) => { if (largest < 0 || size > parts.sizes[largest]) largest = i; });
-            for (let f = 0; f < n; f++){
-                const label = parts.label[f];
-                if (label >= 0 && label !== largest && parts.sizes[label] < edit.size){
-                    kept[f] = 0;
-                    floating++;
-                }
+    if (edit.op === "object"){
+        const at = centresNow();
+        const before = kept.slice();
+        applyShape(at.xs, at.ys, at.zs, {...edit, keep: false, restore: false}, kept, null);
+        const touched = new Uint8Array(surface.count);
+        for (let f = 0; f < n; f++){
+            if (before[f] && !kept[f]) touched[surface.faces[3 * f]] = touched[surface.faces[3 * f + 1]] = touched[surface.faces[3 * f + 2]] = 1;
+        }
+        fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.some(v => touched[v])));
+    } else if (edit.op === "fill"){
+        const xs = new Float64Array(surface.count), ys = new Float64Array(surface.count), zs = new Float64Array(surface.count);
+        for (let v = 0; v < surface.count; v++){
+            xs[v] = positions[3 * v];
+            ys[v] = positions[3 * v + 1];
+            zs[v] = positions[3 * v + 2];
+        }
+        const outside = applyShape(xs, ys, zs, {...edit, keep: false, restore: false}, new Uint8Array(surface.count).fill(1), null);
+        fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.every(v => !outside[v])));
+    } else if (edit.type === "stamps"){
+        const at = centresNow();
+        // The holes whose whole rim a stamp covers are filled, and every fill inside a stamp takes its texture
+        const open = edit.stamps.length ? holes(surface, kept, fills, positions) : [];
+        const inside = (stamp, ring) => ring.every(v => insideStamp(stamp, positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]));
+        for (const stamp of edit.stamps){
+            const covered = new Uint8Array(n);
+            for (let f = 0; f < n; f++) covered[f] = insideStamp(stamp, at.xs[f], at.ys[f], at.zs[f]) ? 1 : 0;
+            const clone = {op: "clone", source: edit.source, patch: stamp.size, feather: edit.feather, spin: stamp.spin,
+                anchor: stamp.center, normal: stamp.normal};
+            fill(open.filter(hole => !hole.taken && inside(stamp, hole.rim) && (hole.taken = true)));
+            fills.forEach((made, i) => { if (inside(stamp, made.ring)) state.fillClone[i] = clone; });
+            state.clones.push([clone, maskFaces(covered)]);
+        }
+    } else if (edit.op === "clone"){
+        state.clones.push([edit, maskFaces(coveredBy(edit))]);
+    } else if (edit.type === "holes"){
+        fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.length <= edit.size));
+    } else if (edit.op === "delete"){
+        const at = centresNow();
+        applyShape(at.xs, at.ys, at.zs, edit, kept, null);
+    } else if (["flatten", "move", "smooth", "straighten"].includes(edit.op)){
+        const covered = coveredBy(edit);
+        const count = edit.op === "flatten" ? flatten(surface, kept, covered, positions) :
+            edit.op === "move" ? move(surface, kept, covered, positions, edit) :
+            edit.op === "smooth" ? smooth(surface, kept, covered, positions, edit.passes) : straighten(surface, kept, covered, positions, edit);
+        if (count){
+            if (edit.op === "flatten") state.flattened += count;
+            state.moved += count;
+            state.at = null;  // the vertices moved
+        }
+    } else if (edit.type === "floating"){
+        const parts = components(surface.faces, surface.count, kept);
+        let largest = -1;
+        parts.sizes.forEach((size, i) => { if (largest < 0 || size > parts.sizes[largest]) largest = i; });
+        for (let f = 0; f < n; f++){
+            const label = parts.label[f];
+            if (label >= 0 && label !== largest && parts.sizes[label] < edit.size){
+                kept[f] = 0;
+                state.floating++;
             }
         }
     }
+}
+export function finishEdits(surface, state){
+    const { n, kept, positions } = state;
     let removed = 0;
     for (let f = 0; f < n; f++) if (!kept[f]) removed++;
+    const fills = state.fills.map((made, i) => state.fillClone[i] ? {...made, clone: state.fillClone[i]} : made);
     const added = fills.reduce((sum, f) => sum + f.triangles.length / 3, 0);
     // Clone Texture: each kept triangle goes to the last clone covering it
     const cloneOf = new Int32Array(n).fill(-1);
-    clones.forEach(([, covered], k) => { for (let f = 0; f < n; f++) if (covered[f] && kept[f]) cloneOf[f] = k; });
-    const cloned = clones.map(([edit], k) => {
-        const faces = [];
-        for (let f = 0; f < n; f++) if (cloneOf[f] === k) faces.push(f);
-        return {edit, faces: Int32Array.from(faces)};
-    }).filter(c => c.faces.length);
+    state.clones.forEach(([, faces], k) => { for (const f of faces) if (kept[f]) cloneOf[f] = k; });
+    const cloned = state.clones.map(([edit, faces], k) => ({edit, faces: faces.filter(f => cloneOf[f] === k)})).filter(c => c.faces.length);
     const clonedCount = cloned.reduce((sum, c) => sum + c.faces.length, 0);
-    return {kept, positions, removed, floating, flattened, fills, added, moved, clones: cloned, cloneOf, cloned: clonedCount};
+    return {kept, positions, removed, floating: state.floating, flattened: state.flattened, fills, added, moved: state.moved,
+        clones: cloned, cloneOf, cloned: clonedCount};
+}
+
+// The edits' result kept between calls, for a view that shows them as they change: preview(edits) answers
+// applyEdits(surface, edits, applyShape)'s result, working from the state before the first edit that differs from
+// the last call's (most changes are to the last edit). The states before a few recent changes are kept.
+export const PREVIEW_STATES = 4;
+export function createPreview(surface, applyShape){
+    let keys = [];
+    const states = new Map([[0, startEdits(surface)]]);  // the state before edit i (its own: never changed)
+    return edits => {
+        const next = edits.map(edit => JSON.stringify(edit));
+        let first = 0;
+        while (first < keys.length && first < next.length && keys[first] === next[first]) first++;
+        for (const i of [...states.keys()]) if (i > first) states.delete(i);
+        const from = Math.max(...[...states.keys()].filter(i => i <= first));
+        const state = copyEdits(states.get(from));
+        for (let i = from; i < edits.length; i++){
+            if (i === first && i > from){
+                states.set(i, copyEdits(state));
+                // At most PREVIEW_STATES besides the start: the oldest go
+                const kept = [...states.keys()].filter(k => k > 0).sort((a, b) => a - b);
+                while (kept.length > PREVIEW_STATES) states.delete(kept.shift());
+            }
+            applyEdit(surface, state, edits[i], applyShape);
+        }
+        keys = next;
+        return finishEdits(surface, state);
+    };
 }
 
 // The model's pieces after the edits, to draw or to write: for each piece its kept triangles, with the surface's
@@ -731,19 +792,29 @@ export function editedPieces(pieces, surface, result){
 
 // Each fill's colours: an [r, g, b] (0 to 255) for each vertex of its rim, the model's texture there, from a corner
 // of a triangle at that vertex. sample(piece, u, v): the colour of a piece's texture at u, v (glTF's: v down).
-export function fillColours(surface, pieces, fills, sample){
-    if (!fills.length) return [];
-    const cornerOf = new Int32Array(surface.count).fill(-1), faceOf = new Int32Array(surface.count);
-    const { faces } = surface;
-    for (let f = 0; f < faces.length / 3; f++){
-        for (let k = 0; k < 3; k++){
-            const v = faces[3 * f + k];
-            if (cornerOf[v] < 0){
-                faceOf[v] = f;
-                cornerOf[v] = k;
+// The first triangle at each vertex, and the vertex's corner in it: made once a surface (they depend only on its
+// triangles)
+const firstCorners = new WeakMap();
+function cornersOf(surface){
+    if (!firstCorners.has(surface)){
+        const cornerOf = new Int32Array(surface.count).fill(-1), faceOf = new Int32Array(surface.count);
+        const { faces } = surface;
+        for (let f = 0; f < faces.length / 3; f++){
+            for (let k = 0; k < 3; k++){
+                const v = faces[3 * f + k];
+                if (cornerOf[v] < 0){
+                    faceOf[v] = f;
+                    cornerOf[v] = k;
+                }
             }
         }
+        firstCorners.set(surface, {cornerOf, faceOf});
     }
+    return firstCorners.get(surface);
+}
+export function fillColours(surface, pieces, fills, sample){
+    if (!fills.length) return [];
+    const { cornerOf, faceOf } = cornersOf(surface);
     return fills.map(fill => {
         const out = new Float32Array(fill.ring.length * 3);
         fill.ring.forEach((v, i) => {
@@ -930,12 +1001,14 @@ export function cloneSource(surface, positions, kept, edit, grid = null){
 
 // The kept triangles' centres in cells, to find those near a point quickly: near(point, reach, visit) visits each
 // triangle whose centre may be within reach
-export function faceGrid(surface, positions, kept, cell){
+export function faceGrid(surface, positions, kept, cell, bounds = null){
     const cells = new Map(), { faces } = surface;
     const key = (x, y, z) => x + "," + y + "," + z;
     for (let f = 0; f < faces.length / 3; f++){
         if (!kept[f]) continue;
         const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        // bounds ([[x, y, z], [x, y, z]]): only the triangles with a corner inside (those near where it is asked)
+        if (bounds && !inBounds(bounds, positions, a) && !inBounds(bounds, positions, b) && !inBounds(bounds, positions, c)) continue;
         const k = key(Math.floor((positions[a] + positions[b] + positions[c]) / 3 / cell),
             Math.floor((positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3 / cell),
             Math.floor((positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3 / cell));
@@ -979,6 +1052,11 @@ function fillSource(surface, positions, kept, fill, grid){
         }
     }
     return best;
+}
+
+function inBounds([lo, hi], positions, i){
+    return positions[i] >= lo[0] && positions[i] <= hi[0] && positions[i + 1] >= lo[1] && positions[i + 1] <= hi[1] &&
+        positions[i + 2] >= lo[2] && positions[i + 2] <= hi[2];
 }
 
 // The fills drawn with the smooth blend (fillAtlas) and those textured from beside them (cloneAtlas)
@@ -1047,9 +1125,7 @@ function clonesSources(surface, result){
 
 // A triangle at each surface vertex (the first that has it)
 function firstFaces(surface){
-    const faceOf = new Int32Array(surface.count).fill(-1);
-    for (let f = 0; f < surface.faces.length / 3; f++) for (let k = 0; k < 3; k++) if (faceOf[surface.faces[3 * f + k]] < 0) faceOf[surface.faces[3 * f + k]] = f;
-    return faceOf;
+    return cornersOf(surface).faceOf;
 }
 
 // Fills a triangle's texels: for each texel centre inside a, b, c (texel coordinates), visit(x, y, wa, wb, wc)
@@ -1197,28 +1273,60 @@ function distances(mask, width, height){
 // The clones as one more piece for the model, with a texture made for it: each clone's triangles flat on their plane,
 // textured with its source patch repeated and blended into their own texture near their edge. sample(piece, u, v):
 // a piece's texture's colour (full size) where cloneRegions said. {piece, width, height, rgba} or null with none.
-export function cloneAtlas(surface, pieces, result, sample){
-    const parts = [];
+// cache (a Map, optional): each clone's and fill's part kept by what makes it (its settings, its triangles and where
+// their corners are), so that a part is made again only when one of those changed; parts no longer needed leave it.
+export function cloneAtlas(surface, pieces, result, sample, cache = null){
+    return packParts(cloneParts(surface, pieces, result, sample, cache), result.positions);
+}
+
+// cloneAtlas in two steps: each clone's and wide fill's part ({key, centre: [x, y, z] of its corners, and what
+// renderPart makes}), then parts packed into one texture (packParts), so that a caller can pack them in groups
+export function cloneParts(surface, pieces, result, sample, cache = null){
+    const parts = [], used = new Set();
+    const cached = (key, make) => {
+        if (!cache) return make();
+        used.add(key);
+        if (!cache.has(key)) cache.set(key, make());
+        return cache.get(key);
+    };
     const sourceOf = clonesSources(surface, result), patches = new Map();
     for (const clone of result.clones){
-        const source = sourceOf(clone.edit);
-        if (!source) continue;
         const triangles = Array.from(clone.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]);
         const own = (t, wa, wb, wc) => faceColour(surface, pieces, clone.faces[t], wa, wb, wc, sample);
-        const part = renderPart(surface, pieces, result.positions, triangles, own, source, clone.edit, sample, patches);
-        if (part) parts.push(part);
+        const key = "c" + JSON.stringify(clone.edit) + partKey(clone.faces, triangles, result.positions);
+        const part = cached(key, () => {
+            const source = sourceOf(clone.edit);
+            return source && renderPart(surface, pieces, result.positions, triangles, own, source, clone.edit, sample, patches);
+        });
+        if (part) parts.push({...part, key, centre: partCentre(part.triangles, result.positions)});
     }
-    // The fills wide enough: textured from beside them, blended from their rim's colours at the edge
+    // The fills wide enough: textured from beside them, blended from their rim's colours at the edge. With a cache, a
+    // fill's part is kept while its rim is where it was (its source beside it is not looked for again)
     const detailed = splitFills(result.fills).detailed;
-    if (detailed.length){
-        const grid = faceGrid(surface, result.positions, result.kept, 0.5);
-        const colours = fillColours(surface, pieces, detailed, sample);
-        detailed.forEach((fill, k) => {
+    let grid = null;
+    const fillParts = detailed.map(fill => {
+        const triangles = [];
+        for (let t = 0; t < fill.triangles.length; t += 3) triangles.push([fill.ring[fill.triangles[t]], fill.ring[fill.triangles[t + 1]], fill.ring[fill.triangles[t + 2]]]);
+        return {fill, triangles, key: "f" + JSON.stringify(fill.clone || null) + partKey(fill.ring, triangles, result.positions)};
+    });
+    // The rims' colours of the fills whose parts are to be made, read together (each read goes over the whole model)
+    const making = fillParts.filter(({key}) => !cache || !cache.has(key));
+    // The grid their sources are found through: only around them (fillSource looks two widths away, a width across)
+    const near = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+    for (const { fill } of making){
+        for (const v of fill.ring) for (let i = 0; i < 3; i++){
+            near[0][i] = Math.min(near[0][i], result.positions[3 * v + i] - 4 * fill.radius - 0.5);
+            near[1][i] = Math.max(near[1][i], result.positions[3 * v + i] + 4 * fill.radius + 0.5);
+        }
+    }
+    const rimColours = new Map(fillColours(surface, pieces, making.map(m => m.fill), sample).map((c, i) => [making[i].fill, c]));
+    for (const { fill, triangles, key } of fillParts){
+        const part = cached(key, () => {
+            grid = grid || faceGrid(surface, result.positions, result.kept, 0.5, near);
             const edit = fill.clone ? null : fillSource(surface, result.positions, result.kept, fill, grid);
             const source = fill.clone ? sourceOf(fill.clone) : edit && cloneSource(surface, result.positions, result.kept, edit, grid);
-            if (!source) return;
-            const triangles = [];
-            for (let t = 0; t < fill.triangles.length; t += 3) triangles.push([fill.ring[fill.triangles[t]], fill.ring[fill.triangles[t + 1]], fill.ring[fill.triangles[t + 2]]]);
+            if (!source) return null;
+            const colours = rimColours.get(fill);
             // Its own colour: the rim's colours blended by distance, as fillAtlas's
             const step = Math.max(1, Math.floor(fill.ring.length / FILL_SAMPLES));
             const rim = [];
@@ -1232,19 +1340,26 @@ export function cloneAtlas(surface, pieces, result, sample){
                 for (const i of rim){
                     const vtx = fill.ring[i];
                     const w = 1 / ((p[3 * vtx] - x) ** 2 + (p[3 * vtx + 1] - y) ** 2 + (p[3 * vtx + 2] - z) ** 2 + 1e-6);
-                    r += colours[k][3 * i] * w;
-                    g += colours[k][3 * i + 1] * w;
-                    bl += colours[k][3 * i + 2] * w;
+                    r += colours[3 * i] * w;
+                    g += colours[3 * i + 1] * w;
+                    bl += colours[3 * i + 2] * w;
                     weights += w;
                 }
                 return [r / weights, g / weights, bl / weights];
             };
             // A stamp's fill: in line with the stamp's texture around it, no blend
             const settings = fill.clone ? {...fill.clone, feather: 0} : {feather: fill.radius / 2, spin: 0};
-            const part = renderPart(surface, pieces, result.positions, triangles, own, source, settings, sample, patches);
-            if (part) parts.push(part);
+            return renderPart(surface, pieces, result.positions, triangles, own, source, settings, sample, patches);
         });
+        if (part) parts.push({...part, key, centre: partCentre(part.triangles, result.positions)});
     }
+    if (cache) for (const key of [...cache.keys()]) if (!used.has(key)) cache.delete(key);
+    return parts;
+}
+
+// Parts packed on shelves in one texture (CLONE_WIDTH texels wide): {piece: their triangles with uvs into it, width,
+// height, rgba}, or null with none
+export function packParts(parts, resultPositions){
     if (!parts.length) return null;
     // Shelves, the tallest first
     const order = parts.map((_p, i) => i).sort((a, b) => parts[b].h - parts[a].h);
@@ -1274,7 +1389,7 @@ export function cloneAtlas(surface, pieces, result, sample){
         for (const triangle of part.triangles){
             for (const vtx of triangle){
                 const q = part.at.get(vtx);
-                positions.set([result.positions[3 * vtx], result.positions[3 * vtx + 1], result.positions[3 * vtx + 2]], 3 * corner);
+                positions.set([resultPositions[3 * vtx], resultPositions[3 * vtx + 1], resultPositions[3 * vtx + 2]], 3 * corner);
                 uvs[2 * corner] = (part.left + part.tx(q)) / width;
                 uvs[2 * corner + 1] = (part.top + part.ty(q)) / height;
                 indices[corner] = corner;
@@ -1283,6 +1398,33 @@ export function cloneAtlas(surface, pieces, result, sample){
         }
     }
     return {piece: {positions, uvs, indices}, width, height, rgba};
+}
+
+// The middle of a part's corners
+function partCentre(triangles, positions){
+    const c = [0, 0, 0];
+    let count = 0;
+    for (const t of triangles) for (const v of t){
+        c[0] += positions[3 * v];
+        c[1] += positions[3 * v + 1];
+        c[2] += positions[3 * v + 2];
+        count++;
+    }
+    return c.map(x => x / Math.max(1, count));
+}
+
+// What a part is made from, as text: its triangles' numbers and where their corners are
+function partKey(ids, triangles, positions){
+    let sx = 0, sy = 0, sz = 0, sq = 0;
+    for (const t of triangles) for (const v of t){
+        sx += positions[3 * v];
+        sy += positions[3 * v + 1];
+        sz += positions[3 * v + 2];
+        sq += positions[3 * v] * positions[3 * v + 1] + positions[3 * v + 2] * positions[3 * v + 2];
+    }
+    let h = 0;
+    for (const id of ids) h = (Math.imul(h, 31) + id) | 0;
+    return "|" + ids.length + ":" + h + ":" + [sx, sy, sz, sq].join(",");
 }
 
 // One part of the clones' texture: triangles (surface vertex triples) flat on their plane, each texel the source
