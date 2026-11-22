@@ -145,8 +145,9 @@ it short; edit in place.
 
 ## Tests and checks
 
-The `test` skill in `.claude/skills` has the steps; the `release-review` skill, the review before a release;
-the `release-check` skill, the upgrade rehearsal before the tag.
+The `test` skill in `.claude/skills` has the steps; the `editor-check` skill, the editor checked live (a scenario
+against a throwaway copy of a task, with the preview's timings); the `release-review` skill, the review before a
+release; the `release-check` skill, the upgrade rehearsal before the tag.
 
 - Django: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
   One run at a time: runs share the stack's test database.
