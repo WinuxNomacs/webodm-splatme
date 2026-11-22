@@ -9,7 +9,9 @@ import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, applyShape, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
-import { weld, applyEdits } from "../meshEdits.js";
+import { weld, applyEdits, fillColours, fillAtlas, sampleImage } from "../meshEdits.js";
+
+const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as meshApply.mjs's)
 
 const DRACO_DECODER = "/plugins/splatme/vendor/draco/";  // three.js's own, vendored (WebODM's is too old for it)
 
@@ -133,6 +135,7 @@ export function createViewer(container, handlers){
             });
             model.moved = result.flattened > 0;
         }
+        showFills(result);
         const lists = model.pieces.map(() => []);
         const { pieceOf, localOf } = model.surface;
         for (let f = 0; f < result.kept.length; f++) if (result.kept[f]) lists[pieceOf[f]].push(localOf[f]);
@@ -149,6 +152,50 @@ export function createViewer(container, handlers){
             m.visible = list.length > 0;
         });
         if (handlers.onModelMasked) handlers.onModelMasked(result.removed, result.floating);
+    }
+
+    // A small copy of piece k's texture (SAMPLE_SIZE square, RGBA), made once; null for a piece with none
+    function textureCopy(k){
+        if (!model.copies.has(k)){
+            const image = model.meshes[k].material && model.meshes[k].material.map && model.meshes[k].material.map.image;
+            let copy = null;
+            if (image){
+                const canvas2 = document.createElement("canvas");
+                canvas2.width = canvas2.height = SAMPLE_SIZE;
+                const context = canvas2.getContext("2d", {willReadFrequently: true});
+                context.drawImage(image, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+                copy = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
+            }
+            model.copies.set(k, copy);
+        }
+        return model.copies.get(k);
+    }
+
+    // The holes the edits fill, drawn with the texture Update the Model makes for them
+    function showFills(result){
+        if (model.fills){
+            model.fills.parent.remove(model.fills);
+            model.fills.geometry.dispose();
+            model.fills.material.map.dispose();
+            model.fills.material.dispose();
+            model.fills = null;
+        }
+        if (!result.fills.length) return;
+        const colours = fillColours(model.surface, model.pieces, result.fills, (k, u, v) => {
+            const copy = textureCopy(k);
+            return copy ? sampleImage(copy, SAMPLE_SIZE, u, v) : [128, 128, 128];
+        });
+        const atlas = fillAtlas(result.fills, colours, result.positions);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(atlas.piece.positions, 3));
+        geometry.setAttribute("uv", new THREE.BufferAttribute(atlas.piece.uvs, 2));
+        geometry.setIndex(new THREE.BufferAttribute(atlas.piece.indices, 1));
+        const map = new THREE.DataTexture(new Uint8Array(atlas.rgba.buffer), atlas.width, atlas.height, THREE.RGBAFormat);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.magFilter = map.minFilter = THREE.LinearFilter;
+        map.needsUpdate = true;
+        model.fills = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide}));
+        model.meshes[0].parent.add(model.fills);
     }
 
     // The splats each edit removes hidden (opacity 0), the others as trained
@@ -707,9 +754,10 @@ export function createViewer(container, handlers){
             const meshes = [];
             gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
             const pieces = meshes.map(m => ({
-                positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice()}));
+                positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice(),
+                uvs: m.geometry.attributes.uv ? m.geometry.attributes.uv.array : null}));
             const surface = weld(pieces);
-            model = {group: gltf.scene, meshes, pieces, surface, kept: null};
+            model = {group: gltf.scene, meshes, pieces, surface, kept: null, copies: new Map(), fills: null};
             scene.add(gltf.scene);
             const n = surface.count;
             xs = new Float64Array(n);
@@ -726,9 +774,11 @@ export function createViewer(container, handlers){
             queueMask();
             return {triangles: surface.faces.length / 3, frame};
         },
-        // What the model's edits do now: {removed, floating} triangles and flattened points (null before the model shows)
+        // What the model's edits do now: {removed, floating, added} triangles, flattened points and filled holes (null
+        // before the model shows)
         modelResult(){
-            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened} : null;
+            return model && model.kept ? {removed: model.kept.removed, floating: model.kept.floating, flattened: model.kept.flattened,
+                filled: model.kept.fills.length, added: model.kept.added} : null;
         },
         // The edits to show, and which one has the handles (-1: none)
         setEdits(list, index){

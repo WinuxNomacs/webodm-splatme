@@ -122,10 +122,11 @@ def glb_json(path):
     return json.loads(data[20 : 20 + length])
 
 
-def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0):
+def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False):
     """
     A textured model as WebODM's texturing writes one, small: a GLB (no Draco, one primitive per material) with its
-    OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0 (its vertex at 1, 1 raised by bump); material 1
+    OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0 (its vertex at 1, 1 raised by bump; with hole,
+    no middle square); material 1
     a lone triangle 10 m away, a floating piece. coords.txt gives the task's offset.
     """
     folder = task.assets_path("odm_texturing")
@@ -136,6 +137,8 @@ def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0):
     grid_positions, grid_indices = [], []
     for i in range(3):
         for j in range(3):
+            if hole and (i, j) == (1, 1):
+                continue
             base = len(grid_positions)
             corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
             grid_positions += [(x, y, bump if (x, y) == (1, 1) else 0) for x, y in corners]
@@ -569,6 +572,38 @@ class TestSplatMe(BootTestCase):
         self.assertTrue(heights and max(abs(z) for z in heights) < 1e-5, max(heights))
         with open(os.path.join(meshes.model_dir(task), meshes.GLB), "rb") as f:
             self.assertIn(b"glTF", f.read(4))  # the original, bump and all, kept
+
+    def test_fill_holes_adds_triangles_with_a_texture_of_their_own_which_goes_when_no_fill_needs_it(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, hole=True)
+        texture = os.path.join(folder, meshes.FILL_TEXTURE)
+        for bad in ([{"type": "holes", "size": 0}], [{"type": "holes", "size": meshes.MAX_HOLE + 1}], [{"type": "holes"}]):
+            self.assertEqual(self.model_edits(task, bad).status_code, 400, bad)
+        self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual((res.data["apply"]["filled"], res.data["apply"]["added"]), (1, 2))
+        self.assertEqual(res.data["apply"]["triangles"], 19)  # 16 of the grid, the floating one and the fill's 2
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+        self.assertTrue(os.path.exists(texture))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl splatme_fill\n", f.read())
+        doc = glb_json(os.path.join(folder, meshes.GLB))
+        self.assertEqual(len(doc["meshes"][0]["primitives"]), 3)
+        self.assertEqual(doc["images"][-1]["mimeType"], "image/jpeg")
+
+        # An update that fills nothing, then no edits at all: the texture goes with the fill
+        box = {"op": "delete", "type": "box", "keep": False, "center": [0.5, 0.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertFalse(os.path.exists(texture))
+        self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertTrue(os.path.exists(texture))
+        self.assertEqual(self.model_edits(task, []).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertFalse(os.path.exists(texture))
 
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)

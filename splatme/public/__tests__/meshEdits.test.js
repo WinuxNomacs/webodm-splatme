@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -53,6 +53,23 @@ describe("holes", () => {
         kept[8] = kept[9] = 0;  // the middle square
         expect(loops(openEdges(surface.faces, surface.count, kept)).map(r => r.length).sort((a, b) => a - b)).toEqual([4, 12]);
     });
+});
+
+test("a rim pinched at a vertex gives a loop on each side of it", () => {
+    // Two squares' rims meeting at vertex 0: 0-1-2-3 and 0-4-5-6
+    const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [4, 5], [5, 6], [6, 0]];
+    for (const order of [edges, edges.slice().reverse(), [...edges.slice(4), ...edges.slice(0, 4)]]){
+        const rings = loops(order).map(r => r.slice().sort((x, y) => x - y).join(","));
+        expect(rings.sort()).toEqual(["0,1,2,3", "0,4,5,6"]);
+    }
+    expect(loops([[0, 1], [1, 2]])).toEqual([]);  // not closed
+});
+
+test("a loop whose edges do not all go the same way is found, turned the way most go", () => {
+    const ring = loops([[0, 1], [2, 1], [2, 3], [3, 0]])[0];
+    expect(ring.length).toBe(4);
+    const along = [[0, 1], [2, 3], [3, 0]].filter(([a, b]) => ring.some((v, i) => v === a && ring[(i + 1) % 4] === b)).length;
+    expect(along).toBe(3);
 });
 
 describe("floating pieces", () => {
@@ -182,4 +199,105 @@ test("Flatten on a whole piece, with no rim, uses the plane of its own vertices"
         const d = [0, 1, 2].reduce((sum, k) => sum + (result.positions[3 * v + k] - plane.point[k]) * plane.normal[k], 0);
         expect(Math.abs(d)).toBeLessThan(1e-9);
     }
+});
+
+describe("filling holes", () => {
+    const area = (xs, ys, tris) => {
+        let sum = 0;
+        for (let t = 0; t < tris.length; t += 3){
+            const [a, b, c] = [tris[t], tris[t + 1], tris[t + 2]];
+            sum += ((xs[b] - xs[a]) * (ys[c] - ys[a]) - (ys[b] - ys[a]) * (xs[c] - xs[a])) / 2;
+        }
+        return sum;
+    };
+    // The open edges of the kept triangles and the fills together
+    const rimsAfter = (surface, result) => {
+        const extra = result.fills.flatMap(f => Array.from(f.triangles, t => f.ring[t]));
+        const faces = Int32Array.from([...surface.faces, ...extra]);
+        const kept = Uint8Array.from([...result.kept, ...new Array(extra.length / 3).fill(1)]);
+        return loops(openEdges(faces, surface.count, kept)).map(r => r.length).sort((a, b) => a - b);
+    };
+    const middleGone = () => weld(grid(3, (i, j) => i === 1 && j === 1));
+
+    test("ear clipping covers a polygon that is not convex, each triangle its way round", () => {
+        const xs = [0, 2, 2, 1, 1, 0], ys = [0, 0, 1, 1, 2, 2];  // an L
+        const tris = earClip(xs, ys);
+        expect(tris.length).toBe(12);
+        expect(area(xs, ys, tris)).toBeCloseTo(3);
+        for (let t = 0; t < tris.length; t += 3) expect(area(xs, ys, tris.slice(t, t + 3))).toBeGreaterThan(0);
+        const back = earClip(xs.slice().reverse(), ys.slice().reverse());
+        expect(area(xs.slice().reverse(), ys.slice().reverse(), back)).toBeCloseTo(-3);
+    });
+
+    test("Fill Holes closes the holes up to its size, never the outer rim, the triangles facing as their neighbours", () => {
+        const surface = middleGone();
+        const result = applyEdits(surface, [{type: "holes", size: 4}], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(result.added).toBe(2);
+        expect(result.removed).toBe(0);
+        expect(rimsAfter(surface, result)).toEqual([12]);  // each new edge meets its neighbour's going the other way
+        expect(applyEdits(surface, [{type: "holes", size: 3}], applyShape).added).toBe(0);
+        expect(applyEdits(weld(grid()), [{type: "holes", size: 1000}], applyShape).added).toBe(0);
+    });
+
+    test("an outer rim pinched at a corner is no hole, nor is one seen from below", () => {
+        // Two squares meeting at a corner: their rim is two loops, each going round as an outer rim does
+        const corner = weld(grid(2, (i, j) => (i + j) % 2 === 1));
+        expect(applyEdits(corner, [{type: "holes", size: 100}], applyShape).added).toBe(0);
+        // The grid with a hole, its triangles facing down: the hole is still one
+        const down = grid(3, (i, j) => i === 1 && j === 1).map(p => ({...p, indices: p.indices.slice().reverse()}));
+        expect(applyEdits(weld(down), [{type: "holes", size: 4}], applyShape).added).toBe(2);
+    });
+
+    test("a fill shape closes the holes whose whole rim it covers", () => {
+        const surface = middleGone();
+        const around = {op: "fill", type: "box", keep: false, center: [1.5, 1.5, 0], size: [1.2, 1.2, 1], turn: 0};
+        expect(applyEdits(surface, [around], applyShape).added).toBe(2);
+        const part = {...around, center: [1.2, 1.5, 0], size: [0.6, 1.2, 1]};
+        expect(applyEdits(surface, [part], applyShape).added).toBe(0);
+    });
+
+    test("Remove Object takes out what the shape covers and fills the hole it leaves", () => {
+        const surface = weld(grid());
+        const object = {op: "object", type: "box", keep: false, center: [1.5, 1.5, 0], size: [1, 1, 1], turn: 0};
+        const result = applyEdits(surface, [object], applyShape);
+        expect(result.removed).toBe(2);
+        expect(result.added).toBe(2);
+        expect(rimsAfter(surface, result)).toEqual([12]);
+        // At the model's edge, the hole joins the outer rim: nothing to fill
+        const edge = {...object, center: [0.5, 1.5, 0]};
+        expect(applyEdits(surface, [edge], applyShape)).toMatchObject({removed: 2, added: 0});
+    });
+
+    test("a later Fill Holes counts a hole already filled as closed", () => {
+        const surface = middleGone();
+        const result = applyEdits(surface, [{type: "holes", size: 4}, {type: "holes", size: 4}], applyShape);
+        expect(result.fills.length).toBe(1);
+    });
+
+    test("the fills' piece has a texture of the colours around their rims", () => {
+        const pieces = grid(3, (i, j) => i === 1 && j === 1).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
+        const surface = weld(pieces);
+        const result = applyEdits(surface, [{type: "holes", size: 4}], applyShape);
+        const colours = fillColours(surface, pieces, result.fills, piece => piece === 0 ? [200, 100, 0] : [200, 100, 0]);
+        expect(Array.from(colours[0])).toEqual([200, 100, 0, 200, 100, 0, 200, 100, 0, 200, 100, 0]);
+        const atlas = fillAtlas(result.fills, colours, result.positions);
+        expect(atlas.piece.indices.length).toBe(6);
+        expect(atlas.piece.positions.length).toBe(12);
+        for (const uv of atlas.piece.uvs){
+            expect(uv).toBeGreaterThanOrEqual(0);
+            expect(uv).toBeLessThanOrEqual(1);
+        }
+        const u = atlas.piece.uvs[0], v = atlas.piece.uvs[1];
+        const x = Math.floor(u * atlas.width), y = Math.min(atlas.height - 1, Math.floor(v * atlas.height));
+        expect(Array.from(atlas.rgba.slice(4 * (y * atlas.width + x), 4 * (y * atlas.width + x) + 4))).toEqual([200, 100, 0, 255]);
+        expect(fillAtlas([], [], result.positions)).toBeNull();
+    });
+
+    test("a texture is sampled at the nearest texel, rows from the top", () => {
+        const rgba = Uint8ClampedArray.from([1, 1, 1, 255, 2, 2, 2, 255, 3, 3, 3, 255, 4, 4, 4, 255]);
+        expect(sampleImage(rgba, 2, 0.1, 0.1)).toEqual([1, 1, 1]);
+        expect(sampleImage(rgba, 2, 0.9, 0.9)).toEqual([4, 4, 4]);
+        expect(sampleImage(rgba, 2, 1.9, 0.1)).toEqual([2, 2, 2]);
+    });
 });

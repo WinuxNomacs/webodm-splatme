@@ -10,10 +10,22 @@ const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
 const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
 const AXES = ["X", "Y", "Z"];
-const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom"};
+const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom", holes: "fa-fill-drip"};
 const SHAPES = ["box", "polygon", "lasso", "brush"];
 // Remove Floating Pieces: the pieces of surface under this many triangles go
 const FLOATING_SIZES = [[100, "Small"], [1000, "Medium"], [10000, "Large"]];
+// Fill Holes: the holes of up to this many edges are filled
+const HOLE_SIZES = [[10, "Small"], [50, "Medium"], [200, "Large"]];
+// What the Brush does: its mode, its button and what its panel says; the splats' Brush has the first two
+const BRUSH_MODES = [
+    ["remove", "Remove", "Paint over what to remove. Everything under the brush on screen goes, through to the back."],
+    ["restore", "Restore", "Paint over what to bring back. Everything under the brush on screen that the edits listed before removed comes back, through to the back."],
+    ["flatten", "Flatten", "Paint over what to flatten. The surface under the brush on screen, through to the back, is made flat, level with its edges."],
+    ["fill", "Fill Holes", "Paint over the holes to fill: a hole is filled when the brush covers all its edge, through to the back."],
+    ["object", "Remove Object", "Paint over an object to remove: what is under the brush on screen goes, through to the back, and the hole it leaves is filled."],
+];
+const OPS_SHOWN = ["flatten", "fill", "object"];  // the model's shape edits beside Keep and Remove Inside
+const BRUSH_OPS = {flatten: "flatten", fill: "fill", object: "object"};  // the model's edit for each mode ("delete" for the rest)
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 const THUMBNAIL_WIDTH = 320;  // the picture of the model on its row in SplatMe → Tasks, in pixels across
 const THUMBNAIL_AFTER = 2000;  // ms after the model shows before its picture is taken (the splats settle)
@@ -48,7 +60,7 @@ class EditorPanel extends React.Component {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
             starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
-            brushing: false, brushSize: BRUSH_SIZE, brushRestore: false, brushFlatten: false,
+            brushing: false, brushSize: BRUSH_SIZE, brushMode: "remove",
             history: newHistory()  // the edits before each change, for Undo, and those taken back, for Redo
         };
     }
@@ -248,21 +260,22 @@ class EditorPanel extends React.Component {
         if (!this.canStart("brush")) return;
         this.freshBrush = true;
         this.setState({selected: -1, brushing: true});
-        this.viewer.startBrush(this.state.brushSize, this.state.brushRestore);
+        this.viewer.startBrush(this.state.brushSize, this.state.brushMode === "restore");
     };
 
-    // Remove, Restore or Flatten (the model's) in the Brush's panel: the next stroke starts an edit of its own
-    setBrushRestore(brushRestore, brushFlatten = false){
-        if (brushRestore === this.state.brushRestore && brushFlatten === this.state.brushFlatten) return;
+    // What the Brush does (BRUSH_MODES), from its panel: the next stroke starts an edit of its own
+    setBrushMode(brushMode){
+        if (brushMode === this.state.brushMode) return;
         this.freshBrush = true;
-        this.setState({brushRestore, brushFlatten});
-        if (this.viewer) this.viewer.setBrushRestore(brushRestore);
+        this.setState({brushMode});
+        if (this.viewer) this.viewer.setBrushRestore(brushMode === "restore");
     }
 
     handleBrushStroke = ({stroke, view, aspect, camera}) => {
         const { edits } = this.state;
-        const next = addStroke(edits, stroke, view, aspect, camera, this.freshBrush, this.state.brushRestore,
-                               this.isModel() ? (this.state.brushFlatten ? "flatten" : "delete") : undefined);
+        const mode = this.state.brushMode;
+        const next = addStroke(edits, stroke, view, aspect, camera, this.freshBrush, mode === "restore",
+                               this.isModel() ? (BRUSH_OPS[mode] || "delete") : undefined);
         if (next.length > edits.length && edits.length >= MAX_EDITS){
             this.viewer.endBrush();
             return;
@@ -282,6 +295,17 @@ class EditorPanel extends React.Component {
         if (this.hasFloaters() || edits.length >= MAX_EDITS) return;
         this.change([...edits, this.isModel() ? {type: "floating", size: 1000} : {type: "floaters", strength: "medium"}], -1);
     };
+
+    addHoles = () => {
+        this.endTool();
+        const { edits } = this.state;
+        if (this.hasHoles() || edits.length >= MAX_EDITS) return;
+        this.change([...edits, {type: "holes", size: HOLE_SIZES[0][0]}], -1);
+    };
+
+    hasHoles(){
+        return this.state.edits.some(e => e.type === "holes");
+    }
 
     // Whether the list has its Remove Floaters (splats) or Remove Floating Pieces (the model) already
     hasFloaters(){
@@ -376,7 +400,7 @@ class EditorPanel extends React.Component {
     setAction(index, action){
         const edits = this.state.edits.slice();
         edits[index] = {...edits[index], keep: action === "keep"};
-        if (this.isModel()) edits[index].op = action === "flatten" ? "flatten" : "delete";
+        if (this.isModel()) edits[index].op = OPS_SHOWN.includes(action) ? action : "delete";
         this.change(edits, this.state.selected);
     }
 
@@ -563,18 +587,24 @@ class EditorPanel extends React.Component {
 
     renderList(){
         const { edits, selected, info } = this.state;
-        if (!edits.length) return <p className="splatme-editor-empty">{_("No edits yet. The tools above keep or remove parts of the model, or adjust its colours.")}</p>;
+        if (!edits.length) return <p className="splatme-editor-empty">{this.isModel() ? _("No edits yet. The tools above remove, flatten or fill parts of the model.") : _("No edits yet. The tools above keep or remove parts of the model, or adjust its colours.")}</p>;
         return (
             <ul className="list-group splatme-editor-list">
                 {edits.map((edit, i) => (
                     <li key={i} className={"list-group-item" + (i === selected ? " active" : "")}>
                         <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : edit.type === "colour" ? _("Show its sliders") : ""}>
-                            <i className={"fa fa-fw " + ICONS[edit.type]}></i> {edit.type === "floating" ? this.floatingLabel() : editLabel(edit, this.floatersCount(edit))}
+                            <i className={"fa fa-fw " + ICONS[edit.type]}></i> {edit.type === "floating" ? this.floatingLabel() : edit.type === "holes" ? this.holesLabel() : editLabel(edit, this.floatersCount(edit))}
                         </a>
                         {(edit.type === "lasso" || edit.type === "brush") && edit.camera && this.viewer ?
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
-                            {edit.type === "brush" ? <span className="splatme-editor-item-note">{edit.restore ? _("Brings back what it painted over") : edit.op === "flatten" ? _("Flattens what it painted over") : _("Removes what it painted over")}</span> :
+                            {edit.type === "brush" ? <span className="splatme-editor-item-note">{edit.restore ? _("Brings back what it painted over") : edit.op === "flatten" ? _("Flattens what it painted over") :
+                                edit.op === "fill" ? _("Fills the holes it painted over") : edit.op === "object" ? _("Removes what it painted over and fills the hole") : _("Removes what it painted over")}</span> :
+                            edit.type === "holes" ?
+                                <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
+                                        aria-label={_("Which holes to fill")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
+                                    {HOLE_SIZES.map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("up to")} {size} {_("edges")})</option>)}
+                                </select> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
                             edit.type === "floating" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
@@ -586,11 +616,13 @@ class EditorPanel extends React.Component {
                                         aria-label={_("How many floaters to remove")} onChange={e => this.setStrength(i, e.target.value)}>
                                     {STRENGTHS.map(([value, label]) => <option key={value} value={value}>{_(label)}</option>)}
                                 </select> :
-                                <select className="form-control input-sm" value={edit.op === "flatten" ? "flatten" : edit.keep ? "keep" : "remove"} disabled={!info.can_edit}
+                                <select className="form-control input-sm" value={OPS_SHOWN.includes(edit.op) ? edit.op : edit.keep ? "keep" : "remove"} disabled={!info.can_edit}
                                         aria-label={_("What this edit does")} onChange={e => this.setAction(i, e.target.value)}>
                                     <option value="keep">{_("Keep Inside")}</option>
                                     <option value="remove">{_("Remove Inside")}</option>
                                     {this.isModel() ? <option value="flatten">{_("Flatten Inside")}</option> : ""}
+                                    {this.isModel() ? <option value="fill">{_("Fill Holes Inside")}</option> : ""}
+                                    {this.isModel() ? <option value="object">{_("Remove Object")}</option> : ""}
                                 </select>}
                             {info.can_edit ?
                                 <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit (Delete when it is selected)")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
@@ -608,6 +640,13 @@ class EditorPanel extends React.Component {
         const result = this.viewer && this.state.loaded ? this.viewer.modelResult() : null;
         if (!result) return _("Floating Pieces");
         return _("Floating Pieces") + ", " + result.floating.toLocaleString("en-US") + " " + (result.floating === 1 ? _("triangle") : _("triangles"));
+    }
+
+    // Fill Holes in the list, with how many holes the edits fill, once the view has said
+    holesLabel(){
+        const result = this.viewer && this.state.loaded ? this.viewer.modelResult() : null;
+        if (!result) return _("Holes");
+        return _("Holes") + ", " + result.filled.toLocaleString("en-US") + " " + _("filled");
     }
 
     // How many splats the floaters edit is, once the server has said (null before)
@@ -641,7 +680,7 @@ class EditorPanel extends React.Component {
     }
 
     renderPanel(){
-        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize, brushRestore, brushFlatten } = this.state;
+        const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize, brushMode } = this.state;
         const canEdit = info.can_edit && !!loaded;
         const busy = !canEdit || edits.length >= MAX_EDITS;
         const tool = this.activeTool();
@@ -672,6 +711,11 @@ class EditorPanel extends React.Component {
                         <button type="button" className="btn btn-sm btn-default" disabled={busy || this.hasFloaters()}
                                 onClick={this.addFloaters} title={_("Remove the small pieces of surface apart from the rest of the model")}>
                             <i className="fa fa-broom fa-fw"></i> {_("Remove Floating Pieces")}
+                        </button> : ""}
+                    {this.isModel() ?
+                        <button type="button" className="btn btn-sm btn-default" disabled={busy || this.hasHoles()}
+                                onClick={this.addHoles} title={_("Fill the model's small holes, coloured from around each one")}>
+                            <i className="fa fa-fill-drip fa-fw"></i> {_("Fill Holes")}
                         </button> :
                         <button type="button" className="btn btn-sm btn-default" disabled={busy || this.hasFloaters()}
                                 onClick={this.addFloaters} title={_("Remove the splats far from the rest, and the oversized ones")}>
@@ -693,19 +737,11 @@ class EditorPanel extends React.Component {
                 {brushing ?
                     <div className="alert alert-info splatme-editor-drawing">
                         <div className="btn-group btn-group-sm splatme-editor-brush-mode" role="group" aria-label={_("What the brush does")}>
-                            <button type="button" className={"btn " + (brushRestore || brushFlatten ? "btn-default" : "btn-primary")} aria-pressed={!brushRestore && !brushFlatten}
-                                    onClick={() => this.setBrushRestore(false)}>{_("Remove")}</button>
-                            <button type="button" className={"btn " + (brushRestore ? "btn-primary" : "btn-default")} aria-pressed={brushRestore}
-                                    onClick={() => this.setBrushRestore(true)}>{_("Restore")}</button>
-                            {this.isModel() ?
-                                <button type="button" className={"btn " + (brushFlatten ? "btn-primary" : "btn-default")} aria-pressed={brushFlatten}
-                                        onClick={() => this.setBrushRestore(false, true)}>{_("Flatten")}</button> : ""}
+                            {BRUSH_MODES.filter(([mode]) => this.isModel() || ["remove", "restore"].includes(mode)).map(([mode, label]) =>
+                                <button key={mode} type="button" className={"btn " + (brushMode === mode ? "btn-primary" : "btn-default")} aria-pressed={brushMode === mode}
+                                        onClick={() => this.setBrushMode(mode)}>{_(label)}</button>)}
                         </div>
-                        <p>{brushRestore ?
-                            _("Paint over what to bring back. Everything under the brush on screen that the edits listed before removed comes back, through to the back.") :
-                            brushFlatten ?
-                            _("Paint over what to flatten. The surface under the brush on screen, through to the back, is made flat, level with its edges.") :
-                            _("Paint over what to remove. Everything under the brush on screen goes, through to the back.")}
+                        <p>{_(BRUSH_MODES.find(([mode]) => mode === brushMode)[2])}
                         {" "}{_("The view holds still while you paint: press Done to turn it.")}</p>
                         <label className="splatme-editor-brush-size">
                             {_("Size")}
@@ -808,7 +844,8 @@ class EditorPanel extends React.Component {
         const result = this.viewer ? this.viewer.modelResult() : null;
         const removed = result && result.removed ? ", " + result.removed.toLocaleString("en-US") + " " + _("of them removed by the edits") : "";
         const flattened = result && result.flattened ? "; " + result.flattened.toLocaleString("en-US") + " " + (result.flattened === 1 ? _("point flattened") : _("points flattened")) : "";
-        return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + ".";
+        const filled = result && result.filled ? "; " + result.filled.toLocaleString("en-US") + " " + (result.filled === 1 ? _("hole filled") : _("holes filled")) : "";
+        return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + ".";
     }
 
     render(){

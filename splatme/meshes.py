@@ -8,7 +8,13 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
              covers are removed (keep: true removes the rest; a brush with restore puts back what was removed)
     flatten  {"op": "flatten", <a shape>}: the triangles whose centres the shape covers made flat, their vertices
              moved onto the plane that best fits the selection's rim (the rim staying put)
+    fill     {"op": "fill", <a shape>}: the holes whose whole rim the shape covers filled
+    object   {"op": "object", <a shape>}: Remove Object, what the shape covers removed and the hole it leaves filled
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
+    holes    {"type": "holes", "size": n}: Fill Holes, every hole of at most n edges filled
+
+A fill's triangles have a texture of their own, made from the colours around each hole: FILL_TEXTURE beside the
+model's textures, a material after the model's in the MTL (and a JPEG inside the GLB).
 
 The rule is public/meshEdits.js, the same code the page's preview runs; Update the Model (apply) runs it in WebODM's
 worker through Node (meshApply.mjs), on the model's original files, kept in the task's data/splatme/model the
@@ -34,11 +40,13 @@ logger = logging.getLogger("app.logger")
 KIND = "modelapply"  # the update's record and folder (training.get_apply)
 MAX_EDITS = edits.MAX_EDITS
 MAX_FLOATING = 100000  # triangles: as meshEdits.MAX_FLOATING
+MAX_HOLE = 5000  # edges: as meshEdits.MAX_HOLE
 SHAPES = ("box", "polygon", "lasso", "brush")
-OPS = ("delete", "flatten")
+OPS = ("delete", "flatten", "fill", "object")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
+FILL_TEXTURE = "odm_textured_model_geo_splatme_fill_map_Kd.png"  # as meshApply.mjs's
 NODE_TIMEOUT = 30 * 60  # seconds Node may take to make the model (the check task's takes about 5)
 STOP_WAIT = 10  # seconds a stopped Node has to end before it is killed
 MESH_APPLY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meshApply.mjs")
@@ -66,11 +74,13 @@ def clean(given):
     for i, edit in enumerate(given, 1):
         if not isinstance(edit, dict):
             raise edits.EditsError(f"Edit {i} is not an edit.")
-        if edit.get("type") == "floating":
+        if edit.get("type") in ("floating", "holes"):
+            kind = edit["type"]
             size = edit.get("size")
-            if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= MAX_FLOATING:
-                raise edits.EditsError(f"Edit {i}'s size must be a whole number of triangles from 1 to {MAX_FLOATING}.")
-            out.append({"type": "floating", "size": size})
+            most, unit = (MAX_FLOATING, "triangles") if kind == "floating" else (MAX_HOLE, "edges")
+            if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= most:
+                raise edits.EditsError(f"Edit {i}'s size must be a whole number of {unit} from 1 to {most}.")
+            out.append({"type": kind, "size": size})
             continue
         op = edit.get("op")
         if op not in OPS or edit.get("type") not in SHAPES:
@@ -215,7 +225,8 @@ def start_apply(task, username):
     now = time.time()
     record = {
         "state": training.APPLYING, "run": run, "waiting": run, "user": username, "status": "", "error": None,
-        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "triangles": None,
+        "started": now, "updated": now, "finished": None, "removed": None, "flattened": None, "filled": None, "added": None,
+        "triangles": None,
     }  # fmt: skip
     with transaction.atomic():
         training.lock_records()
@@ -290,9 +301,18 @@ def stop(process):
 
 
 def replace_model(task, out):
-    """The task's GLB, OBJ and MTL replaced by those made: each written beside its place, then renamed in place."""
+    """
+    The task's GLB, OBJ and MTL replaced by those made: each written beside its place, then renamed in place. The
+    fills' texture goes in first, so the new MTL never names a texture not there, and goes once nothing names it.
+    """
     folder = texturing_dir(task)
     made = {GLB: "model.glb", OBJ: "model.obj", MTL: "model.mtl"}
+    texture = os.path.join(out, FILL_TEXTURE)
+    if os.path.exists(texture):
+        shutil.move(texture, os.path.join(folder, FILL_TEXTURE) + training.NEW)
+        os.replace(os.path.join(folder, FILL_TEXTURE) + training.NEW, os.path.join(folder, FILL_TEXTURE))
+    else:
+        texture = None
     try:
         for name, source in made.items():
             shutil.move(os.path.join(out, source), os.path.join(folder, name) + training.NEW)
@@ -304,6 +324,8 @@ def replace_model(task, out):
                 os.remove(os.path.join(folder, name) + training.NEW)
             except FileNotFoundError:
                 pass
+    if texture is None:
+        remove_fill_texture(task)
 
 
 def restore_model(task):
@@ -313,6 +335,14 @@ def restore_model(task):
         shutil.copyfile(os.path.join(model_dir(task), name), os.path.join(folder, name) + training.NEW)
     for name in FILES:
         os.replace(os.path.join(folder, name) + training.NEW, os.path.join(folder, name))
+    remove_fill_texture(task)
+
+
+def remove_fill_texture(task):
+    try:
+        os.remove(os.path.join(texturing_dir(task), FILL_TEXTURE))
+    except FileNotFoundError:
+        pass
 
 
 def apply(task_id, run):
@@ -340,14 +370,15 @@ def apply(task_id, run):
                 keep_originals(task)
                 replace_model(task, out)
             else:
-                result = {"removed": 0, "flattened": 0, "triangles": None}
+                result = {"removed": 0, "flattened": 0, "filled": 0, "added": 0, "triangles": None}
                 if kept(task):
                     restore_model(task)
             drop_cached_models(task)
             edits.store().set_json(shown_key(task_id), {"edits": made_with})
             task.update_size(commit=True)
         report(task_id, run, state="completed", status="", finished=time.time(), removed=result.get("removed"),
-               flattened=result.get("flattened"), triangles=result.get("triangles"))  # fmt: skip
+               flattened=result.get("flattened"), filled=result.get("filled"), added=result.get("added"),
+               triangles=result.get("triangles"))  # fmt: skip
     except training.Superseded:
         pass
     except (ModelError, training.TrainingError, edits.EditsError, ValueError, OSError, Task.DoesNotExist) as e:

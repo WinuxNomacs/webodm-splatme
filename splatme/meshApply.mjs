@@ -6,12 +6,14 @@
 //
 //   node meshApply.mjs <original.glb> <original.mtl> <edits.json> <out folder>
 //
-// It writes model.glb, model.obj, model.mtl and report.json ({triangles, removed, floating, flattened}) into the out folder, and
-// exits 1 with the reason on stderr when it cannot. WEBODM_DIR: where WebODM's node_modules are (/webodm).
+// It writes model.glb, model.obj, model.mtl and report.json ({triangles, removed, floating, flattened, filled, added})
+// into the out folder, with FILL_TEXTURE when the edits fill holes (the fills' texture, a material of its own after
+// the model's: a JPEG inside the GLB), and exits 1 with the reason on stderr when it cannot. WEBODM_DIR: where WebODM's
+// node_modules are (/webodm).
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import { weld, applyEdits, editedPieces } from './public/meshEdits.js';
+import { weld, applyEdits, editedPieces, fillColours, fillAtlas, sampleImage } from './public/meshEdits.js';
 import { applyShape } from './public/editShapes.js';
 
 const require = createRequire(path.join(process.env.WEBODM_DIR || '/webodm', 'package.json'));
@@ -19,6 +21,11 @@ const { NodeIO, Extension } = require('@gltf-transform/core');
 const { KHRONOS_EXTENSIONS } = require('@gltf-transform/extensions');
 const { draco, prune } = require('@gltf-transform/functions');
 const draco3d = require('draco3dgltf');
+const sharp = require('sharp');
+
+const FILL_MATERIAL = 'splatme_fill';
+const FILL_TEXTURE = 'odm_textured_model_geo_splatme_fill_map_Kd.png';
+const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as the editor's preview)
 
 // WebODM's GLB is placed by CESIUM_RTC (the task's offset): kept as read
 class CesiumRTC extends Extension {
@@ -111,17 +118,47 @@ async function main(){
     const surface = weld(pieces);
     const result = applyEdits(surface, edits, applyShape);
     const edited = editedPieces(pieces, surface, result);
+
+    // The fills: their colours from small copies of the textures they border, a texture made for them
+    const copies = new Map();
+    const textureOf = async k => {
+        if (!copies.has(k)){
+            const texture = primitives[k].getMaterial()?.getBaseColorTexture();
+            copies.set(k, texture ? await sharp(Buffer.from(texture.getImage())).resize(SAMPLE_SIZE, SAMPLE_SIZE, {fit: 'fill'})
+                .ensureAlpha().raw().toBuffer() : null);
+        }
+        return copies.get(k);
+    };
+    const needed = new Set();
+    fillColours(surface, pieces, result.fills, k => { needed.add(k); return [0, 0, 0]; });
+    for (const k of needed) await textureOf(k);
+    const colours = fillColours(surface, pieces, result.fills, (k, u, v) => copies.get(k) ? sampleImage(copies.get(k), SAMPLE_SIZE, u, v) : [128, 128, 128]);
+    const atlas = fillAtlas(result.fills, colours, result.positions);
+    const fillMaterial = atlas ? primitives[0].getMaterial().clone().setName(FILL_MATERIAL) : null;
+    if (atlas){
+        edited.push({piece: materials.length, ...atlas.piece});
+        materials.push(FILL_MATERIAL);
+    }
     for (const piece of edited) piece.normals = normals(piece.positions, piece.indices);
 
     // The GLB: each primitive's attributes replaced; one left with no triangle goes, its texture with it (prune)
     const buffer = doc.getRoot().listBuffers()[0];
+    const accessor = (array, type) => doc.createAccessor().setArray(array).setType(type).setBuffer(buffer);
+    if (atlas){
+        const raw = {raw: {width: atlas.width, height: atlas.height, channels: 4}};
+        const jpeg = await sharp(Buffer.from(atlas.rgba.buffer), raw).jpeg({quality: 90}).toBuffer();
+        await sharp(Buffer.from(atlas.rgba.buffer), raw).png().toFile(path.join(out, FILL_TEXTURE));
+        fillMaterial.setBaseColorTexture(doc.createTexture(FILL_MATERIAL).setImage(new Uint8Array(jpeg)).setMimeType('image/jpeg'));
+        const primitive = doc.createPrimitive().setMaterial(fillMaterial);
+        doc.getRoot().listMeshes()[0].addPrimitive(primitive);
+        primitives.push(primitive);
+    }
     edited.forEach(piece => {
         const primitive = primitives[piece.piece];
         if (!piece.indices.length){
             primitive.dispose();
             return;
         }
-        const accessor = (array, type) => doc.createAccessor().setArray(array).setType(type).setBuffer(buffer);
         primitive.setAttribute('POSITION', accessor(piece.positions, 'VEC3'));
         primitive.setAttribute('NORMAL', accessor(piece.normals, 'VEC3'));
         primitive.setAttribute('TEXCOORD_0', accessor(piece.uvs, 'VEC2'));
@@ -131,9 +168,12 @@ async function main(){
     await io.write(path.join(out, 'model.glb'), doc);
 
     writeObj(path.join(out, 'model.obj'), 'odm_textured_model_geo.mtl', materials, edited);
-    fs.writeFileSync(path.join(out, 'model.mtl'), mtl);
+    const fillLines = ['newmtl ' + FILL_MATERIAL, 'Ka 1.000000 1.000000 1.000000', 'Kd 1.000000 1.000000 1.000000',
+        'Ks 0.000000 0.000000 0.000000', 'Tr 0.000000', 'illum 1', 'Ns 1.000000', 'map_Kd ' + FILL_TEXTURE];
+    fs.writeFileSync(path.join(out, 'model.mtl'), atlas ? mtl.replace(/\s*$/, '\n') + fillLines.join('\n') + '\n' : mtl);
     const triangles = edited.reduce((sum, p) => sum + p.indices.length / 3, 0);
-    fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({triangles, removed: result.removed, floating: result.floating, flattened: result.flattened}));
+    fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify({triangles, removed: result.removed, floating: result.floating,
+        flattened: result.flattened, filled: result.fills.length, added: result.added}));
 }
 
 main().catch(e => {

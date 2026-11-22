@@ -3192,6 +3192,20 @@ along the normal onto the least-squares plane of the rim (`fitPlane`, Jacobi on 
 no rim (a whole piece) uses its own vertices' plane. The preview moves the meshes' corners; the update reports
 `flattened` (points). Live on a copy of the check task: a default box flattened 29,319 points in the preview and
 the same in the update (5 s).
+
+M3 and M4: Fill Holes (`{type: "holes", size}`, Small/Medium/Large: up to 10, 50, 200 edges), Fill Holes Inside
+(`op: "fill"`: holes whose whole rim the shape covers) and Remove Object (`op: "object"`: delete, then fill the
+holes the delete touched), also as Brush modes. A hole is a loop of open edges turning clockwise around the
+triangles beside it (an outer rim turns the other way; the longest-loop rule failed once pinched rims split the
+outer rim). `loops()` walks open edges regardless of direction (WebODM's mesh has inconsistently wound triangles:
+the directed walk lost the box's rim) and splits pinched rims. Fills: ear clipping on the rim's plane, at most 5,000
+edges. Texture: rim colours sampled from 256-pixel copies of the textures, blended by inverse distance into an atlas
+(`fillAtlas`), the same in the preview (a DataTexture) and in the update (PNG beside the textures,
+`odm_textured_model_geo_splatme_fill_map_Kd.png`, material `splatme_fill` after the model's; JPEG in the GLB).
+On the check task: Fill Holes Small fills 3,900 to 5,000 holes in 0.5 to 0.8 s; Remove Object on a default box
+fills its 2,692-edge hole; the update takes 7 s. Known limits, for the docs: the fill is smooth colour (no grain),
+and a hole merged with older holes beside it can spread over neighbouring ground; detail from nearby texture or
+photo projection could follow.
 - M5. Docs, changelog with the headlines, then the release.
 
 **M0, the spike (2026-11-22), on the check task's model:**
