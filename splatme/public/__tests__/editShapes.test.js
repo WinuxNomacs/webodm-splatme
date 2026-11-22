@@ -72,6 +72,8 @@ test("a ring is kept without its closing corner and repeated corners", () => {
 test("the list words an edit by its kind and size", () => {
     expect(editLabel({type: "box", size: [12.345, 3, 1000]})).toBe("Box, 12.3 × 3 × 1,000 m");
     expect(editLabel({type: "polygon", ring: [[0, 0], [1, 0], [1, 1]]})).toBe("Polygon, 3 corners");
+    expect(editLabel({type: "stamps", stamps: [{}]})).toBe("Clone Stamps, 1 stamp");
+    expect(editLabel({type: "stamps", stamps: [{}, {}]})).toBe("Clone Stamps, 2 stamps");
 });
 
 test("sizes are in megabytes, gigabytes above one", () => {

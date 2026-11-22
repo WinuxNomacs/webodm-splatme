@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, stampAxes, insideStamp } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -478,5 +478,74 @@ describe("fills with detail", () => {
         const small = grid(5, (i, j) => i === 2 && j === 2).map(p => ({...p, positions: p.positions.map(x => x / 10)}));
         const tiny = applyEdits(weld(small), [{type: "holes", size: 4}], applyShape);
         expect(splitFills(tiny.fills).smooth.length).toBe(1);
+    });
+});
+
+describe("Clone Texture's stamps", () => {
+    // A 4 by 4 grid whose texture's colour says where it is: red x / 4, green y / 4 (of 255)
+    const pieces = () => grid(4).map(p => {
+        const uvs = new Float32Array(p.positions.length / 3 * 2);
+        for (let c = 0; c < p.positions.length / 3; c++){
+            uvs[2 * c] = p.positions[3 * c] / 4;
+            uvs[2 * c + 1] = p.positions[3 * c + 1] / 4;
+        }
+        return {...p, uvs};
+    });
+    const sample = (_piece, u, v) => [u * 255, v * 255, 0];
+    const stamp = (center, size, spin = 0) => ({center, normal: [0, 0, 1], size, spin});
+    const stamps = list => ({type: "stamps", op: "clone", source: [1, 1, 0], feather: 0, stamps: list});
+    // The atlas's colour at a point x, y of the level grid
+    function colourAt(atlas, x, y){
+        const p = atlas.piece.positions, uv = atlas.piece.uvs;
+        for (let t = 0; t < p.length / 9; t++){
+            const [ax, ay, bx, by, cx, cy] = [p[9 * t], p[9 * t + 1], p[9 * t + 3], p[9 * t + 4], p[9 * t + 6], p[9 * t + 7]];
+            const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+            const wa = ((bx - x) * (cy - y) - (by - y) * (cx - x)) / area, wb = ((cx - x) * (ay - y) - (cy - y) * (ax - x)) / area, wc = 1 - wa - wb;
+            if (wa < 0 || wb < 0 || wc < 0) continue;
+            const u = uv[6 * t] * wa + uv[6 * t + 2] * wb + uv[6 * t + 4] * wc, v = uv[6 * t + 1] * wa + uv[6 * t + 3] * wb + uv[6 * t + 5] * wc;
+            const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+            return Array.from(atlas.rgba.slice(i, i + 2));
+        }
+        return null;
+    }
+
+    test("a stamp covers the points within half its size of its middle along its sides and its plane", () => {
+        const level = stamp([0, 0, 0], 1);
+        expect(insideStamp(level, 0.45, -0.45, 0)).toBe(true);
+        expect(insideStamp(level, 0.55, 0, 0)).toBe(false);
+        expect(insideStamp(level, 0, 0, 0.6)).toBe(false);
+        const turned = stamp([0, 0, 0], 1, 45);
+        expect(insideStamp(turned, 0.45, -0.45, 0)).toBe(false);  // a corner of the level square, outside the turned one
+        expect(insideStamp(turned, 0.65, 0, 0)).toBe(true);  // toward a corner of the turned one
+        const { n, a, b } = stampAxes([0, 0, 2], 30);
+        expect(n).toEqual([0, 0, 1]);
+        expect(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).toBeCloseTo(0);
+    });
+
+    test("each stamp clones the triangles under it, a later stamp winning over an earlier", () => {
+        const surface = weld(pieces());
+        const result = applyEdits(surface, [stamps([stamp([3.5, 2.5, 0], 1), stamp([3.5, 2.5, 0], 1.1)])], applyShape);
+        expect(result.cloned).toBe(2);
+        expect(result.clones.length).toBe(1);
+        expect(result.clones[0].edit.patch).toBe(1.1);
+        expect(applyEdits(surface, [stamps([stamp([3.5, 2.5, 0], 1), stamp([0.5, 0.5, 0], 1)])], applyShape).cloned).toBe(4);
+    });
+
+    test("a stamp's patch has its middle where the stamp is, turned with it", () => {
+        const model = pieces();
+        const surface = weld(model);
+        for (const spin of [0, 30, -120]){
+            const s = stamp([3.5, 2.5, 0], 2, spin);
+            const result = applyEdits(surface, [stamps([s])], applyShape);
+            const atlas = cloneAtlas(surface, model, result, sample);
+            const { a, b } = stampAxes(s.normal, spin);
+            // 0.4 m along the stamp's sides is 0.4 m along the source's (u east, v north on level ground: b runs south at no turn)
+            for (const [da, db] of [[0, 0], [0.4, 0], [0, 0.4], [-0.3, 0.2]]){
+                const x = 3.5 + da * a[0] + db * b[0], y = 2.5 + da * a[1] + db * b[1];
+                const colour = colourAt(atlas, x, y);
+                expect(colour[0]).toBeCloseTo((1 + da) / 4 * 255, -0.7);
+                expect(colour[1]).toBeCloseTo((1 - db) / 4 * 255, -0.7);
+            }
+        }
     });
 });

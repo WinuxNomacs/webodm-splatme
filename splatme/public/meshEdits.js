@@ -202,6 +202,11 @@ export function components(faces, count, kept){
 //                              (a patch square of patch metres on the surface's plane there), tiled across their
 //                              own plane (turned by spin) and blended into their texture over feather metres from
 //                              their edge (cloneAtlas). Applies to what the edits leave, after them all.
+//   {type: "stamps", op: "clone", source: [x, y, z], feather: metres, stamps: [{center: [x, y, z], normal: [x, y, z],
+//    size: metres, spin: degrees}]}
+//                              Clone Texture's stamps: each stamp a clone of a patch size metres across about source,
+//                              its middle at center, over the triangles whose centres are inside its square
+//                              (insideStamp); a later stamp wins over an earlier one. Applies after all the edits.
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 //   {type: "holes", size}      Fill Holes: every hole of at most size edges filled
 // A hole is a loop of open edges that goes round as a hole's do, not as a piece's outer rim (holes); a fill is triangles
@@ -626,6 +631,14 @@ export function applyEdits(surface, edits, applyShape){
             }
             const outside = applyShape(xs, ys, zs, {...edit, keep: false, restore: false}, new Uint8Array(surface.count).fill(1), null);
             fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.every(v => !outside[v])));
+        } else if (edit.type === "stamps"){
+            at = at || centres(surface.faces, positions);
+            for (const stamp of edit.stamps){
+                const covered = new Uint8Array(n);
+                for (let f = 0; f < n; f++) covered[f] = insideStamp(stamp, at.xs[f], at.ys[f], at.zs[f]) ? 1 : 0;
+                clones.push([{op: "clone", source: edit.source, patch: stamp.size, feather: edit.feather, spin: stamp.spin,
+                    anchor: stamp.center, normal: stamp.normal}, covered]);
+            }
         } else if (edit.op === "clone"){
             clones.push([edit, coveredBy(edit)]);
         } else if (edit.type === "holes"){
@@ -850,6 +863,27 @@ export function planeFrame(normal){
     return {u, v};
 }
 
+// A stamp's square on its plane: the normal, and the square's sides' directions (a, b), its turn as renderPart turns
+// the patch, so that the patch's square lands on it
+export function stampAxes(normal, spin){
+    const length = Math.hypot(...normal) || 1, n = normal.map(x => x / length);
+    const { u, v } = planeFrame(n);
+    const turn = spin * Math.PI / 180, c = Math.cos(turn), s = Math.sin(turn);
+    return {n, a: [0, 1, 2].map(i => c * u[i] + s * v[i]), b: [0, 1, 2].map(i => s * u[i] - c * v[i])};
+}
+
+// Whether a point is inside a stamp: within half its size of its middle along each side, and of its plane
+export function insideStamp(stamp, x, y, z){
+    const dx = x - stamp.center[0], dy = y - stamp.center[1], dz = z - stamp.center[2], half = stamp.size / 2;
+    const reach = half * Math.SQRT2 + 1e-9;
+    if (Math.abs(dx) > reach || Math.abs(dy) > reach || Math.abs(dz) > reach) return false;
+    // Its axes worked out once (not saved with the edit)
+    if (!stamp.axes) Object.defineProperty(stamp, "axes", {value: stampAxes(stamp.normal, stamp.spin), enumerable: false});
+    const axes = stamp.axes;
+    for (const d of [axes.n, axes.a, axes.b]) if (Math.abs(dx * d[0] + dy * d[1] + dz * d[2]) > half) return false;
+    return true;
+}
+
 // Clone Texture's source: the kept triangles whose centres are within the patch's reach of source, the plane of their
 // vertices through source, its frame and the patch's half width; null where no triangle is near
 export function cloneSource(surface, positions, kept, edit, grid = null){
@@ -874,7 +908,7 @@ export function cloneSource(surface, positions, kept, edit, grid = null){
 
 // The kept triangles' centres in cells, to find those near a point quickly: near(point, reach, visit) visits each
 // triangle whose centre may be within reach
-function faceGrid(surface, positions, kept, cell){
+export function faceGrid(surface, positions, kept, cell){
     const cells = new Map(), { faces } = surface;
     const key = (x, y, z) => x + "," + y + "," + z;
     for (let f = 0; f < faces.length / 3; f++){
@@ -951,9 +985,10 @@ export function cloneRegions(surface, pieces, result){
         }
         regions.set(k, r);
     };
+    const sourceOf = clonesSources(surface, result);
     for (const clone of result.clones){
         for (const f of clone.faces) take(f);
-        const source = cloneSource(surface, result.positions, result.kept, clone.edit);
+        const source = sourceOf(clone.edit);
         if (source) for (const f of source.faces) take(f);
     }
     const detailed = splitFills(result.fills).detailed;
@@ -968,6 +1003,20 @@ export function cloneRegions(surface, pieces, result){
         }
     }
     return regions;
+}
+
+// The clones' sources, each found once however many clones share it (a stamping's stamps of one size do)
+function clonesSources(surface, result){
+    const found = new Map();
+    let grid = null;
+    return edit => {
+        const key = edit.source.join(",") + "|" + edit.patch;
+        if (!found.has(key)){
+            if (!grid && result.clones.length > 1) grid = faceGrid(surface, result.positions, result.kept, 0.5);
+            found.set(key, cloneSource(surface, result.positions, result.kept, edit, grid));
+        }
+        return found.get(key);
+    };
 }
 
 // A triangle at each surface vertex (the first that has it)
@@ -1124,12 +1173,13 @@ function distances(mask, width, height){
 // a piece's texture's colour (full size) where cloneRegions said. {piece, width, height, rgba} or null with none.
 export function cloneAtlas(surface, pieces, result, sample){
     const parts = [];
+    const sourceOf = clonesSources(surface, result), patches = new Map();
     for (const clone of result.clones){
-        const source = cloneSource(surface, result.positions, result.kept, clone.edit);
+        const source = sourceOf(clone.edit);
         if (!source) continue;
         const triangles = Array.from(clone.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]);
         const own = (t, wa, wb, wc) => faceColour(surface, pieces, clone.faces[t], wa, wb, wc, sample);
-        const part = renderPart(surface, pieces, result.positions, triangles, own, source, clone.edit, sample);
+        const part = renderPart(surface, pieces, result.positions, triangles, own, source, clone.edit, sample, patches);
         if (part) parts.push(part);
     }
     // The fills wide enough: textured from beside them, blended from their rim's colours at the edge
@@ -1209,11 +1259,17 @@ export function cloneAtlas(surface, pieces, result, sample){
 
 // One part of the clones' texture: triangles (surface vertex triples) flat on their plane, each texel the source
 // patch repeated (turned by settings.spin), blended into own(triangle, weights) over settings.feather from the edge
-function renderPart(surface, pieces, p, triangles, own, source, settings, sample){
-    const patch = sourcePatch(surface, pieces, p, source, sample);
+function renderPart(surface, pieces, p, triangles, own, source, settings, sample, patches = null){
+    let patch = patches && patches.get(source);
+    if (!patch){
+        patch = sourcePatch(surface, pieces, p, source, sample);
+        if (patches) patches.set(source, patch);
+    }
     const vertices = new Set();
     for (const t of triangles) for (const vtx of t) vertices.add(vtx);
-    const plane = fitPlane(p, [...vertices]);
+    // A stamp's frame is its own, about its middle (where the patch's middle goes); a clone's, its triangles' plane
+    const anchor = settings.anchor;
+    const plane = anchor ? {point: anchor, normal: stampAxes(settings.normal, 0).n} : fitPlane(p, [...vertices]);
     if (!plane) return null;
     const { u, v } = planeFrame(plane.normal);
     const o = plane.point;
@@ -1249,7 +1305,8 @@ function renderPart(surface, pieces, p, triangles, own, source, settings, sample
         for (let x = 0; x < w; x++){
             const i = y * w + x;
             // The texel's place on the plane in patch texels, turned by spin
-            const px = (x + 0.5 - 2) * scale, py = (y + 0.5 - 2) * scale;
+            const px = anchor ? (x0 + (x + 0.5 - 2) * texel) / patch.texel : (x + 0.5 - 2) * scale;
+            const py = anchor ? ((y + 0.5 - 2) * texel - y1) / patch.texel : (y + 0.5 - 2) * scale;
             const colour = patchColour(patch, cs * px - sn * py + patch.size / 2, sn * px + cs * py + patch.size / 2);
             const feather = settings.feather > 0 ? Math.min(1, near[i] * texel / settings.feather) : 1;
             const blend = mask[i] ? feather : 1;

@@ -10,7 +10,7 @@ const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
 const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
 const AXES = ["X", "Y", "Z"];
-const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom", holes: "fa-fill-drip"};
+const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom", holes: "fa-fill-drip", stamps: "fa-stamp"};
 const SHAPES = ["box", "polygon", "lasso", "brush"];
 // Remove Floating Pieces: the pieces of surface under this many triangles go
 const FLOATING_SIZES = [[100, "Small"], [1000, "Medium"], [10000, "Large"]];
@@ -38,7 +38,7 @@ const REPAIRS = [
     ["smooth", "Smooth", "water", "A box that evens out what it covers, its edge fixed"],
     ["move", "Move", "arrows-alt", "A box that raises, shifts or stretches what it covers, a step at a time"],
     ["straighten", "Straighten", "ruler-horizontal", "Draw a line on the model: a box around it pulls the surface toward the line"],
-    ["clone", "Clone Texture", "clone", "Click a good area on the model: a box covers what it covers with that area's texture"],
+    ["clone", "Clone Texture", "clone", "Click a good area on the model, then stamp its texture where it is needed"],
     ["object", "Remove Object", "eraser", "A box that removes what it covers and fills the hole it leaves"],
 ];
 const OP_STEPS = {
@@ -53,6 +53,14 @@ const OP_STEPS = {
     clone: [["patch", null, "Source Size", "m", 0.25, 0.25, 20, 1], ["feather", null, "Feather", "m", 0.05, 0, 5, 1],
         ["spin", null, "Turn Texture", "°", 15, -180, 180, 1]],
 };
+// The steps an edit's settings take: a stamping's own, else its op's
+const stepsOf = edit => edit.type === "stamps" ? "stamps" : edit.op;
+// Clone Texture's stamps: the size they start at and their feather (m); the steps are viewer.js's STAMP_SIZES,
+// STAMP_STEP and STAMP_TURN
+const STAMP_START = {size: 0.5, spin: 0};
+const STAMP_FEATHER = 0.05;
+const STAMP_SIZES = [0.25, 20], STAMP_STEP = 0.25, STAMP_TURN = 15;
+OP_STEPS.stamps = [["feather", null, "Feather", "m", 0.05, 0, 5, 1]];
 const BRUSH_OPS = {flatten: "flatten", fill: "fill", object: "object", smooth: "smooth"};  // the model's edit for each mode ("delete" for the rest)
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 const THUMBNAIL_WIDTH = 320;  // the picture of the model on its row in SplatMe → Tasks, in pixels across
@@ -195,6 +203,9 @@ class EditorPanel extends React.Component {
                 onBrushStroke: this.handleBrushStroke,
                 onBrushSize: brushSize => this.setState({brushSize}),
                 onBrushEnd: () => this.setState({brushing: false}),
+                onStamp: this.handleStamp,
+                onStampChange: (size, spin) => this.setState({stamping: this.state.stamping && {...this.state.stamping, size, spin}}),
+                onStampEnd: () => this.setState({stamping: null}),
                 onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}})
             });
             this.viewer.setMode(this.state.mode);
@@ -266,8 +277,8 @@ class EditorPanel extends React.Component {
 
     // The tool in use: "lasso", "brush", "polygon" or null
     activeTool(){
-        const { lassoing, brushing, drawing, lining } = this.state;
-        return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : lining ? "line" : null;
+        const { lassoing, brushing, drawing, lining, stamping } = this.state;
+        return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : lining ? "line" : stamping ? "stamp" : null;
     }
 
     // Points on the model for edit index (handleLine): Straighten's line (two clicks), or Clone Texture's source (one)
@@ -284,6 +295,11 @@ class EditorPanel extends React.Component {
         const op = this.lineOp;
         const edits = this.state.edits.slice();
         let index = this.lineIndex;
+        if (op === "clone" && index < 0){  // Repair's Clone Texture: its source picked, stamping starts
+            this.setState({lining: false});
+            this.startStamping(points[0]);
+            return;
+        }
         if (index < 0){  // a Repair button's: its box made now
             if (edits.length >= MAX_EDITS || !this.state.loaded) return this.setState({lining: false});
             index = edits.length;
@@ -313,7 +329,8 @@ class EditorPanel extends React.Component {
         this.viewer.endBrush();
         this.viewer.cancelPolygon();
         this.viewer.cancelLine();
-        this.setState({lassoing: false, brushing: false, drawing: null, lining: false});
+        this.viewer.endStamp();
+        this.setState({lassoing: false, brushing: false, drawing: null, lining: false, stamping: null});
     }
 
     // A tool's button: ends the tool in use; starts it unless it was the one in use
@@ -471,14 +488,51 @@ class EditorPanel extends React.Component {
         this.change([...edits, {...newBox(loaded.frame), op}], edits.length);
     }
 
+    // Stamping Clone Texture from source: into the stamping edit index (when it is one, from that source), else a new
+    // one made by the first stamp
+    startStamping(source, index = -1){
+        if (!this.viewer) return;
+        const last = this.state.stamping || this.lastStamp || STAMP_START;
+        const stamping = {source, index, size: last.size, spin: last.spin};
+        this.setState({stamping});
+        this.viewer.startStamp(source, stamping.size, stamping.spin);
+        this.select(index >= 0 ? index : -1, true);
+    }
+
+    handleStamp = stamp => {
+        const { stamping } = this.state;
+        if (!stamping) return;
+        const edits = this.state.edits.slice();
+        let index = stamping.index;
+        const same = edits[index] && edits[index].type === "stamps" && edits[index].source.join() === stamping.source.join();
+        if (!same){
+            if (edits.length >= MAX_EDITS) return;
+            index = edits.length;
+            edits.push({type: "stamps", op: "clone", source: stamping.source, feather: STAMP_FEATHER, stamps: []});
+        }
+        edits[index] = {...edits[index], stamps: [...edits[index].stamps, stamp]};
+        this.lastStamp = {size: stamp.size, spin: stamp.spin};
+        this.setState({stamping: {...stamping, index}});
+        this.change(edits, index);
+    };
+
+    // The stamp's size or turn from the panel
+    setStamp(size, spin){
+        const stamping = {...this.state.stamping, size: Math.min(STAMP_SIZES[1], Math.max(STAMP_SIZES[0], Math.round(size / STAMP_STEP) * STAMP_STEP)),
+            spin: spin > 180 ? spin - 360 : spin < -180 ? spin + 360 : spin};
+        this.setState({stamping});
+        if (this.viewer) this.viewer.setStamp(stamping.size, stamping.spin);
+    }
+
     drawPolygon = () => {
         if (!this.canStart("polygon")) return;
         this.setState({selected: -1, drawing: 0});
         this.viewer.startPolygon();
     };
 
-    select(index){
-        const selected = this.state.selected === index ? -1 : index;
+    // An edit picked in the list (picked again: none); only: picked even when it already is
+    select(index, only = false){
+        const selected = !only && this.state.selected === index ? -1 : index;
         this.setState({selected, drafts: {}});
         if (this.viewer) this.viewer.setEdits(this.state.edits, selected);
     }
@@ -663,6 +717,35 @@ class EditorPanel extends React.Component {
     }
 
     // Move's or Smooth's settings, each with - and + to change it a step at a time (each step one Undo)
+    // While stamping: what to do, the stamp's size and turn, and Done
+    renderStamping(){
+        const { size, spin } = this.state.stamping;
+        const row = (label, value, unit, minus, plus, low, high) => (
+            <tr>
+                <th>{_(label)}</th>
+                <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " -"} disabled={value <= low} onClick={minus}><i className="fa fa-minus fa-fw"></i></button></td>
+                <td className="splatme-editor-stamp-value">{value}</td>
+                <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " +"} disabled={value >= high} onClick={plus}><i className="fa fa-plus fa-fw"></i></button></td>
+                <td>{unit}</td>
+            </tr>
+        );
+        return (
+            <div className="alert alert-info splatme-editor-drawing">
+                <p>{_("Click to copy the texture under the square. The wheel turns it, Ctrl+wheel or [ and ] size it, and Shift+wheel zooms; drag to turn the view and right-drag to move it. The tick points to the texture's top.")}</p>
+                <table className="splatme-editor-fields splatme-editor-steps">
+                    <tbody>
+                        {row("Size", size, "m", () => this.setStamp(size - STAMP_STEP, spin), () => this.setStamp(size + STAMP_STEP, spin), STAMP_SIZES[0], STAMP_SIZES[1])}
+                        {row("Turn", spin, "°", () => this.setStamp(size, spin - STAMP_TURN), () => this.setStamp(size, spin + STAMP_TURN), -Infinity, Infinity)}
+                    </tbody>
+                </table>
+                <div className="splatme-editor-drawing-actions">
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => this.endTool()}>{_("Done")}</button>
+                    <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(-1, "clone")}>{_("Pick the Source Again")}</button>
+                </div>
+            </div>
+        );
+    }
+
     renderOpFields(index, edit){
         const value = (name, axis) => axis === null ? edit[name] : edit[name][axis];
         const set = (name, axis, raw, low, high, factor) => {
@@ -681,7 +764,7 @@ class EditorPanel extends React.Component {
         return (
             <table className="splatme-editor-fields splatme-editor-steps">
                 <tbody>
-                    {OP_STEPS[edit.op].map(([name, axis, label, unit, step, low, high, factor]) => {
+                    {OP_STEPS[stepsOf(edit)].map(([name, axis, label, unit, step, low, high, factor]) => {
                         const shown = Math.round(value(name, axis) * factor * 1000) / 1000;
                         return (
                             <tr key={name + axis}>
@@ -700,7 +783,12 @@ class EditorPanel extends React.Component {
                 {edit.op === "straighten" || edit.op === "clone" ?
                     <tfoot>
                         <tr><td colSpan="5">
-                            {edit.op === "straighten" ?
+                            {edit.type === "stamps" ?
+                                <button type="button" className="btn btn-sm btn-default" disabled={this.state.stamping && this.state.stamping.index === index}
+                                        onClick={() => this.startStamping(edit.source, index)} title={_("Stamp more of the same texture")}>
+                                    <i className="fa fa-stamp fa-fw"></i> {_("Add Stamps")}
+                                </button> :
+                            edit.op === "straighten" ?
                                 <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(index)}
                                         title={_("Click its two ends on the model again; or drag an end of the line in the view")}>
                                     <i className="fa fa-pencil-alt fa-fw"></i> {_("Draw the Line Again")}
@@ -754,6 +842,7 @@ class EditorPanel extends React.Component {
                                     {HOLE_SIZES.map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("up to")} {size} {_("edges")})</option>)}
                                 </select> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
+                            edit.type === "stamps" ? <span className="splatme-editor-item-note">{_("Copies the texture of the area picked under each stamp")}</span> :
                             edit.type === "floating" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
                                         aria-label={_("Which pieces to remove")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
@@ -840,7 +929,7 @@ class EditorPanel extends React.Component {
         const applying = !!apply && apply.state === "applying";
         const box = selected >= 0 && edits[selected] && edits[selected].type === "box" ? edits[selected] : null;
         const colour = selected >= 0 && edits[selected] && edits[selected].type === "colour" ? edits[selected] : null;
-        const stepped = selected >= 0 && edits[selected] && OP_STEPS[edits[selected].op] ? edits[selected] : null;
+        const stepped = selected >= 0 && edits[selected] && OP_STEPS[stepsOf(edits[selected])] ? edits[selected] : null;
         return (
             <div className="splatme-editor-panel">
                 <div className="splatme-editor-tools">
@@ -884,7 +973,7 @@ class EditorPanel extends React.Component {
                 {this.isModel() ?
                     <div className="splatme-editor-tools splatme-editor-repairs" role="group" aria-label={_("Repair")}>
                         {REPAIRS.map(([op, label, icon, title]) =>
-                            <button key={op} type="button" className={"btn btn-sm " + (this.state.lining === op && this.lineIndex < 0 ? "btn-primary active" : "btn-default")}
+                            <button key={op} type="button" className={"btn btn-sm " + ((this.state.lining === op && this.lineIndex < 0) || (op === "clone" && this.state.stamping) ? "btn-primary active" : "btn-default")}
                                     disabled={busy} onClick={() => this.addRepair(op)} title={_(title)}>
                                 <i className={"fa fa-" + icon + " fa-fw"}></i> {_(label)}
                             </button>)}
@@ -898,6 +987,7 @@ class EditorPanel extends React.Component {
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>
                         </div>
                     </div> : ""}
+                {this.state.stamping ? this.renderStamping() : ""}
                 {lassoing ?
                     <div className="alert alert-info splatme-editor-drawing">
                         {_("Drag around what to remove. Everything inside on screen goes, through to the back: turn the view first to see it apart.")}

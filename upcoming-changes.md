@@ -3335,3 +3335,12 @@ click stamps, a drag turns the view, a right-drag moves it, the wheel turns the 
 zooms, Done or Esc ends); Clone Texture Inside stays in a shape's list for large areas; the stamp's size changes with
 both Ctrl+wheel and the bracket keys (0.25 m steps). Each stamp keeps the size and turn it was dropped with, so a
 later size change does not change the stamps already down.
+
+**R6 built (branch `clone-stamp`):** `meshEdits.js` `stampAxes`, `insideStamp`, stamps expanded into clones with
+an `anchor` and `normal` (renderPart centres the patch on the anchor, in the stamp's own frame), sources and
+patches shared between stamps (`clonesSources`); `meshes.py` `clean_stamps` and `shift`; `viewer.js` `startStamp`,
+`setStamp`, `endStamp`, the wheel caught before OrbitControls; `Editor.jsx` `startStamping`, `handleStamp`,
+`renderStamping`, Add Stamps. Tests: Jest (coverage, a later stamp winning, the patch centred and turned with the
+stamp, seen failing without the anchor), Django (checks, shift, an update). Live on a copy of the check task:
+lawn stamped onto the driveway, turned 45 degrees and 2.75 m, a drag turning the view without stamping, Undo per
+stamp, the update retexturing 7,641 triangles in about 6 s.
