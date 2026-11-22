@@ -20,12 +20,16 @@ other software. The plugin does that step.
 
 **Later**
 
-1. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+1. Proposed, to plan with the user: a model editor (asked 2026-11-22), touching up WebODM's textured 3D
+   model as well as the splats: fill and repair holes, remove objects (trees, cars) blended in as if never
+   there, straighten curved overhangs and ragged edges, as DJI Modify does; intuitive, not Blender. A major
+   feature: a spike, then phases. See "13. Model editing (proposed)".
+2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
 
@@ -3090,3 +3094,58 @@ removing its inside, double-click centring, Reset View, the hint, phone width; t
 11 kB) and shown on its row; the row at desktop and phone width with its menu; Continue without the table and
 with it once Grow Until is set; the three pages' intros; Settings' Image Size round trip (the options restored
 after). Not live yet: Update the Model (runs in `sm-worker`, which still has the old code) and a real training.
+
+### 13. Model editing (proposed)
+
+Asked by the user (2026-11-22, from `new.md`): a major update of SplatMe's own editor so its users can touch up
+WebODM's 3D models as well as the splats, approached the way DJI Modify does: fill and repair holes, remove
+objects such as trees and cars with the removal blended in as if never there, straighten overhangs that come
+out curved with many odd edges, and more. An intuitive editor for cleaning up models, not an advanced one like
+Blender.
+
+**What it builds on (read 2026-11-22):**
+
+- Edit Splats (`templates/editor.html`, `Editor.jsx`, `editor/viewer.js`): a three.js view, shapes kept as an
+  edit list in the task's projection (`edits.py`), applied on the server by Update the Model, the original kept
+  (`data/splatme`) so edits stay non-destructive. The tools (Box, Polygon, Lasso, Brush), Undo and Redo and the
+  selection's rule (`editShapes.js`) can select a model's faces as they select splats.
+- WebODM's textured model: `odm_texturing/` (OBJ, MTL and texture images; the `textured_model.zip` asset) and
+  `odm_textured_model_geo.glb` (the `textured_model.glb` asset), which WebODM's 3D view prefers
+  (`ModelView.jsx`); `Task.get_safe_textured_model` makes a smaller copy for large models. A model editor would
+  write an edited GLB (and OBJ) the way Update the Model writes the splats, keeping the original.
+- The task's photos and cameras are on the server: texture for filled or repaired areas can be projected from
+  the photos that see them, which is what makes a hole's repair look as if it were never there.
+- Limits: plugin Python only from WebODM's `requirements.txt` (numpy, scipy, pillow, rasterio: no mesh
+  library); vendored three.js has no GLTF loader yet (`public/vendor`). The splat node, a container SplatMe
+  owns with a GPU, can carry other software (vetted first).
+
+**DJI Modify's tools** (training knowledge, not checked against DJI's current documentation: to look up before
+the plan): hole filling, flattening a selected surface, removing floating pieces, smoothing, water surfaces
+made flat, and texture repair of the edited areas. The list to match is the user's call once checked.
+
+**Proposed phases** (each planned with the user before it is built):
+
+1. Spike: the check task's textured model in Edit Splats' view (a GLTF loader vendored and hashed, the GLB's
+   size and face count measured, the time to load it on the dev GPU and on a phone), and a measured try of
+   each tool's core on it (a hole filled, a region flattened, a component removed) in numpy and scipy, then on
+   the splat node with a candidate library, to decide where the work runs.
+2. A Model view in the editor: Splats or Model, the same tools selecting faces, Delete (remove faces) and Remove
+   Floating Pieces, kept as an edit list and applied to make the task's model again (the original kept).
+3. Fill Holes: the holes found (open edges) and listed, each filled with a surface fitted to its rim, its
+   texture projected from the photos.
+4. Remove Object: a region's faces removed and the ground or wall under them rebuilt from the surrounding
+   surface, its texture projected from photos where the object does not hide it, or filled in where every photo
+   shows it.
+5. Flatten and Straighten: a selected roof, wall or ground fitted to a plane, and edges straightened (the
+   curved overhangs).
+6. The same region edits applied to the splats where they apply (removing a car from both).
+
+**Open decisions (the user's):**
+
+- Where the mesh work runs: WebODM's worker with numpy and scipy only (slower, built here) or the splat node
+  (a vetted library, a GPU; the model sent there and back), or both by tool.
+- Which DJI Modify tools are in scope, and their order (after looking up its current documentation).
+- How texture is made for filled and rebuilt areas: projected from the task's photos, filled in from nearby
+  texture, or an inpainting model on the splat node (a dependency to vet).
+- Whether the point cloud is edited with the model, or only the textured model.
+- The page's name ("Edit Splats" becoming "Edit Model and Splats", or a separate "Edit Model").
