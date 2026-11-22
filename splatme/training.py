@@ -661,8 +661,12 @@ def completed(task_id):
         stop_job(task.id, "canceled", "The task was processed again while its splats trained.")
     if "splats.rad" in task.available_assets:
         return  # an imported task comes with its model
-    # Processed again (WebODM deleted its assets, the splats with them): its trained model no longer fits it
+    # Processed again (WebODM deleted its assets, the splats with them): its trained model no longer fits it, and
+    # its textured model is a new one, without the model edits (kept for an update) or the originals kept
     shutil.rmtree(trained_dir(task), ignore_errors=True)
+    from . import meshes  # it imports this module
+
+    meshes.processed_again(task.id)
     auto = get_auto(task.id)
     if not auto["enabled"]:
         return

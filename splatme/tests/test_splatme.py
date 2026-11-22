@@ -659,6 +659,25 @@ class TestSplatMe(BootTestCase):
         self.assertIsNotNone(started[1].poll())
         self.assertFalse(meshes.kept(task))
 
+    def test_processing_the_task_again_keeps_its_model_edits_for_the_new_model_and_drops_the_old_originals(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertTrue(meshes.kept(task))
+        # Processed again: WebODM writes a new model (here the same one, whole)
+        make_textured_model(task)
+        training.completed(task.id)
+        self.assertFalse(meshes.kept(task))
+        res = self.model_edits(task)
+        self.assertEqual(res.data["edits"], [box])
+        self.assertIsNone(res.data["applied"])
+        self.assertIsNone(res.data["apply"])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["triangles"], 17)  # cut from the new model
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 17)
+
     def test_a_removed_task_forgets_its_model_edits(self):
         task = make_task(self.user)
         make_textured_model(task)

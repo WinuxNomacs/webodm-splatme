@@ -150,6 +150,12 @@ def forget(task_id):
     shutil.rmtree(training.apply_dir(task_id, kind=KIND), ignore_errors=True)
 
 
+def processed_again(task_id):
+    """The task's textured model is a new one: no update made it (its edits stay, for the next)."""
+    for key in (shown_key(task_id), training.apply_key(task_id, KIND)):
+        edits.store().del_key(key)
+
+
 def texturing_dir(task):
     return task.assets_path("odm_texturing")
 
