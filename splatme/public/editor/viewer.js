@@ -22,6 +22,13 @@ const BRUSH_STEP = 1.25;  // the [ and ] keys' change of the brush's size
 export const STAMP_SIZES = [0.25, 20];  // metres: Clone Texture's stamp, smallest and largest (meshes.py's PATCHES within)
 export const STAMP_STEP = 0.25;  // metres: Ctrl+wheel's and the [ and ] keys' change of the stamp's size
 export const STAMP_TURN = 15;  // degrees: the wheel's turn of the stamp, a notch
+export const PAINT_RADII = [0.02, 5];  // metres: the surface brush's radius, smallest and largest (meshes.py's within)
+const PAINT_STEP = 1.25;  // the wheel's and the [ and ] keys' change of the surface brush's radius
+const PAINT_SPACING = 0.3;  // of the radius: how far the pointer moves before a stroke takes another point
+const PAINT_POINTS = 1000;
+const round4 = x => Math.round(x * 10000) / 10000;  // to a tenth of a millimetre
+const PICK_LAYER = 1;  // the layer of the model's meshes (its pieces, fills and clones): what picking draws
+const PICK_SIZE = 7;  // pixels: the square about the pointer picking draws  // a stroke's points, at most (meshes.py's MAX_BRUSH_POINTS over all strokes)
 
 // A colour of WebODM's theme (theme.css), read from an element given one of its classes: no colour is set here
 // The file at url, whole, telling onProgress({loaded, total}) as it comes
@@ -75,6 +82,8 @@ export function createViewer(container, handlers){
     };
     const renderer = new THREE.WebGLRenderer({antialias: false});
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // Reading each new shader's log waits for it to compile: skipped (the shaders are three.js's own)
+    renderer.debug.checkShaderErrors = false;
     container.appendChild(renderer.domElement);
     const canvas = renderer.domElement;
     const scene = new THREE.Scene();
@@ -102,6 +111,9 @@ export function createViewer(container, handlers){
     // Clone Texture's stamping: {source, size, spin, grid (the triangles' centres, to fit the plane under the pointer
     // quickly), at: the stamp under the pointer or null, object: its square}
     let stamp = null;
+    // The surface brush (the 3D model's Brush): {op, radius, source (Clone's, or null: the next click picks it),
+    // stroke: {points, view} while painting, at: the hit under the pointer, cursor: its circle, trail: the stroke drawn}
+    let paint = null;
     // The lasso's stroke, drawn on a flat canvas over the view
     const overlay = document.createElement("canvas");
     overlay.style.cssText = "position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; display: none;";
@@ -194,6 +206,7 @@ export function createViewer(container, handlers){
         map.magFilter = map.minFilter = THREE.LinearFilter;
         map.needsUpdate = true;
         const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map, side: THREE.DoubleSide}));
+        mesh.layers.enable(PICK_LAYER);
         model.meshes[0].parent.add(mesh);
         return mesh;
     }
@@ -394,9 +407,59 @@ export function createViewer(container, handlers){
         return group;
     }
 
+    // The model's surface under the pointer found on the GPU: the meshes on PICK_LAYER drawn, as their places in the
+    // view's frame, into a PICK_SIZE square about the pointer, and read back. {point, normal} (normal from the places
+    // either side of the pointer, facing the view), null off the model, or undefined where float targets are missing
+    // (the raycast is used then). Much faster than a raycast over a model's hundreds of thousands of triangles.
+    const pick = renderer.capabilities.isWebGL2 && renderer.extensions.has("EXT_color_buffer_float") ? {
+        target: new THREE.WebGLRenderTarget(PICK_SIZE, PICK_SIZE, {type: THREE.FloatType, format: THREE.RGBAFormat}),
+        material: new THREE.ShaderMaterial({
+            vertexShader: "varying vec3 place; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); place = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }",
+            fragmentShader: "varying vec3 place; void main(){ gl_FragColor = vec4(place, 1.0); }",
+            side: THREE.DoubleSide,
+        }),
+        camera: new THREE.PerspectiveCamera(),
+        pixels: new Float32Array(PICK_SIZE * PICK_SIZE * 4),
+    } : null;
+    function gpuHit(event){
+        if (!pick) return undefined;
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left, y = event.clientY - rect.top, half = (PICK_SIZE - 1) / 2;
+        pick.camera.copy(camera);
+        pick.camera.setViewOffset(rect.width, rect.height, x - half - 0.5, y - half - 0.5, PICK_SIZE, PICK_SIZE);
+        pick.camera.layers.set(PICK_LAYER);
+        const before = {target: renderer.getRenderTarget(), override: scene.overrideMaterial, alpha: renderer.getClearAlpha(), color: renderer.getClearColor(new THREE.Color())};
+        scene.overrideMaterial = pick.material;
+        renderer.setRenderTarget(pick.target);
+        renderer.setClearColor(0x000000, 0);
+        renderer.clear();
+        renderer.render(scene, pick.camera);
+        renderer.readRenderTargetPixels(pick.target, 0, 0, PICK_SIZE, PICK_SIZE, pick.pixels);
+        renderer.setRenderTarget(before.target);
+        renderer.setClearColor(before.color, before.alpha);
+        scene.overrideMaterial = before.override;
+        // Rows from the bottom
+        const at = (i, j) => {
+            const k = 4 * ((PICK_SIZE - 1 - j) * PICK_SIZE + i);
+            return pick.pixels[k + 3] > 0 ? new THREE.Vector3(pick.pixels[k], pick.pixels[k + 1], pick.pixels[k + 2]) : null;
+        };
+        const c = half, point = at(c, c);
+        if (!point) return null;
+        const side = (a, b) => (a && b ? b.clone().sub(a) : a ? point.clone().sub(a) : b ? b.clone().sub(point) : null);
+        const across = side(at(0, c), at(PICK_SIZE - 1, c)), down = side(at(c, 0), at(c, PICK_SIZE - 1));
+        let normal = across && down ? new THREE.Vector3().crossVectors(across, down) : null;
+        const towards = camera.position.clone().sub(point);
+        if (!normal || normal.lengthSq() === 0) normal = towards.clone();
+        normal.normalize();
+        if (normal.dot(towards) < 0) normal.negate();
+        return {point, normal};
+    }
+
     // The model's surface under the pointer (its fills included), or null
     function surfacePoint(event){
         if (!model) return null;
+        const found = gpuHit(event);
+        if (found !== undefined) return found && found.point;
         const rect = canvas.getBoundingClientRect();
         const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
         const raycaster = new THREE.Raycaster();
@@ -406,6 +469,144 @@ export function createViewer(container, handlers){
         for (const mesh of model.clones.values()) targets.push(mesh);
         const hit = raycaster.intersectObjects(targets, false)[0];
         return hit ? hit.point.clone() : null;
+    }
+
+    // The surface under the pointer and its normal facing the view: {point, normal} (Vector3s), or null
+    function surfaceHit(event){
+        if (!model) return null;
+        const found = gpuHit(event);
+        if (found !== undefined) return found;
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const targets = model.meshes.filter(m => m.visible);
+        if (model.fills) targets.push(model.fills);
+        for (const mesh of model.clones.values()) targets.push(mesh);
+        const hit = raycaster.intersectObjects(targets, false)[0];
+        if (!hit) return null;
+        const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : raycaster.ray.direction.clone().negate();
+        if (normal.dot(raycaster.ray.direction) > 0) normal.negate();
+        return {point: hit.point.clone(), normal};
+    }
+    // A circle of radius on the surface at a hit, lying on its plane
+    function paintCircle(hit, radius, filled){
+        const n = hit.normal, helper = Math.abs(n.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+        const u = new THREE.Vector3().crossVectors(n, helper).normalize(), v = new THREE.Vector3().crossVectors(n, u);
+        const centre = hit.point.clone().add(n.clone().multiplyScalar(0.005)), points = [];
+        for (let i = 0; i < 48; i++){
+            const a = i / 48 * Math.PI * 2;
+            points.push(centre.clone().add(u.clone().multiplyScalar(Math.cos(a) * radius)).add(v.clone().multiplyScalar(Math.sin(a) * radius)));
+        }
+        if (!filled){
+            const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), lineMaterial(paint.op === "delete" ? colors.remove : colors.keep));
+            ring.renderOrder = 10;
+            return ring;
+        }
+        const geometry = new THREE.BufferGeometry().setFromPoints([centre, ...points]);
+        geometry.setIndex(points.flatMap((_p, i) => [0, i + 1, (i + 1) % points.length + 1]));
+        const disc = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: colors.keep, transparent: true, opacity: 0.25, depthTest: false, side: THREE.DoubleSide}));
+        disc.renderOrder = 9;
+        return disc;
+    }
+    function drawPaintCursor(){
+        if (paint.cursor){
+            scene.remove(paint.cursor);
+            paint.cursor.geometry.dispose();
+            paint.cursor.material.dispose();
+            paint.cursor = null;
+        }
+        if (!paint.at) return;
+        paint.cursor = paintCircle(paint.at, paint.radius, false);
+        scene.add(paint.cursor);
+    }
+    // Painting with the surface brush: left-dragging paints (a click: a dab), each letting go one stroke
+    // (onPaintStroke); Alt+drag or the middle button turns the view, right-drag moves it; the wheel or [ and ] size
+    // the brush, Shift+wheel zooms. Clone's first click picks its source (onPaintSource).
+    function startPaint(op, radius, source){
+        if (!model) return;
+        cancelLine();
+        endBrush();
+        cancelPolygon();
+        cancelLasso();
+        endStamp();
+        endPaint();
+        transform.detach();
+        paint = {op, radius, source: source || null, stroke: null, at: null, cursor: null, trail: new THREE.Group(), queued: false, last: null};
+        scene.add(paint.trail);
+        controls.mouseButtons = {LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN};
+        canvas.style.cursor = op === "clone" && !source ? "crosshair" : "none";
+    }
+    function setPaint(op, radius, source){
+        if (!paint) return;
+        paint.op = op;
+        paint.radius = radius;
+        paint.source = source || null;
+        canvas.style.cursor = op === "clone" && !paint.source ? "crosshair" : "none";
+        drawPaintCursor();
+    }
+    function endPaint(){
+        if (!paint) return;
+        paint.at = null;
+        drawPaintCursor();
+        clearGroup(paint.trail);
+        scene.remove(paint.trail);
+        paint = null;
+        controls.mouseButtons = {LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN};
+        canvas.style.cursor = "";
+        if (handlers.onPaintEnd) handlers.onPaintEnd();
+    }
+    function resizePaint(steps){
+        const radius = Math.round(Math.min(PAINT_RADII[1], Math.max(PAINT_RADII[0], paint.radius * PAINT_STEP ** steps)) * 1000) / 1000;
+        if (radius === paint.radius) return;
+        paint.radius = radius;
+        drawPaintCursor();
+        if (handlers.onPaintRadius) handlers.onPaintRadius(radius);
+    }
+    // A point of the stroke being painted, when the pointer has moved far enough from the last
+    function paintTo(hit){
+        const points = paint.stroke.points, last = points[points.length - 1];
+        if (points.length >= PAINT_POINTS) return;
+        if (Math.hypot(hit.point.x - last[0], hit.point.y - last[1], hit.point.z - last[2]) < paint.radius * PAINT_SPACING) return;
+        points.push(hit.point.toArray().map(round4));
+        paint.trail.add(paintCircle(hit, paint.radius, true));
+    }
+    function onPaintDown(event){
+        if (event.button !== 0 || event.altKey) return false;  // the view's controls turn or move it
+        const hit = surfaceHit(event);
+        if (!hit) return true;
+        if (paint.op === "clone" && !paint.source){
+            paint.source = hit.point.toArray().map(round4);
+            canvas.style.cursor = "none";
+            if (handlers.onPaintSource) handlers.onPaintSource(paint.source, hit.normal.toArray().map(round4));
+            return true;
+        }
+        const view = camera.position.clone().sub(hit.point).normalize();
+        paint.stroke = {points: [hit.point.toArray().map(round4)], view: view.toArray().map(round4), normal: hit.normal.toArray().map(round4)};
+        paint.trail.add(paintCircle(hit, paint.radius, true));
+        canvas.setPointerCapture(event.pointerId);
+        return true;
+    }
+    function onPaintUp(){
+        if (!paint.stroke) return;
+        const stroke = paint.stroke;
+        paint.stroke = null;
+        clearGroup(paint.trail);
+        if (handlers.onPaintStroke) handlers.onPaintStroke({points: stroke.points, radius: paint.radius, view: stroke.view}, stroke.normal);
+    }
+    // Pointer moves while painting, at most once a frame: finding the surface under the pointer takes a while
+    function onPaintMove(event){
+        paint.last = {clientX: event.clientX, clientY: event.clientY};
+        if (paint.queued) return;
+        paint.queued = true;
+        requestAnimationFrame(() => {
+            if (!paint) return;
+            paint.queued = false;
+            const hit = surfaceHit(paint.last);
+            paint.at = hit;
+            if (hit && paint.stroke) paintTo(hit);
+            drawPaintCursor();
+        });
     }
 
     // Stamping: the stamp the pointer is over: on the plane fitted to the surface about the point under it, facing
@@ -490,6 +691,7 @@ export function createViewer(container, handlers){
     // Stamping, from a source picked: a click drops a stamp where the square is; the view still turns and moves
     function startStamp(source, size, spin){
         if (!model || !model.kept) return;
+        endPaint();
         cancelLine();
         endBrush();
         cancelPolygon();
@@ -517,6 +719,18 @@ export function createViewer(container, handlers){
     // The wheel while stamping: turns the stamp; with Ctrl, sizes it; with Shift, zooms the view (as the wheel does
     // otherwise). Caught before the view's controls see it.
     function onWheel(event){
+        if (paint){
+            event.preventDefault();
+            event.stopPropagation();
+            const delta = event.deltaY || event.deltaX;
+            if (!delta) return;
+            if (event.shiftKey){
+                const offset = camera.position.clone().sub(controls.target).multiplyScalar(delta > 0 ? 1.1 : 1 / 1.1);
+                camera.position.copy(controls.target).add(offset);
+                controls.update();
+            } else resizePaint(delta < 0 ? 1 : -1);
+            return;
+        }
         if (!stamp) return;
         event.preventDefault();
         event.stopPropagation();
@@ -577,6 +791,7 @@ export function createViewer(container, handlers){
     // Texture's source)
     function startLine(skip = -1, count = 2){
         endStamp();
+        endPaint();
         endBrush();
         cancelPolygon();
         cancelLasso();
@@ -738,6 +953,10 @@ export function createViewer(container, handlers){
         return [event.clientX - rect.left, event.clientY - rect.top];
     }
     function onPointerMove(event){
+        if (paint){
+            onPaintMove(event);
+            return;
+        }
         if (stamp){
             // At most once a frame: finding the surface under the pointer takes a while on a large model
             if (!pointer.down && !stamp.queued){
@@ -791,7 +1010,13 @@ export function createViewer(container, handlers){
         cancelLasso();
         if (handlers.onLasso) handlers.onLasso({ring, view, camera: shot});
     }
+    // Alt+left turns the view while the surface brush is on: the controls are told before they see the press
+    function onPaintAlt(event){
+        if (paint && event.button === 0) controls.mouseButtons.LEFT = event.altKey ? THREE.MOUSE.ROTATE : null;
+    }
+    container.addEventListener("pointerdown", onPaintAlt, {capture: true});
     function onPointerDown(event){
+        if (paint && onPaintDown(event)) return;
         if (brush){
             brush.down = true;
             brush.at = strokePoint(event);
@@ -820,6 +1045,10 @@ export function createViewer(container, handlers){
         pointer.down = true;
     }
     function onPointerUp(event){
+        if (paint){
+            onPaintUp();
+            return;
+        }
         if (dragging){
             dragging = null;
             controls.enabled = true;
@@ -881,7 +1110,7 @@ export function createViewer(container, handlers){
             if (drawing.corners.length >= 3) finishPolygon();
             return;
         }
-        if (!lasso && !brush && !stamp) centreOn(event);
+        if (!lasso && !brush && !stamp && !paint) centreOn(event);
     }
     // A double click with no tool: the view moves (not turns) so that the nearest splat shown under the pointer is
     // its centre, which it then turns about
@@ -927,6 +1156,10 @@ export function createViewer(container, handlers){
         controls.update();
     }
     function onPointerLeave(){
+        if (paint && !paint.stroke){
+            paint.at = null;
+            drawPaintCursor();
+        }
         if (stamp){
             stamp.at = null;
             drawStamp();
@@ -938,6 +1171,10 @@ export function createViewer(container, handlers){
     }
     function onKey(event){
         if (placing && event.key === "Escape") cancelLine();
+        if (paint && !(event.target.closest && event.target.closest("input, textarea, select"))){
+            if (event.key === "Escape") endPaint();
+            else if (event.key === "[" || event.key === "]") resizePaint(event.key === "]" ? 1 : -1);
+        }
         if (stamp && !(event.target.closest && event.target.closest("input, textarea, select"))){
             if (event.key === "Escape") endStamp();
             else if (event.key === "[" || event.key === "]") resizeStamp(event.key === "]" ? 1 : -1);
@@ -968,6 +1205,7 @@ export function createViewer(container, handlers){
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
     function startLasso(){
         endStamp();
+        endPaint();
         cancelLine();
         endBrush();
         cancelPolygon();
@@ -990,6 +1228,7 @@ export function createViewer(container, handlers){
     // endBrush (Done or Escape)
     function startBrush(size, restore){
         endStamp();
+        endPaint();
         cancelLine();
         cancelPolygon();
         cancelLasso();
@@ -1031,6 +1270,7 @@ export function createViewer(container, handlers){
 
     function startPolygon(){
         endStamp();
+        endPaint();
         cancelLine();
         endBrush();
         cancelLasso();
@@ -1115,6 +1355,7 @@ export function createViewer(container, handlers){
             const gltf = await new Promise((resolve, reject) => loader.parse(bytes.buffer, "", resolve, reject));
             const meshes = [];
             gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
+            for (const m of meshes) m.layers.enable(PICK_LAYER);
             const pieces = meshes.map(m => ({
                 positions: m.geometry.attributes.position.array, indices: m.geometry.index.array.slice(),
                 uvs: m.geometry.attributes.uv ? m.geometry.attributes.uv.array : null}));
@@ -1223,9 +1464,13 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, startStamp, setStamp, endStamp, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, startStamp, setStamp, endStamp, startPaint, setPaint, endPaint, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
+            if (pick){
+                pick.target.dispose();
+                pick.material.dispose();
+            }
             observer.disconnect();
             canvas.removeEventListener("pointerdown", onPointerDown);
             canvas.removeEventListener("pointerup", onPointerUp);
@@ -1234,6 +1479,7 @@ export function createViewer(container, handlers){
             canvas.removeEventListener("pointerleave", onPointerLeave);
             canvas.removeEventListener("pointercancel", onPointerCancel);
             container.removeEventListener("wheel", onWheel, {capture: true});
+            container.removeEventListener("pointerdown", onPaintAlt, {capture: true});
             window.removeEventListener("keydown", onKey);
             transform.dispose();
             controls.dispose();

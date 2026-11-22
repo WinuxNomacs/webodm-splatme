@@ -10,7 +10,7 @@ const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
 const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
 const AXES = ["X", "Y", "Z"];
-const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom", holes: "fa-fill-drip", stamps: "fa-stamp"};
+const ICONS = {paint: "fa-paint-brush", box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom", holes: "fa-fill-drip", stamps: "fa-stamp"};
 const SHAPES = ["box", "polygon", "lasso", "brush"];
 // Remove Floating Pieces: the pieces of surface under this many triangles go
 const FLOATING_SIZES = [[100, "Small"], [1000, "Medium"], [10000, "Large"]];
@@ -34,13 +34,33 @@ const OP_PARAMS = ["offset", "scale", "soft", "passes", "line", "strength", "rea
 const NEEDS_POINTS = {straighten: "line", clone: "source"};  // the ops whose edit waits for points on the model
 // The model's Repair buttons: each adds a box doing its op, Straighten's around the line drawn first
 const REPAIRS = [
-    ["flatten", "Flatten", "grip-lines", "A box that makes what it covers flat"],
-    ["smooth", "Smooth", "water", "A box that evens out what it covers, its edge fixed"],
+    ["fill", "Fill", "fill-drip", "Paint over holes: those under the paint are filled with the texture beside them"],
+    ["clone", "Clone Texture", "clone", "Click a good area on the model, then paint where its texture is needed"],
+    ["smooth", "Smooth", "water", "Paint over bumps and broken surface to even it out"],
+    ["flatten", "Flatten", "grip-lines", "Paint over a surface to make it flat"],
     ["move", "Move", "arrows-alt", "A box that raises, shifts or stretches what it covers, a step at a time"],
     ["straighten", "Straighten", "ruler-horizontal", "Draw a line on the model: a box around it pulls the surface toward the line"],
-    ["clone", "Clone Texture", "clone", "Click a good area on the model, then stamp its texture where it is needed"],
     ["object", "Remove Object", "eraser", "A box that removes what it covers and fills the hole it leaves"],
 ];
+// The surface brush's modes (the 3D model's Brush): [mode, label, its edit's op, what it does]
+const PAINT_MODES = [
+    ["fill", "Fill", "fill", "Paint over holes: each hole whose whole edge is under the paint is filled with the texture beside it."],
+    ["clone", "Clone", "clone", "Click the middle of a good area, then paint: the texture is copied from the same distance and direction from the good area as from where you started painting."],
+    ["smooth", "Smooth", "smooth", "Paint over bumps and broken surface: each stroke evens it out more."],
+    ["flatten", "Flatten", "flatten", "Paint over a surface to make it flat, onto the plane of its edge."],
+    ["raise", "Raise", "raise", "Each stroke lifts the surface under it by the step, the most at the middle."],
+    ["lower", "Lower", "raise", "Each stroke lowers the surface under it by the step, the most at the middle."],
+    ["remove", "Remove", "delete", "Paint over what to remove: only the surface under the circle, never what is behind it."],
+    ["restore", "Restore", "restore", "Paint over what to bring back of what the edits before this one removed."],
+];
+const PAINT_RADIUS = 0.25;  // metres: the surface brush at first
+const PAINT_RADII = [0.02, 5];  // as viewer.js's
+const RAISE_STEP = 0.02;  // metres: Raise's and Lower's step at first
+const PAINT_REPAIRS = ["fill", "clone", "smooth", "flatten"];  // the Repair buttons that start the surface brush
+const paintOp = mode => PAINT_MODES.find(([m]) => m === mode)[2];
+const PAINT_NOTES = {fill: "Fills the holes it painted over", clone: "Copies the texture picked where it painted", smooth: "Smooths what it painted over",
+    flatten: "Flattens what it painted over", raise: "Raises what it painted over", lower: "Lowers what it painted over",
+    delete: "Removes what it painted over", restore: "Brings back what it painted over"};
 const OP_STEPS = {
     move: [
         ["offset", 2, "Up", "m", 0.05, -100, 100, 1], ["offset", 0, "East", "m", 0.05, -100, 100, 1],
@@ -97,6 +117,7 @@ class EditorPanel extends React.Component {
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
             starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
             brushing: false, brushSize: BRUSH_SIZE, brushMode: "remove",
+            painting: null,  // the surface brush: {mode, radius, step, source, normal}
             history: newHistory()  // the edits before each change, for Undo, and those taken back, for Redo
         };
     }
@@ -203,6 +224,13 @@ class EditorPanel extends React.Component {
                 onBrushStroke: this.handleBrushStroke,
                 onBrushSize: brushSize => this.setState({brushSize}),
                 onBrushEnd: () => this.setState({brushing: false}),
+                onPaintStroke: this.handlePaintStroke,
+                onPaintSource: (source, normal) => {
+                    this.freshPaint = true;
+                    this.setState({painting: this.state.painting && {...this.state.painting, source, normal}});
+                },
+                onPaintRadius: radius => this.setState({painting: this.state.painting && {...this.state.painting, radius}}),
+                onPaintEnd: () => this.setState({painting: null}),
                 onStamp: this.handleStamp,
                 onStampChange: (size, spin) => this.setState({stamping: this.state.stamping && {...this.state.stamping, size, spin}}),
                 onStampEnd: () => this.setState({stamping: null}),
@@ -278,8 +306,8 @@ class EditorPanel extends React.Component {
 
     // The tool in use: "lasso", "brush", "polygon" or null
     activeTool(){
-        const { lassoing, brushing, drawing, lining, stamping } = this.state;
-        return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : lining ? "line" : stamping ? "stamp" : null;
+        const { lassoing, brushing, drawing, lining, stamping, painting } = this.state;
+        return lassoing ? "lasso" : brushing || painting ? "brush" : drawing !== null ? "polygon" : lining ? "line" : stamping ? "stamp" : null;
     }
 
     // Points on the model for edit index (handleLine): Straighten's line (two clicks), or Clone Texture's source (one)
@@ -331,7 +359,8 @@ class EditorPanel extends React.Component {
         this.viewer.cancelPolygon();
         this.viewer.cancelLine();
         this.viewer.endStamp();
-        this.setState({lassoing: false, brushing: false, drawing: null, lining: false, stamping: null});
+        this.viewer.endPaint();
+        this.setState({lassoing: false, brushing: false, drawing: null, lining: false, stamping: null, painting: null});
     }
 
     // A tool's button: ends the tool in use; starts it unless it was the one in use
@@ -349,6 +378,11 @@ class EditorPanel extends React.Component {
 
     // Painting: the session's strokes go into one edit (Undo takes back the last), until Done
     brush = () => {
+        if (this.isModel()){
+            if (this.state.painting) this.endTool();
+            else this.startPainting(this.lastPaintMode || "fill");
+            return;
+        }
         if (!this.canStart("brush")) return;
         this.freshBrush = true;
         this.setState({selected: -1, brushing: true});
@@ -374,6 +408,60 @@ class EditorPanel extends React.Component {
         }
         this.freshBrush = false;
         this.change(next, -1);
+    };
+
+    // The surface brush (the 3D model's Brush and the Repair row's Fill, Clone Texture, Smooth and Flatten): each
+    // stroke one Undo, the strokes of a mode in one edit until the mode changes
+    startPainting(mode){
+        this.endTool();
+        const { loaded, info, edits } = this.state;
+        if (!this.viewer || !loaded || !info.can_edit || edits.length >= MAX_EDITS) return;
+        const last = this.lastPaint || {radius: PAINT_RADIUS, step: RAISE_STEP};
+        const painting = {mode, radius: last.radius, step: last.step, source: null, normal: null};
+        this.freshPaint = true;
+        this.lastPaintMode = mode;
+        this.setState({selected: -1, painting});
+        this.viewer.startPaint(paintOp(mode), painting.radius, null);
+    }
+
+    setPainting(changes){
+        const painting = {...this.state.painting, ...changes};
+        if (changes.mode && changes.mode !== this.state.painting.mode){
+            this.freshPaint = true;
+            this.lastPaintMode = changes.mode;
+            painting.source = null;
+        }
+        if (changes.step !== undefined) this.freshPaint = true;  // a new amount: a new edit
+        painting.radius = Math.min(PAINT_RADII[1], Math.max(PAINT_RADII[0], Math.round(painting.radius * 1000) / 1000));
+        this.lastPaint = {radius: painting.radius, step: painting.step};
+        this.setState({painting});
+        if (this.viewer) this.viewer.setPaint(paintOp(painting.mode), painting.radius, painting.source);
+    }
+
+    handlePaintStroke = (stroke, normal) => {
+        const { painting } = this.state;
+        if (!painting) return;
+        const edits = this.state.edits.slice();
+        const op = paintOp(painting.mode), amount = painting.mode === "lower" ? -painting.step : painting.step;
+        const last = edits[edits.length - 1];
+        const points = last && last.type === "paint" ? last.strokes.reduce((sum, s) => sum + s.points.length, 0) : 0;
+        const same = !this.freshPaint && last && last.type === "paint" && last.op === op && last.strokes.length < 500 &&
+            points + stroke.points.length <= 20000 && (op !== "raise" || last.amount === amount) &&
+            (op !== "clone" || (last.source && painting.source && last.source.join() === painting.source.join()));
+        this.lastPaint = {radius: painting.radius, step: painting.step};
+        if (same) edits[edits.length - 1] = {...last, strokes: [...last.strokes, stroke]};
+        else {
+            if (edits.length >= MAX_EDITS) return;
+            const edit = {type: "paint", op, strokes: [stroke]};
+            if (op === "raise") edit.amount = amount;
+            if (op === "clone"){
+                if (!painting.source) return;
+                Object.assign(edit, {source: painting.source, target: stroke.points[0], normal, feather: 0.02});
+            }
+            edits.push(edit);
+        }
+        this.freshPaint = false;
+        this.change(edits, -1);
     };
 
     setBrushSize(brushSize){
@@ -479,6 +567,10 @@ class EditorPanel extends React.Component {
     // A Repair button: a box doing its op, in the middle of the view; Straighten's line and Clone Texture's source
     // are picked first, and the box made once they are (none if cancelled)
     addRepair(op){
+        if (PAINT_REPAIRS.includes(op)){
+            this.startPainting(op);
+            return;
+        }
         this.endTool();
         const { edits, loaded, info } = this.state;
         if (!loaded || !info.can_edit || edits.length >= MAX_EDITS) return;
@@ -718,6 +810,46 @@ class EditorPanel extends React.Component {
     }
 
     // Move's or Smooth's settings, each with - and + to change it a step at a time (each step one Undo)
+    // While the surface brush is on: its modes, what the mode does, its size (and Raise's step), and Done
+    renderPainting(){
+        const { mode, radius, step, source } = this.state.painting;
+        const help = PAINT_MODES.find(([m]) => m === mode)[3];
+        const row = (label, shown, unit, minus, plus, disabledMinus, disabledPlus) => (
+            <tr>
+                <th>{_(label)}</th>
+                <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " -"} disabled={disabledMinus} onClick={minus}><i className="fa fa-minus fa-fw"></i></button></td>
+                <td className="splatme-editor-stamp-value">{shown}</td>
+                <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " +"} disabled={disabledPlus} onClick={plus}><i className="fa fa-plus fa-fw"></i></button></td>
+                <td>{unit}</td>
+            </tr>
+        );
+        return (
+            <div className="alert alert-info splatme-editor-drawing">
+                <div className="btn-group btn-group-sm splatme-editor-brush-mode" role="group" aria-label={_("What the brush does")}>
+                    {PAINT_MODES.map(([m, label]) =>
+                        <button key={m} type="button" className={"btn " + (mode === m ? "btn-primary" : "btn-default")} aria-pressed={mode === m}
+                                onClick={() => this.setPainting({mode: m})}>{_(label)}</button>)}
+                </div>
+                <p>{mode === "clone" && !source ? _("Click the middle of a good area on the model to copy from.") : _(help)}
+                {" "}{_("Drag to paint; Alt+drag or the middle button turns the view, right-drag moves it. The wheel or [ and ] size the brush, Shift+wheel zooms.")}</p>
+                <table className="splatme-editor-fields splatme-editor-steps">
+                    <tbody>
+                        {row("Size", (2 * radius).toFixed(2), "m", () => this.setPainting({radius: radius / 1.25}), () => this.setPainting({radius: radius * 1.25}),
+                            radius <= PAINT_RADII[0], radius >= PAINT_RADII[1])}
+                        {mode === "raise" || mode === "lower" ?
+                            row("Step", Math.round(step * 100), "cm", () => this.setPainting({step: Math.max(0.01, Math.round((step - 0.01) * 100) / 100)}),
+                                () => this.setPainting({step: Math.min(1, Math.round((step + 0.01) * 100) / 100)}), step <= 0.01, step >= 1) : null}
+                    </tbody>
+                </table>
+                <div className="splatme-editor-drawing-actions">
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => this.endTool()}>{_("Done")}</button>
+                    {mode === "clone" && source ?
+                        <button type="button" className="btn btn-sm btn-default" onClick={() => this.setPainting({mode: "clone", source: null})}>{_("Pick the Source Again")}</button> : null}
+                </div>
+            </div>
+        );
+    }
+
     // While stamping: what to do, the stamp's size and turn, and Done
     renderStamping(){
         const { size, spin } = this.state.stamping;
@@ -844,6 +976,7 @@ class EditorPanel extends React.Component {
                                 </select> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
                             edit.type === "stamps" ? <span className="splatme-editor-item-note">{_("Copies the texture of the area picked under each stamp")}</span> :
+                            edit.type === "paint" ? <span className="splatme-editor-item-note">{_(PAINT_NOTES[edit.op === "raise" && edit.amount < 0 ? "lower" : edit.op])}</span> :
                             edit.type === "floating" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
                                         aria-label={_("Which pieces to remove")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
@@ -974,7 +1107,7 @@ class EditorPanel extends React.Component {
                 {this.isModel() ?
                     <div className="splatme-editor-tools splatme-editor-repairs" role="group" aria-label={_("Repair")}>
                         {REPAIRS.map(([op, label, icon, title]) =>
-                            <button key={op} type="button" className={"btn btn-sm " + ((this.state.lining === op && this.lineIndex < 0) || (op === "clone" && this.state.stamping) ? "btn-primary active" : "btn-default")}
+                            <button key={op} type="button" className={"btn btn-sm " + ((this.state.lining === op && this.lineIndex < 0) || (this.state.painting && this.state.painting.mode === op) ? "btn-primary active" : "btn-default")}
                                     disabled={busy} onClick={() => this.addRepair(op)} title={_(title)}>
                                 <i className={"fa fa-" + icon + " fa-fw"}></i> {_(label)}
                             </button>)}
@@ -998,6 +1131,7 @@ class EditorPanel extends React.Component {
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.viewer.cancelLasso()}>{_("Cancel")}</button>
                         </div>
                     </div> : ""}
+                {this.state.painting ? this.renderPainting() : ""}
                 {brushing ?
                     <div className="alert alert-info splatme-editor-drawing">
                         <div className="btn-group btn-group-sm splatme-editor-brush-mode" role="group" aria-label={_("What the brush does")}>

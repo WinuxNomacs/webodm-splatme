@@ -3427,3 +3427,21 @@ end to end, the worker's edits step 90 to 140 ms, the clones step 250 to 450 ms 
 50 ms of it in Node: the rest was texel reads, since made faster but not measured on a quiet machine); the page's
 long tasks from several of 150 to 490 ms to one of about 110 ms. The first preview with Fill Holes Large takes about
 12 s in the browser (4.9 s in Node), now in the worker with the view usable. To measure again on a quiet machine.
+
+**R7b built (branch `tools-rework`):** the edit `{"type": "paint", "op", "strokes": [{points, radius, view}]}`
+(`meshes.py` `clean_paint`, moved with the task in `shift`); `meshEdits.js` `strokeFaces` (a static grid of the
+surface, 0.25 m cells, with how far the edits before moved it as slack; only faces facing the view), `paint`
+(delete, restore, smooth, flatten, raise with a smoothstep fall-off; fill and clone over the union of the strokes,
+`holes` looking only near the painted vertices; one clone per stroke, `sourceNormal` from the picked point).
+`viewer.js`: the circle on the surface, picked on the GPU (a 7x7 float target of world positions, `PICK_LAYER`;
+the raycast against 850,000 triangles took about 2.4 s a stroke), the wheel sizing, Alt or the middle button
+turning the view; `checkShaderErrors` off (0.9 s of program checks). `Editor.jsx`: the Brush on the model and the
+Repair row's Fill, Clone Texture, Smooth and Flatten start it; a mode's strokes are one edit until the mode, step
+or source changes. The stamp's code stays until R7c. Docs: Editing the 3D Model's The Brush, the API page.
+
+Measured live on the check task (another WebODM stack's webapp idle this time; sm-webapp at about 65%): a stroke to
+its result shown, Fill 1.2 to 1.5 s, Smooth 1.1 s, Raise 0.3 to 0.5 s, Clone 1.9 to 2.2 s (from 3 to 5 s before the
+fixes); the worker's clones step about 1 s for a stroke whose clone chunk is 891x456 texels. The page's long tasks:
+one of 1.6 s around the first clone (a program compile and the pick's `readPixels`), the rest under 0.6 s. Update
+the Model applied the same edits as shown (1,872 points moved, 44 holes filled) in 7.3 s. Still above the 100 ms
+aim: the remaining time is to be profiled in R7c (the stroke's end to the worker, and the clone chunk's size).

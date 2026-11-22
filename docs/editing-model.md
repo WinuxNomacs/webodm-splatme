@@ -20,9 +20,9 @@ A task can be edited once WebODM has made its textured model (its GLB, OBJ and M
 
 ## The Edits
 
-The tools are those of Editing Splats: **Add Box** (X), **Draw Polygon** (P), **Lasso** (L) and **Brush** (B),
-drawn the same way (see [The Edits](editing.md#the-edits) there). A shape acts on the triangles whose centres it
-covers. What it does is chosen in the list:
+**Add Box** (X), **Draw Polygon** (P) and **Lasso** (L) are drawn as on Editing Splats (see
+[The Edits](editing.md#the-edits) there); the **Brush** (B) paints on the surface instead ([The Brush](#the-brush)).
+A shape acts on the triangles whose centres it covers. What it does is chosen in the list:
 
 - **Remove Inside** (the start) and **Keep Inside**: remove the triangles inside it, or all the others.
 - **Flatten Inside**: makes what it covers flat. The triangles' corners move onto the plane that best fits the
@@ -44,36 +44,46 @@ covers. What it does is chosen in the list:
   nothing at **Reach** from it.
 - **Clone Texture Inside**: covers what it covers with the texture of a good area: shingles over broken
   shingles, siding over a smear, lawn over a bare patch. It suits a large area; for a patch here and there, the
-  **Clone Texture** stamp (below) is quicker. Choosing it asks for one click on the middle of the good
+  **Clone** brush (below) is quicker. Choosing it asks for one click on the middle of the good
   area. A square of it, **Source Size** across (shown in the view while the edit is picked), is laid flat and
   repeated across the shape's surface, with its rows kept level (north up on level ground); **Turn Texture**
   turns it, and **Feather** blends it into the surface's own texture near the shape's edge. It changes only the
   texture, after all the other edits.
 
-The **Repair** buttons under the tools start the repairs without drawing first: **Flatten**, **Smooth**, **Move**
-and **Remove Object** each add a box doing that in the middle of the view, to move and size like any box.
-**Straighten** asks for the line first and puts a box around it, as wide as **Reach** each side. To repair inside a polygon or a lasso instead, draw it
-and choose the repair in its list; the **Brush** has its own buttons (below).
+The **Repair** buttons under the tools start the repairs without drawing first. **Fill**, **Clone Texture**,
+**Smooth** and **Flatten** start the brush (below) in that mode. **Move** and **Remove Object** each add a box
+doing that in the middle of the view, to move and size like any box. **Straighten** asks for the line first and
+puts a box around it, as wide as **Reach** each side. To repair inside a polygon or a lasso instead, draw it and
+choose the repair in its list.
 
-**Clone Texture** is a stamp. Click the middle of a good area on the model; the pointer then becomes a square showing
-its texture, laid on the surface under the pointer, with a tick toward the texture's top. A click drops that
-texture there, its middle where the square's is, blended in over a narrow edge, and fills the holes whose whole edge
-the square covers with it, in line with the texture around them (fills made earlier inside the square take it too). The wheel turns the square
-15 degrees a notch, Ctrl+wheel or **[** and **]** make it 25 cm larger or smaller (or **Size** and **Turn** in the
-panel), and Shift+wheel zooms; dragging still turns the view and right-dragging moves it. Each stamp keeps the size
-and turn it was dropped with, and a later stamp covers an earlier one. **Done** or Esc stops stamping. The stamps
-are one edit in the list, **Clone Stamps**, each one Undo; picked, it shows their squares, its **Feather** (how wide
-the blend at each stamp's edge is) and **Add Stamps** to stamp more of the same texture. **Pick the Source Again**,
-while stamping, starts a new one from another area.
+### The Brush
+
+On the 3D model, the **Brush** paints on the surface: a circle lies on the surface under the pointer, its size in
+metres, and a drag paints along the surface. It acts only on the surface it covers that faces you, never on what
+is behind it. The buttons above its panel choose what it does:
+
+- **Fill**: fills each hole whose whole edge is under the paint, with the texture of the surface beside it. Paint
+  over the holes, edge to edge.
+- **Clone**: copies the texture of a good area. Click the middle of the good area, then paint where it should go:
+  the texture comes from the same distance and direction from the good area as from where you started painting,
+  so a stroke beside the first one carries on from it. The holes under the paint are filled with it too. **Pick the
+  Source Again** starts over from another area.
+- **Smooth**: evens out bumps and broken surface; each stroke smooths more.
+- **Flatten**: makes what it paints flat, onto the plane of its edge.
+- **Raise** and **Lower**: lift or lower the surface by **Step** (2 cm at first) each stroke, the most at the
+  middle of the circle.
+- **Remove** and **Restore**: remove what it paints, or bring back what the edits above it removed.
+
+Each stroke is one **Undo**. A mode's strokes are one edit in the list (**Fill Brush, 3 strokes**) until the mode,
+the step or Clone's source changes, which starts another. The wheel, or **[** and **]**, make the brush larger or
+smaller (**Size** in the panel, 4 cm to 10 m across), and Shift+wheel zooms. While painting, a drag paints: Alt+drag
+or the middle button turns the view, and right-drag moves it. **Done** or Esc stops.
 
 The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
 step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North** and
 **Stretch Up** (5%) and **Soft Edge** (0.25 m); Smooth Inside's **Passes**; Straighten Inside's **Strength** (10%)
 and **Reach** (5 cm); Clone Texture Inside's **Source Size** (0.25 m), **Feather** (5 cm) and **Turn Texture**
 (15 degrees). The view shows each step as it is made.
-
-The **Brush**'s panel has buttons for **Remove**, **Restore** (paints back what the edits above it removed),
-**Smooth**, **Flatten**, **Fill Holes** and **Remove Object**. Each switch starts a new edit in the list.
 
 Two tools act on the whole model, once each:
 

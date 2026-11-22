@@ -207,6 +207,16 @@ export function components(faces, count, kept){
 //                              Clone Texture's stamps: each stamp a clone of a patch size metres across about source,
 //                              its middle at center, over the triangles whose centres are inside its square
 //                              (insideStamp); a later stamp wins over an earlier one. Applies after all the edits.
+//   {type: "paint", op, strokes: [{points: [[x, y, z], ...], radius: metres, view: [x, y, z]}], ...}
+//                              the surface brush: each stroke covers the triangles whose centres are within radius
+//                              of its path and that face view (toward where it was painted from: never the back
+//                              of the model); op is one of PAINT_OPS: "delete" and "restore" (remove, or put back
+//                              what the edits before removed), "smooth" (passes a stroke), "flatten", "raise"
+//                              (amount metres a stroke along the covered surface's normal, fading to nothing at the
+//                              radius; less than 0 lowers), "fill" (the holes whose whole rim the strokes cover,
+//                              textured from beside them) and "clone" (source and target [x, y, z], normal at the
+//                              target, feather: what the strokes cover textured from the surface at the offset from
+//                              target to source, the holes under them filled with it; after all the edits)
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 //   {type: "holes", size}      Fill Holes: every hole of at most size edges filled
 // A hole is a loop of open edges that goes round as a hole's do, not as a piece's outer rim (holes); a fill is triangles
@@ -378,7 +388,9 @@ export function fillHole(positions, rim){
 // The holes of the kept surface and the fills so far: [{rim: surface vertices}]. A loop of open edges is a hole when
 // it turns clockwise around the surface beside it (seen from the side its triangles face), as a hole's edges go; a
 // piece's outer rim turns the other way.
-function holes(surface, kept, fills, positions){
+// near (optional, a Uint8Array per vertex): only the holes whose rim is all near vertices, found from the edges
+// between them (the same holes there as without it, without going over every edge of the model)
+function holes(surface, kept, fills, positions, near = null){
     const { faces, count } = surface;
     let all = faces, keep = kept;
     const extra = fills.reduce((sum, fill) => sum + fill.triangles.length, 0);
@@ -390,7 +402,13 @@ function holes(surface, kept, fills, positions){
         let at = faces.length;
         for (const fill of fills) for (const t of fill.triangles) all[at++] = fill.ring[t];
     }
-    const edges = openEdges(all, count, keep);
+    if (near){
+        const touching = new Uint8Array(all.length / 3);
+        for (let f = 0; f < touching.length; f++) touching[f] = keep[f] && (near[all[3 * f]] || near[all[3 * f + 1]] || near[all[3 * f + 2]]) ? 1 : 0;
+        keep = touching;
+    }
+    let edges = openEdges(all, count, keep);
+    if (near) edges = edges.filter(([a, b]) => near[a] && near[b]);
     const faceOf = new Map();
     for (const [a, b, f] of edges){
         faceOf.set(a * count + b, f);
@@ -603,6 +621,196 @@ export function applyEdits(surface, edits, applyShape){
     return finishEdits(surface, state);
 }
 
+// The surface brush (paint edits)
+export const PAINT_OPS = ["delete", "restore", "fill", "clone", "smooth", "flatten", "raise"];
+const PAINT_CELL = 0.25;  // metres: the cells the triangles are found through, by where their centres were
+const PAINT_FAR = 2;  // metres: past this, the vertices moved too far for the grid; the triangles are all looked at
+
+// The triangles by where their centres are before any edit, in PAINT_CELL cells: made once a surface
+const paintGrids = new WeakMap();
+function paintGrid(surface){
+    if (!paintGrids.has(surface)){
+        const at = centres(surface.faces, surface.positions), lists = new Map();
+        for (let f = 0; f < at.xs.length; f++){
+            const key = Math.floor(at.xs[f] / PAINT_CELL) + "," + Math.floor(at.ys[f] / PAINT_CELL) + "," + Math.floor(at.zs[f] / PAINT_CELL);
+            let list = lists.get(key);
+            if (!list) lists.set(key, list = []);
+            list.push(f);
+        }
+        const cells = new Map();
+        for (const [key, list] of lists) cells.set(key, Int32Array.from(list));
+        paintGrids.set(surface, cells);
+    }
+    return paintGrids.get(surface);
+}
+
+// The squared distance from a point to a segment
+function segment2(px, py, pz, a, b){
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+    const length2 = dx * dx + dy * dy + dz * dz;
+    const t = length2 ? Math.min(1, Math.max(0, ((px - a[0]) * dx + (py - a[1]) * dy + (pz - a[2]) * dz) / length2)) : 0;
+    const x = a[0] + t * dx - px, y = a[1] + t * dy - py, z = a[2] + t * dz - pz;
+    return x * x + y * y + z * z;
+}
+// A stroke's path as segments (a dab: one point, a segment of no length)
+function strokeSegments(stroke){
+    const p = stroke.points;
+    if (p.length === 1) return [[p[0], p[0]]];
+    const out = [];
+    for (let i = 1; i < p.length; i++) out.push([p[i - 1], p[i]]);
+    return out;
+}
+// The squared distance from a point to a stroke's path
+function stroke2(stroke, x, y, z){
+    let best = Infinity;
+    for (const [a, b] of strokeSegments(stroke)) best = Math.min(best, segment2(x, y, z, a, b));
+    return best;
+}
+
+// The triangles a stroke covers: their centres (where they are now) within its radius of its path, facing its view
+export function strokeFaces(surface, state, stroke){
+    const { faces } = surface, p = state.positions, r = stroke.radius, n = faces.length / 3;
+    const seen = new Uint8Array(n), out = [];
+    const [vx, vy, vz] = stroke.view;
+    const consider = f => {
+        if (seen[f]) return;
+        seen[f] = 1;
+        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        const cx = (p[a] + p[b] + p[c]) / 3, cy = (p[a + 1] + p[b + 1] + p[c + 1]) / 3, cz = (p[a + 2] + p[b + 2] + p[c + 2]) / 3;
+        if (stroke2(stroke, cx, cy, cz) > r * r) return;
+        const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+        const wx = p[c] - p[a], wy = p[c + 1] - p[a + 1], wz = p[c + 2] - p[a + 2];
+        if ((uy * wz - uz * wy) * vx + (uz * wx - ux * wz) * vy + (ux * wy - uy * wx) * vz <= 0) return;  // faces away
+        out.push(f);
+    };
+    if (state.shift > PAINT_FAR){
+        for (let f = 0; f < n; f++) consider(f);
+    } else {
+        const cells = paintGrid(surface), reach = r + state.shift;
+        for (const [a, b] of strokeSegments(stroke)){
+            const lo = [0, 1, 2].map(i => Math.floor((Math.min(a[i], b[i]) - reach) / PAINT_CELL));
+            const hi = [0, 1, 2].map(i => Math.floor((Math.max(a[i], b[i]) + reach) / PAINT_CELL));
+            for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++){
+                const list = cells.get(x + "," + y + "," + z);
+                if (list) for (const f of list) consider(f);
+            }
+        }
+    }
+    return Int32Array.from(out);
+}
+
+// After vertices moved: the centres are made again when next needed, and how far any vertex now is from where it was
+function movedNow(surface, state){
+    state.at = null;
+    const p = state.positions, q = surface.positions;
+    let most = 0;
+    for (let i = 0; i < p.length; i += 3) most = Math.max(most, (p[i] - q[i]) ** 2 + (p[i + 1] - q[i + 1]) ** 2 + (p[i + 2] - q[i + 2]) ** 2);
+    state.shift = Math.sqrt(most);
+}
+
+// Raise (or lower): the stroke's triangles' vertices moved amount along their mean normal (facing the view), the
+// most on the path, fading to nothing at the radius; the vertices moved
+function raise(surface, state, stroke, covered, amount){
+    const { faces } = surface, p = state.positions, r = stroke.radius;
+    let nx = 0, ny = 0, nz = 0;
+    const vertices = new Set();
+    for (const f of covered){
+        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+        const wx = p[c] - p[a], wy = p[c + 1] - p[a + 1], wz = p[c + 2] - p[a + 2];
+        nx += uy * wz - uz * wy;
+        ny += uz * wx - ux * wz;
+        nz += ux * wy - uy * wx;
+        for (let k = 0; k < 3; k++) vertices.add(faces[3 * f + k]);
+    }
+    const length = Math.hypot(nx, ny, nz);
+    if (!length) return 0;
+    const [vx, vy, vz] = stroke.view, sign = nx * vx + ny * vy + nz * vz < 0 ? -1 : 1;
+    nx *= sign / length;
+    ny *= sign / length;
+    nz *= sign / length;
+    let moved = 0;
+    for (const v of vertices){
+        const d = Math.sqrt(stroke2(stroke, p[3 * v], p[3 * v + 1], p[3 * v + 2]));
+        if (d >= r) continue;
+        const t = 1 - d / r, w = amount * t * t * (3 - 2 * t);
+        p[3 * v] += nx * w;
+        p[3 * v + 1] += ny * w;
+        p[3 * v + 2] += nz * w;
+        moved++;
+    }
+    return moved;
+}
+
+export const PAINT_PASSES = 3;  // Smooth's passes a stroke, unless the edit gives its own
+export const CLONE_FEATHER = 0.02;  // metres: the clone brush's blend at its edge, unless the edit gives its own
+
+// A paint edit on the state: each stroke's triangles removed, put back, smoothed, flattened or raised; or, for
+// fill and clone, all the strokes' triangles and the holes they cover. fill(holes): applyEdit's.
+function paint(surface, state, edit, fill){
+    const { kept, positions, n } = state;
+    const op = edit.op, union = new Uint8Array(n), strokeFaceLists = [];
+    for (const stroke of edit.strokes){
+        const covered = strokeFaces(surface, state, stroke);
+        strokeFaceLists.push(covered);
+        if (op === "delete" || op === "restore"){
+            for (const f of covered) kept[f] = op === "restore" ? 1 : 0;
+        } else if (op === "smooth" || op === "flatten" || op === "raise"){
+            const mask = new Uint8Array(n);
+            for (const f of covered) mask[f] = 1;
+            const count = op === "smooth" ? smooth(surface, kept, mask, positions, edit.passes || PAINT_PASSES) :
+                op === "flatten" ? flatten(surface, kept, mask, positions) : raise(surface, state, stroke, covered, edit.amount);
+            if (count){
+                if (op === "flatten") state.flattened += count;
+                state.moved += count;
+                movedNow(surface, state);
+            }
+        } else for (const f of covered) union[f] = 1;
+    }
+    if (op !== "fill" && op !== "clone") return;
+    // The holes whose every rim vertex is a corner of a triangle the strokes cover
+    const painted = new Uint8Array(surface.count);
+    for (let f = 0; f < n; f++) if (union[f]) for (let k = 0; k < 3; k++) painted[surface.faces[3 * f + k]] = 1;
+    const before = state.fills.length;
+    fill(holes(surface, kept, state.fills, positions, painted).filter(hole => hole.rim.every(v => painted[v])));
+    for (let i = before; i < state.fills.length; i++) state.fillDetail[i] = true;
+    if (op === "fill") return;
+    // Clone: a clone for each stroke, of the surface at the offset from target to source (its patch's middle at the
+    // stroke's middle, that much off at the source), all in the frame of the source picked: the strokes' textures
+    // are one texture where they meet, and each stroke's is made once
+    const offset = [0, 1, 2].map(i => edit.source[i] - edit.target[i]);
+    const picked = cloneSource(surface, positions, kept, {source: edit.source, patch: 1});
+    if (!picked) return;
+    const at = centres(surface.faces, positions);
+    const feather = edit.feather === undefined ? CLONE_FEATHER : edit.feather;
+    const strokeClones = edit.strokes.map((stroke, k) => {
+        const faces = strokeFaceLists[k];
+        if (!faces.length) return null;
+        const middle = [0, 1, 2].map(i => stroke.points.reduce((sum, p) => sum + p[i], 0) / stroke.points.length);
+        let far = 0;
+        for (const f of faces) far = Math.max(far, Math.hypot(at.xs[f] - middle[0], at.ys[f] - middle[1], at.zs[f] - middle[2]));
+        const clone = {op: "clone", source: middle.map((x, i) => x + offset[i]), sourceNormal: picked.normal,
+            patch: Math.min(20, Math.max(0.1, 2 * far + 0.1)), feather, spin: 0, anchor: middle, normal: edit.normal};
+        state.clones.push([clone, faces]);
+        return {clone, vertices: new Set(Array.from(faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]).flat())};
+    });
+    // Each fill under the strokes takes the clone of the last stroke over all its rim (or over most of it)
+    for (let i = 0; i < state.fills.length; i++){
+        const ring = state.fills[i].ring;
+        if (i < before && !ring.every(v => painted[v])) continue;
+        let best = null, most = 0;
+        for (const made of strokeClones){
+            if (!made) continue;
+            const count = ring.filter(v => made.vertices.has(v)).length;
+            if (count >= most){
+                best = made.clone;
+                most = count;
+            }
+        }
+        if (best) state.fillClone[i] = best;
+    }
+}
+
 // applyEdits a step at a time, so that a caller can keep the state between edits (createPreview): the state before
 // any edit, one edit applied to it, and the result. copyEdits: a state to go on from without changing this one.
 export function startEdits(surface){
@@ -612,12 +820,15 @@ export function startEdits(surface){
         at: null,  // the triangles' centres, made again when the vertices move (never changed in place)
         floating: 0, flattened: 0, moved: 0,
         fills: [], fillClone: [],  // the holes filled, and the stamp clone each one takes its texture from (or none)
+        fillDetail: [],  // whether a fill is textured from beside it whatever its size (the brush's)
+        shift: 0,  // metres: the most any vertex has moved from where it was (how far a triangle's centre can be from
+                   // where the paint grid has it)
         clones: [],  // [edit, the triangles it covered (Int32Array)]
     };
 }
 export function copyEdits(state){
     return {...state, kept: state.kept.slice(), positions: state.positions.slice(), fills: state.fills.slice(),
-        fillClone: state.fillClone.slice(), clones: state.clones.slice()};
+        fillClone: state.fillClone.slice(), fillDetail: state.fillDetail.slice(), clones: state.clones.slice()};
 }
 function maskFaces(mask){
     let count = 0;
@@ -643,10 +854,13 @@ export function applyEdit(surface, state, edit, applyShape){
             if (made){
                 fills.push(made);
                 state.fillClone.push(null);
+                state.fillDetail.push(false);
             }
         }
     };
-    if (edit.op === "object"){
+    if (edit.type === "paint"){
+        paint(surface, state, edit, fill);
+    } else if (edit.op === "object"){
         const at = centresNow();
         const before = kept.slice();
         applyShape(at.xs, at.ys, at.zs, {...edit, keep: false, restore: false}, kept, null);
@@ -693,7 +907,7 @@ export function applyEdit(surface, state, edit, applyShape){
         if (count){
             if (edit.op === "flatten") state.flattened += count;
             state.moved += count;
-            state.at = null;  // the vertices moved
+            movedNow(surface, state);
         }
     } else if (edit.type === "floating"){
         const parts = components(surface.faces, surface.count, kept);
@@ -712,7 +926,7 @@ export function finishEdits(surface, state){
     const { n, kept, positions } = state;
     let removed = 0;
     for (let f = 0; f < n; f++) if (!kept[f]) removed++;
-    const fills = state.fills.map((made, i) => state.fillClone[i] ? {...made, clone: state.fillClone[i]} : made);
+    const fills = state.fills.map((made, i) => state.fillClone[i] ? {...made, clone: state.fillClone[i]} : state.fillDetail[i] ? {...made, detail: true} : made);
     const added = fills.reduce((sum, f) => sum + f.triangles.length / 3, 0);
     // Clone Texture: each kept triangle goes to the last clone covering it
     const cloneOf = new Int32Array(n).fill(-1);
@@ -996,7 +1210,9 @@ export function cloneSource(surface, positions, kept, edit, grid = null){
     else for (let f = 0; f < faces.length / 3; f++) consider(f);
     const plane = fitPlane(positions, [...vertices]);
     if (!plane) return null;
-    return {faces: near, point: edit.source, normal: plane.normal, ...planeFrame(plane.normal), half};
+    // A clone brush's strokes share the frame of the source the brush picked, so their textures meet without a seam
+    const normal = edit.sourceNormal || plane.normal;
+    return {faces: near, point: edit.source, normal, ...planeFrame(normal), half};
 }
 
 // The kept triangles' centres in cells, to find those near a point quickly: near(point, reach, visit) visits each
@@ -1061,7 +1277,7 @@ function inBounds([lo, hi], positions, i){
 
 // The fills drawn with the smooth blend (fillAtlas) and those textured from beside them (cloneAtlas)
 export function splitFills(fills){
-    const detailed = f => f.radius >= FILL_DETAIL || !!f.clone;  // a stamp's fills take the stamp's texture
+    const detailed = f => f.radius >= FILL_DETAIL || !!f.clone || !!f.detail;  // a stamp's fills take its texture; the brush's are all textured
     return {smooth: fills.filter(f => !detailed(f)), detailed: fills.filter(detailed)};
 }
 
@@ -1114,7 +1330,7 @@ function clonesSources(surface, result){
     const found = new Map();
     let grid = null;
     return edit => {
-        const key = edit.source.join(",") + "|" + edit.patch;
+        const key = edit.source.join(",") + "|" + edit.patch + "|" + (edit.sourceNormal || "");
         if (!found.has(key)){
             if (!grid && result.clones.length > 1) grid = faceGrid(surface, result.positions, result.kept, 0.5);
             found.set(key, cloneSource(surface, result.positions, result.kept, edit, grid));
