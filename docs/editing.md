@@ -25,19 +25,19 @@ Each shape **Keeps Inside** (removes everything outside it) or **Removes Inside*
 **Brush** removes or restores, and **Remove Floaters** only removes. The edits apply in the list's order, so a
 restore brings back only what the edits above it removed.
 
-The view hides what the edits remove as you change them, by the same rule **Apply** uses, and what lies outside
+The view hides what the edits remove as you change them, by the same rule **Update the Model** uses, and what lies outside
 the task's boundary when the model was trained with **Crop to Boundary**.
 
-- **Add Box**: a box over the middle of the model. Its handles **Move** it, **Size** it and **Turn** it about the
+- **Add Box** (X): a box over the middle of the model, a third of its width, that **Removes Inside**. Its handles **Move** it, **Size** it and **Turn** it about the
   vertical. The fields under the list set its centre, size and turn exactly, in metres and degrees.
-- **Draw Polygon**: the view turns to look straight down. Click the corners, then click the first corner, or
+- **Draw Polygon** (P): the view turns to look straight down. Click the corners, then click the first corner, or
   double-click, or press **Finish** (Enter) to close it. Escape or **Cancel** stops. A polygon cuts at every
   height.
-- **Lasso**: drag around what to remove, in any view (one finger on a phone); letting go closes it, and Escape or
+- **Lasso** (L): drag around what to remove, in any view (one finger on a phone); letting go closes it, and Escape or
   **Cancel** stops. It takes everything inside it on screen, through to the back, so turn the view first until
   what you want gone is apart from what you keep. **Go to Its View**, beside it in the list, turns the view back
   to where it was drawn.
-- **Brush**: paint over what to remove (one finger on a phone). Like the Lasso, it takes everything under the
+- **Brush** (B): paint over what to remove (one finger on a phone). Like the Lasso, it takes everything under the
   brush on screen, through to the back. The view holds still while you paint, so the strokes until **Done** (or
   Escape) are one edit in the list ("Brush, 3 strokes"), and **Undo** takes back the last stroke; turn the view
   between sessions. **Size** sets the brush's width on screen, from 5 to 100 pixels; the [ and ] keys change it
@@ -57,36 +57,48 @@ the task's boundary when the model was trained with **Crop to Boundary**.
   list to show its sliders again. The view leaves out the part of a colour that changes with the viewing angle
   (shine, a sky's tint on a roof), so the applied model can look slightly different.
 
+The tool in use is highlighted; another tool's button (or its key) ends it as Escape would, and its own button
+ends it too. The keys work unless you are typing in a field.
+
 Once drawn, a shape is hidden from the view, which shows only what it cuts; pick its edit in the list to show
-the shape again, and a box's handles and fields with it. **Undo** takes back the last change, and **Clear
-Edits** removes them all. **Top View** and **Side View** frame the model again.
+the shape again, and a box's handles and fields with it. **Delete** (the key) removes the edit picked in the
+list. **Undo** (Ctrl+Z) takes back the last change and **Redo** (Ctrl+Shift+Z or Ctrl+Y) brings it back, until
+the next change; **Clear Edits** removes them all, and **Undo** brings them back. Undo and Redo last until the
+page is left.
+
+## Moving Around
+
+Drag to turn the view, right-drag (or two fingers) to move it, and scroll (or pinch) to zoom. A double-click on
+the model makes the splat under the pointer the view's centre, which it then turns about. **Top View** looks
+straight down, and **Reset View** goes back to the view the page opened with.
 
 Edits are saved as you make them ("Saved" under the list); leaving the page before then asks first.
 
-## Applying Them
+## Updating the Model
 
-**Apply** makes the task's model again from its trained model with the edits, as the end of a training does:
+**Update the Model** makes the task's model again from its trained model with the edits, as the end of a training does:
 cut to the task's boundary first when it was trained with **Crop to Boundary**, then by the edits, then
 recoloured by **Colour Adjust**. It takes as long as converting the model. WebODM's 3D view, the download and the
-share links then show the edited model. **SplatMe → Tasks** shows the Apply while it runs, and **Edit Splats**
-says when the edits have changed since the task's model was made. **Cancel**, beside **Apply** while it runs,
-stops it and leaves the task's model as it was.
+share links then show the edited model. **SplatMe → Tasks** shows it while it runs. Under the button, **Edit
+Splats** says whether the task's model has the edits as they are now ("The task's model has these edits", with
+how many splats they removed) or not ("The edits changed since the task's model was made"). **Cancel**, beside
+the button while it runs, stops it and leaves the task's model as it was.
 
-To make the model whole again, **Clear Edits**, then **Apply**.
+To make the model whole again, **Clear Edits**, then **Update the Model**.
 
-**Apply** is refused while the task's splats train, and a training is refused while edits are applied. Edits
+**Update the Model** is refused while the task's splats train, and a training is refused while edits are applied. Edits
 that together remove every splat are not applied, and the model stays as it was. A training whose edits would
 remove every splat imports its model without them and says so.
 
 Edits saved by a newer SplatMe (or read by a WebODM not restarted since an upgrade) may not read: the page says
-so, **Apply** fails with that reason, a training goes on without them, and both leave them as they are; a change
+so, **Update the Model** fails with that reason, a training goes on without them, and both leave them as they are; a change
 on the page replaces them.
 
 ## Downloading the Edited Model
 
 WebODM's own download gives the task's model in its `.rad` format, which few other tools open. **Download .ply**,
-beside **Apply** on **Edit Splats** and on the task's row on **SplatMe → Tasks**, gives it as a `.ply`, the
-format the trainer writes and most splat tools open. It is made as **Apply** would make the model, with the task's
+beside **Update the Model** on **Edit Splats** and on the task's row on **SplatMe → Tasks**, gives it as a `.ply`, the
+format the trainer writes and most splat tools open. It is made as **Update the Model** would make it, with the task's
 saved edits, so it has them even before they are applied; on **Edit Splats** the button waits until the edits are
 saved. The `.ply` is up to about 250 bytes a splat (50 MB for 200,000). Anyone who may see the task may download it.
 

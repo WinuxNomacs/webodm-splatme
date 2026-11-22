@@ -11,6 +11,7 @@ import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colour
 const CLICK_PIXELS = 5;  // a press that moves less than this is a click, not a turn of the view
 const CORNER_PIXELS = 10;  // a click this close to the first corner closes the polygon
 const STROKE_PIXELS = 3;  // a lasso's corners at least this far apart
+const PICK_PIXELS = 12;  // how far from the pointer a double click finds a splat to centre on
 const BRUSH_STEP = 1.25;  // the [ and ] keys' change of the brush's size
 
 // A colour of WebODM's theme (theme.css), read from an element given one of its classes: no colour is set here
@@ -430,8 +431,39 @@ export function createViewer(container, handlers){
         }
         pointer.down = false;
     }
-    function onDoubleClick(){
-        if (drawing && drawing.corners.length >= 3) finishPolygon();
+    function onDoubleClick(event){
+        if (drawing){
+            if (drawing.corners.length >= 3) finishPolygon();
+            return;
+        }
+        if (!lasso && !brush) centreOn(event);
+    }
+    // A double click with no tool: the view moves (not turns) so that the nearest splat shown under the pointer is
+    // its centre, which it then turns about
+    function centreOn(event){
+        if (!mesh || !shown) return;
+        const rect = canvas.getBoundingClientRect();
+        const px = event.clientX - rect.left, py = event.clientY - rect.top;
+        camera.updateMatrixWorld();
+        const e = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+        const reach = PICK_PIXELS * PICK_PIXELS;
+        let best = -1, bestDepth = Infinity;
+        for (let i = 0; i < shown.length; i++){
+            if (!shown[i]) continue;
+            const x = xs[i], y = ys[i], z = zs[i];
+            const w = e[3] * x + e[7] * y + e[11] * z + e[15];
+            if (w <= 0 || w >= bestDepth) continue;
+            const sx = ((e[0] * x + e[4] * y + e[8] * z + e[12]) / w + 1) / 2 * rect.width - px;
+            const sy = (1 - (e[1] * x + e[5] * y + e[9] * z + e[13]) / w) / 2 * rect.height - py;
+            if (sx * sx + sy * sy > reach) continue;
+            best = i;
+            bestDepth = w;
+        }
+        if (best < 0) return;
+        const point = new THREE.Vector3(xs[best], ys[best], zs[best]);
+        camera.position.add(point.clone().sub(controls.target));
+        controls.target.copy(point);
+        controls.update();
     }
     function onPointerLeave(){
         if (brush && !brush.down){

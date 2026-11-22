@@ -141,7 +141,7 @@ The splat node is unchanged (0.2.2): only the plugin.
       [latest release](https://github.com/WinuxNomacs/webodm-splatme/releases/latest) with **Load Plugin
       (.zip)**.
 2. **Restart WebODM once**, with the options it was started with, as in a [fresh install](#3-restart-webodm-once).
-   Until then, **Apply** and **Continue From Step** fail: WebODM's worker still runs the old plugin, which looks
+   Until then, **Update the Model** (on Edit Splats) and **Continue From Step** fail: WebODM's worker still runs the old plugin, which looks
    for the trained models where 0.2 kept them.
 
 **You should see**, on **SplatMe → Tasks**, **Edit** and **Download .ply** beside **View in 3D** on each task

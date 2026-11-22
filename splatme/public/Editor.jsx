@@ -2,7 +2,7 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { request, downloadUrl } from './api';
-import { newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
+import { newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
@@ -27,19 +27,20 @@ export default class Editor extends React.Component {
 
     constructor(props){
         super(props);
-        this.history = [];  // the edits before each change, for Undo
         this.floaters = {};  // the server's floaters by strength: a promise of the splats' numbers
         this.state = {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
             progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
             starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
-            brushing: false, brushSize: BRUSH_SIZE, brushRestore: false
+            brushing: false, brushSize: BRUSH_SIZE, brushRestore: false,
+            history: newHistory()  // the edits before each change, for Undo, and those taken back, for Redo
         };
     }
 
     componentDidMount(){
         this._mounted = true;
         window.addEventListener("beforeunload", this.handleLeave);
+        window.addEventListener("keydown", this.handleKey);
         request("GET", "task/" + this.props.taskId + "/edits").then(info => {
             if (!this._mounted) return;
             this.savedEdits = info.edits;
@@ -83,6 +84,7 @@ export default class Editor extends React.Component {
     componentWillUnmount(){
         this._mounted = false;
         window.removeEventListener("beforeunload", this.handleLeave);
+        window.removeEventListener("keydown", this.handleKey);
         clearTimeout(this.saveTimer);
         clearTimeout(this.pollTimer);
         clearTimeout(this.trainingTimer);
@@ -95,6 +97,28 @@ export default class Editor extends React.Component {
             e.preventDefault();
             e.returnValue = "";
         }
+    };
+
+    // The page's keys, unless typing in a field: Ctrl+Z Undo, Ctrl+Shift+Z or Ctrl+Y Redo, Delete the selected edit,
+    // B L P X the Brush, Lasso, Polygon and Box (the view has a tool's own keys: Esc, Enter, [ and ])
+    handleKey = e => {
+        const target = e.target;
+        if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+        const { info, loaded } = this.state;
+        if (!info || !info.can_edit || info.editable || !loaded) return;
+        const key = e.key.toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && !e.altKey){
+            if (key === "z" && !e.shiftKey) this.undo();
+            else if ((key === "z" && e.shiftKey) || key === "y") this.redo();
+            else return;
+            e.preventDefault();
+            return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const action = {delete: () => this.removeSelected(), b: this.brush, l: this.lasso, p: this.drawPolygon, x: this.addBox}[key];
+        if (!action) return;
+        e.preventDefault();
+        action();
     };
 
     loadModel = () => {
@@ -137,8 +161,8 @@ export default class Editor extends React.Component {
     // A change of the edits from the panel: remembered for Undo (unless it goes on the last change: merge), shown,
     // saved shortly
     change(edits, selected, merge){
-        if (!merge) this.history.push(this.state.edits);
-        this.setState({edits, selected, drafts: {}});
+        const history = merge ? this.state.history : recordChange(this.state.history, this.state.edits);
+        this.setState({edits, selected, drafts: {}, history});
         if (this.viewer) this.viewer.setEdits(edits, selected);
         this.queueSave();
     }
@@ -147,12 +171,12 @@ export default class Editor extends React.Component {
     handleBoxChange = (index, box) => {
         const now = Date.now();
         // One Undo step for each drag: a change more than a second after the last starts another
-        if (this.dragIndex !== index || now - this.dragTime > 1000) this.history.push(this.state.edits);
+        const fresh = this.dragIndex !== index || now - this.dragTime > 1000;
         this.dragIndex = index;
         this.dragTime = now;
         const edits = this.state.edits.slice();
         edits[index] = box;
-        this.setState({edits, drafts: {}});
+        this.setState({edits, drafts: {}, history: fresh ? recordChange(this.state.history, this.state.edits) : this.state.history});
         this.queueSave();
     };
 
@@ -168,15 +192,37 @@ export default class Editor extends React.Component {
         this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera}], -1);
     };
 
+    // The tool in use: "lasso", "brush", "polygon" or null
+    activeTool(){
+        const { lassoing, brushing, drawing } = this.state;
+        return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : null;
+    }
+
+    // The tool in use stopped as Esc stops it (a polygon's corners and a lasso being drawn are dropped)
+    endTool(){
+        if (!this.viewer) return;
+        this.viewer.cancelLasso();
+        this.viewer.endBrush();
+        this.viewer.cancelPolygon();
+        this.setState({lassoing: false, brushing: false, drawing: null});
+    }
+
+    // A tool's button: ends the tool in use; starts it unless it was the one in use
+    canStart(tool){
+        const was = this.activeTool();
+        this.endTool();
+        return was !== tool && !!this.viewer && this.state.info.can_edit && this.state.edits.length < MAX_EDITS;
+    }
+
     lasso = () => {
-        if (!this.viewer || this.state.edits.length >= MAX_EDITS) return;
+        if (!this.canStart("lasso")) return;
         this.setState({selected: -1, lassoing: true});
         this.viewer.startLasso();
     };
 
     // Painting: the session's strokes go into one edit (Undo takes back the last), until Done
     brush = () => {
-        if (!this.viewer || this.state.edits.length >= MAX_EDITS) return;
+        if (!this.canStart("brush")) return;
         this.freshBrush = true;
         this.setState({selected: -1, brushing: true});
         this.viewer.startBrush(this.state.brushSize, this.state.brushRestore);
@@ -207,12 +253,14 @@ export default class Editor extends React.Component {
     }
 
     addFloaters = () => {
+        this.endTool();
         const { edits } = this.state;
         if (floatersStrength(edits) || edits.length >= MAX_EDITS) return;
         this.change([...edits, {type: "floaters", strength: "medium"}], -1);
     };
 
     addColour = () => {
+        this.endTool();
         const { edits } = this.state;
         if (colourEdit(edits) || edits.length >= MAX_EDITS) return;
         this.change([...edits, newColour()], edits.length);
@@ -222,12 +270,12 @@ export default class Editor extends React.Component {
     setColour(index, name, value){
         const now = Date.now();
         const drag = index + name;
-        if (this.colourDrag !== drag || now - this.colourTime > 1000) this.history.push(this.state.edits);
+        const fresh = this.colourDrag !== drag || now - this.colourTime > 1000;
         this.colourDrag = drag;
         this.colourTime = now;
         const edits = this.state.edits.slice();
         edits[index] = {...edits[index], [name]: value};
-        this.setState({edits});
+        this.setState({edits, history: fresh ? recordChange(this.state.history, this.state.edits) : this.state.history});
         if (this.viewer) this.viewer.setColour(edits[index]);
         this.queueSave();
     }
@@ -271,14 +319,15 @@ export default class Editor extends React.Component {
     };
 
     addBox = () => {
-        const { edits, loaded } = this.state;
-        if (!loaded || edits.length >= MAX_EDITS) return;
+        this.endTool();
+        const { edits, loaded, info } = this.state;
+        if (!loaded || !info.can_edit || edits.length >= MAX_EDITS) return;
         this.change([...edits, newBox(loaded.frame)], edits.length);
     };
 
     drawPolygon = () => {
-        if (!this.viewer || this.state.edits.length >= MAX_EDITS) return;
-        this.setState({selected: -1});
+        if (!this.canStart("polygon")) return;
+        this.setState({selected: -1, drawing: 0});
         this.viewer.startPolygon();
     };
 
@@ -300,17 +349,26 @@ export default class Editor extends React.Component {
         this.change(edits, selected === index ? -1 : selected > index ? selected - 1 : selected);
     }
 
-    undo = () => {
-        if (!this.history.length) return;
-        const edits = this.history.pop();
+    removeSelected(){
+        if (this.state.selected >= 0 && this.state.selected < this.state.edits.length) this.remove(this.state.selected);
+    }
+
+    undo = () => this.step(undoChange(this.state.history, this.state.edits));
+    redo = () => this.step(redoChange(this.state.history, this.state.edits));
+
+    // Undo or Redo's edits shown and saved (a brush still painting starts a new edit with its next stroke)
+    step(taken){
+        if (!taken) return;
+        const { edits, history } = taken;
         const selected = this.state.selected < edits.length ? this.state.selected : -1;
-        this.setState({edits, selected, drafts: {}});
+        this.freshBrush = true;
+        this.setState({edits, selected, drafts: {}, history});
         if (this.viewer) this.viewer.setEdits(edits, selected);
         this.queueSave();
-    };
+    }
 
     clear = () => {
-        if (!window.confirm(_("Remove all the edits? Apply them afterwards for the task's model to be whole again."))) return;
+        if (!window.confirm(_("Remove all the edits? Update the Model afterwards for the task's model to be whole again."))) return;
         this.change([], -1);
     };
 
@@ -476,7 +534,7 @@ export default class Editor extends React.Component {
                                     <option value="remove">{_("Remove Inside")}</option>
                                 </select>}
                             {info.can_edit ?
-                                <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
+                                <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit (Delete when it is selected)")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
                                     <i className="fa fa-trash fa-fw"></i>
                                 </button> : ""}
                         </div>
@@ -501,7 +559,7 @@ export default class Editor extends React.Component {
 
     renderDownload(){
         const { saving, saved, saveError } = this.state;
-        const title = _("The trained model with these edits, as Apply makes it, in the .ply format other splat tools open");
+        const title = _("The trained model with these edits, as Update the Model makes it, in the .ply format other splat tools open");
         if (saving || !saved || saveError){
             return (
                 <button type="button" className="btn btn-sm btn-default splatme-editor-download" disabled title={_("The edits must be saved first")}>
@@ -519,25 +577,29 @@ export default class Editor extends React.Component {
     renderPanel(){
         const { info, edits, selected, loaded, drawing, apply, applyError, starting, lassoing, brushing, brushSize, brushRestore } = this.state;
         const canEdit = info.can_edit && !!loaded;
-        const busy = !canEdit || drawing !== null || lassoing || brushing || edits.length >= MAX_EDITS;
+        const busy = !canEdit || edits.length >= MAX_EDITS;
+        const tool = this.activeTool();
+        const toolClass = name => "btn btn-sm " + (tool === name ? "btn-primary active" : "btn-default");
         const applying = !!apply && apply.state === "applying";
         const box = selected >= 0 && edits[selected] && edits[selected].type === "box" ? edits[selected] : null;
         const colour = selected >= 0 && edits[selected] && edits[selected].type === "colour" ? edits[selected] : null;
         return (
             <div className="splatme-editor-panel">
                 <div className="splatme-editor-tools">
-                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.addBox}>
+                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.addBox}
+                            title={_("A box that removes what is inside it, or keeps only that (X)")}>
                         <i className="fa fa-cube fa-fw"></i> {_("Add Box")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.drawPolygon}>
+                    <button type="button" className={toolClass("polygon")} disabled={busy && tool !== "polygon"} onClick={this.drawPolygon}
+                            aria-pressed={tool === "polygon"} title={_("Draw a polygon from above that keeps what is inside it, or removes it (P)")}>
                         <i className="fa fa-draw-polygon fa-fw"></i> {_("Draw Polygon")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.lasso}
-                            title={_("Draw around what to remove: everything inside on screen goes, through to the back")}>
+                    <button type="button" className={toolClass("lasso")} disabled={busy && tool !== "lasso"} onClick={this.lasso} aria-pressed={tool === "lasso"}
+                            title={_("Draw around what to remove: everything inside on screen goes, through to the back (L)")}>
                         <i className="fa fa-pencil-alt fa-fw"></i> {_("Lasso")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={busy} onClick={this.brush}
-                            title={_("Paint over what to remove, or what to bring back: everything under the brush on screen, through to the back")}>
+                    <button type="button" className={toolClass("brush")} disabled={busy && tool !== "brush"} onClick={this.brush} aria-pressed={tool === "brush"}
+                            title={_("Paint over what to remove, or what to bring back: everything under the brush on screen, through to the back (B)")}>
                         <i className="fa fa-paint-brush fa-fw"></i> {_("Brush")}
                     </button>
                     <button type="button" className="btn btn-sm btn-default" disabled={busy || !!floatersStrength(edits)}
@@ -583,17 +645,19 @@ export default class Editor extends React.Component {
                         {_("Click the polygon's corners in the view from above. Click the first corner, or double-click, to close it.")}
                         <div className="splatme-editor-drawing-actions">
                             <button type="button" className="btn btn-sm btn-primary" disabled={drawing < 3} onClick={() => this.viewer.finishPolygon()}>{_("Finish")}</button>
-                            <button type="button" className="btn btn-sm btn-default" onClick={() => { this.viewer.cancelPolygon(); this.setState({drawing: null}); }}>{_("Cancel")}</button>
+                            <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>
                         </div>
                     </div> : ""}
                 <div className="splatme-editor-views">
                     <button type="button" className="btn btn-sm btn-default" disabled={!loaded} onClick={() => this.viewer.topView()}>
                         <i className="fa fa-arrow-down fa-fw"></i> {_("Top View")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={!loaded} onClick={() => this.viewer.frameView()}>
-                        <i className="fa fa-crosshairs fa-fw"></i> {_("Side View")}
+                    <button type="button" className="btn btn-sm btn-default" disabled={!loaded} onClick={() => this.viewer.frameView()}
+                            title={_("Back to the view the page opened with")}>
+                        <i className="fa fa-home fa-fw"></i> {_("Reset View")}
                     </button>
                 </div>
+                {loaded ? <p className="splatme-editor-hint">{_("Drag to turn, right-drag to move, scroll to zoom, double-click to centre.")}</p> : ""}
                 <h4>{_("Edits")}</h4>
                 {info.unreadable ?
                     <p className="text-warning">{info.unreadable} {_("They may be from another version of SplatMe: ask an administrator to restart WebODM. A change here replaces them.")}</p> : ""}
@@ -603,8 +667,11 @@ export default class Editor extends React.Component {
                 {colour && canEdit ? this.renderColourFields(selected, colour) : ""}
                 {info.can_edit ?
                     <div className="splatme-editor-history">
-                        <button type="button" className="btn btn-sm btn-default" disabled={!this.history.length} onClick={this.undo}>
+                        <button type="button" className="btn btn-sm btn-default" disabled={!this.state.history.undo.length} onClick={this.undo} title={_("Undo (Ctrl+Z)")}>
                             <i className="fa fa-undo fa-fw"></i> {_("Undo")}
+                        </button>
+                        <button type="button" className="btn btn-sm btn-default" disabled={!this.state.history.redo.length} onClick={this.redo} title={_("Redo (Ctrl+Shift+Z)")}>
+                            <i className="fa fa-redo fa-fw"></i> {_("Redo")}
                         </button>
                         <button type="button" className="btn btn-sm btn-default" disabled={!edits.length} onClick={this.clear}>
                             <i className="fa fa-eraser fa-fw"></i> {_("Clear Edits")}
@@ -614,20 +681,20 @@ export default class Editor extends React.Component {
                 {info.can_edit ?
                     <div className="splatme-editor-apply">
                         <button type="button" className="btn btn-primary" disabled={applying || starting || info.training}
-                                title={_("Make the task's splat model again from its trained model, with these edits")} onClick={this.apply}>
-                            <i className={(applying || starting ? "fa fa-circle-notch fa-spin" : "fa fa-check") + " fa-fw"}></i> {_("Apply")}
+                                title={_("Make the task's splat model again from its trained model, with these edits, for its 3D view, download and share links")} onClick={this.apply}>
+                            <i className={(applying || starting ? "fa fa-circle-notch fa-spin" : "fa fa-check") + " fa-fw"}></i> {_("Update the Model")}
                         </button>
                         {applying ?
                             <button type="button" className="btn btn-sm btn-default" disabled={this.state.canceling} onClick={this.cancelApply}
                                     title={_("Stop applying the edits: the task's model stays as it was")}>
                                 <i className="fa fa-times fa-fw"></i> {_("Cancel")}
                             </button> : this.renderDownload()}
-                        {info.training ? <p className="text-warning">{_("The task's splats are being trained: apply the edits when the training is done.")}</p> : ""}
-                        {apply ? <p className={apply.state === "failed" ? "text-danger" : ""}>{applyText(apply)}</p> : ""}
-                        {info.applied === false && !applying ?
-                            <p className="text-warning">{_("The edits changed since the task's model was made: Apply them for its 3D view and share links to show them.")}</p> : ""}
+                        {info.training ? <p className="text-warning">{_("The task's splats are being trained: update the model when the training is done.")}</p> : ""}
+                        {applyText(apply) ? <p className={apply.state === "failed" ? "text-danger" : ""}>{applyText(apply)}</p> : ""}
+                        {!applying && modelText(info.applied, apply) ?
+                            <p className={"splatme-editor-model " + (info.applied ? "text-success" : "text-warning")}>{modelText(info.applied, apply)}</p> : ""}
                         {applyError ? <p className="text-danger">{applyError}</p> : ""}
-                        {apply && apply.state === "completed" ?
+                        {apply && apply.state === "completed" && info.applied ?
                             <a className="btn btn-sm btn-default" href={"/3d/project/" + info.project + "/task/" + this.props.taskId + "/?t=splats"}>
                                 <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                             </a> : ""}

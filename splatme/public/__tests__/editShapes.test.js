@@ -1,4 +1,4 @@
-import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, floatersStrength, colourEdit, colourMatrix, colourText, newColour, plyPositions } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, HISTORY_STEPS, floatersStrength, colourEdit, colourMatrix, colourText, newColour, plyPositions } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -60,9 +60,9 @@ test("the framing leaves out the floaters far from the rest", () => {
     expect(frame.center[0]).toBeCloseTo((frame.min[0] + frame.max[0]) / 2);
 });
 
-test("a new box sits over the middle of the framing, half its width, taller than it", () => {
-    const box = newBox({center: [1.234, 2, 3], size: [10, 4, 2]});
-    expect(box).toEqual({type: "box", keep: true, center: [1.23, 2, 3], size: [5, 2, 3], turn: 0});
+test("a new box sits over the middle of the framing, a third of its width, taller than it, removing its inside", () => {
+    const box = newBox({center: [1.234, 2, 3], size: [9, 6, 2]});
+    expect(box).toEqual({type: "box", keep: false, center: [1.23, 2, 3], size: [3, 2, 3], turn: 0});
 });
 
 test("a ring is kept without its closing corner and repeated corners", () => {
@@ -86,9 +86,51 @@ describe("applyText", () => {
     test("says what an Apply is doing, how it failed, or what it removed", () => {
         expect(applyText({state: "applying", status: "Converting the model"})).toBe("Applying the edits: Converting the model.");
         expect(applyText({state: "failed", error: "splat-tools failed"})).toBe("Applying the edits failed: splat-tools failed");
-        expect(applyText({state: "completed", edited: 1234})).toBe("Edits applied. 1,234 splats removed.");
-        expect(applyText({state: "completed", edited: 1})).toBe("Edits applied. 1 splat removed.");
-        expect(applyText({state: "completed", edited: null})).toBe("Edits applied. No splat removed.");
+        expect(applyText({state: "completed", edited: 1234})).toBe("");
+    });
+});
+
+describe("whether the task's model has the edits", () => {
+    test("says the edits changed since the model was made", () => {
+        expect(modelText(false, {state: "completed", edited: 5})).toMatch(/^The edits changed since the task's model was made/);
+    });
+    test("says the model has them, with the last Update's count only while it made the model", () => {
+        expect(modelText(true, {state: "completed", edited: 1234})).toBe("The task's model has these edits (1,234 splats removed).");
+        expect(modelText(true, {state: "completed", edited: 1})).toBe("The task's model has these edits (1 splat removed).");
+        expect(modelText(true, {state: "completed", edited: 0})).toBe("The task's model has these edits (no splat removed).");
+        expect(modelText(true, null)).toBe("The task's model has these edits.");
+        expect(modelText(true, {state: "failed"})).toBe("The task's model has these edits.");
+    });
+    test("says nothing when it is not known", () => {
+        expect(modelText(null, null)).toBe("");
+        expect(modelText(undefined, {state: "completed"})).toBe("");
+    });
+});
+
+describe("Undo and Redo", () => {
+    test("take back a change and bring it back", () => {
+        let h = recordChange(newHistory(), ["a"]);
+        const undone = undoChange(h, ["a", "b"]);
+        expect(undone.edits).toEqual(["a"]);
+        const redone = redoChange(undone.history, undone.edits);
+        expect(redone.edits).toEqual(["a", "b"]);
+        expect(redone.history.redo).toEqual([]);
+        expect(undoChange(redone.history, redone.edits).edits).toEqual(["a"]);
+    });
+    test("a new change clears Redo", () => {
+        const undone = undoChange(recordChange(newHistory(), []), ["x"]);
+        expect(undone.history.redo.length).toBe(1);
+        expect(recordChange(undone.history, []).redo).toEqual([]);
+    });
+    test("there is nothing to take back or bring back at first", () => {
+        expect(undoChange(newHistory(), [])).toBeNull();
+        expect(redoChange(newHistory(), [])).toBeNull();
+    });
+    test("keeps a limited number of steps", () => {
+        let h = newHistory();
+        for (let i = 0; i < HISTORY_STEPS + 5; i++) h = recordChange(h, [i]);
+        expect(h.undo.length).toBe(HISTORY_STEPS);
+        expect(h.undo[0]).toEqual([5]);
     });
 });
 
