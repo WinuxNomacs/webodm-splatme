@@ -55,6 +55,7 @@ MAX_PASSES = 100  # Smooth's passes
 REACHES = (0.01, 20)  # metres: Straighten's reach
 PATCHES = (0.1, 20)  # metres: Clone Texture's source patch
 MAX_FEATHER = 5  # metres: Clone Texture's blend at the edge
+MAX_STAMPS = 2000  # Clone Texture's stamps in one stamping
 SHAPES = ("box", "polygon", "lasso", "brush")
 OPS = ("delete", "flatten", "fill", "object", "move", "smooth", "straighten", "clone")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
@@ -97,6 +98,9 @@ def clean(given):
             if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= most:
                 raise edits.EditsError(f"Edit {i}'s size must be a whole number of {unit} from 1 to {most}.")
             out.append({"type": kind, "size": size})
+            continue
+        if edit.get("type") == "stamps":
+            out.append(clean_stamps(edit, i))
             continue
         op = edit.get("op")
         if op not in OPS or edit.get("type") not in SHAPES:
@@ -159,11 +163,45 @@ def clean_params(op, edit, i):
     return {}
 
 
+def clean_stamps(edit, i):
+    """Clone Texture's stamps, checked. Raises EditsError."""
+    if edit.get("op") != "clone":
+        raise edits.EditsError(f"Edit {i} is of an unknown kind.")
+    source = edits.numbers(edit.get("source"), 3, f"Edit {i}'s source")
+    feather = edits.number(edit.get("feather"), f"Edit {i}'s feather")
+    if not 0 <= feather <= MAX_FEATHER:
+        raise edits.EditsError(f"Edit {i}'s feather must be from 0 to {MAX_FEATHER} m.")
+    given = edit.get("stamps")
+    if not isinstance(given, list) or len(given) > MAX_STAMPS:
+        raise edits.EditsError(f"Edit {i}'s stamps must be a list of at most {MAX_STAMPS}.")
+    stamps = []
+    for stamp in given:
+        if not isinstance(stamp, dict):
+            raise edits.EditsError(f"Edit {i} has a stamp that is not one.")
+        normal = edits.numbers(stamp.get("normal"), 3, f"Edit {i}'s stamp's normal")
+        if not any(normal):
+            raise edits.EditsError(f"Edit {i}'s stamp's normal must not be 0.")
+        size = edits.number(stamp.get("size"), f"Edit {i}'s stamp's size")
+        spin = edits.number(stamp.get("spin"), f"Edit {i}'s stamp's turn")
+        if not PATCHES[0] <= size <= PATCHES[1]:
+            raise edits.EditsError(f"Edit {i}'s stamp's size must be from {PATCHES[0]} to {PATCHES[1]} m.")
+        if not -180 <= spin <= 180:
+            raise edits.EditsError(f"Edit {i}'s stamp's turn must be from -180 to 180 degrees.")
+        stamps.append({"center": edits.numbers(stamp.get("center"), 3, f"Edit {i}'s stamp's centre"), "normal": normal,
+                       "size": size, "spin": spin})
+    return {"type": "stamps", "op": "clone", "source": source, "feather": feather, "stamps": stamps}
+
+
 def shift(given, dx, dy):
     """The edits moved by dx, dy: the shapes as edits.shift moves them, the rest as they are."""
     out = []
     for edit in given:
-        if "op" in edit:
+        if edit.get("type") == "stamps":
+            x, y, z = edit["source"]
+            out.append({**edit, "source": [round(x + dx, 6), round(y + dy, 6), z],
+                        "stamps": [{**s, "center": [round(s["center"][0] + dx, 6), round(s["center"][1] + dy, 6), s["center"][2]]}
+                                   for s in edit["stamps"]]})
+        elif "op" in edit:
             shape = {k: v for k, v in edit.items() if k != "op"}
             (moved,) = edits.shift([shape], dx, dy)
             if "line" in moved:

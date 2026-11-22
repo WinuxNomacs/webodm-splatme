@@ -315,6 +315,7 @@ export function colourText(edit){
 export function editLabel(edit, count){
     if (edit.type === "colour") return "Colour Adjust";
     if (edit.type === "floating") return "Floating Pieces";
+    if (edit.type === "stamps") return "Clone Stamps, " + edit.stamps.length + (edit.stamps.length === 1 ? " stamp" : " stamps");
     if (edit.type === "floaters"){
         return count == null ? "Floaters" : "Floaters, " + Number(count).toLocaleString("en-US") + (count === 1 ? " splat" : " splats");
     }

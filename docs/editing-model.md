@@ -43,7 +43,8 @@ covers. What it does is chosen in the list:
   end can then be dragged on the model, or **Draw the Line Again**. The pull is strongest at the line and fades to
   nothing at **Reach** from it.
 - **Clone Texture Inside**: covers what it covers with the texture of a good area: shingles over broken
-  shingles, siding over a smear, lawn over a bare patch. Choosing it asks for one click on the middle of the good
+  shingles, siding over a smear, lawn over a bare patch. It suits a large area; for a patch here and there, the
+  **Clone Texture** stamp (below) is quicker. Choosing it asks for one click on the middle of the good
   area. A square of it, **Source Size** across (shown in the view while the edit is picked), is laid flat and
   repeated across the shape's surface, with its rows kept level (north up on level ground); **Turn Texture**
   turns it, and **Feather** blends it into the surface's own texture near the shape's edge. It changes only the
@@ -51,9 +52,18 @@ covers. What it does is chosen in the list:
 
 The **Repair** buttons under the tools start the repairs without drawing first: **Flatten**, **Smooth**, **Move**
 and **Remove Object** each add a box doing that in the middle of the view, to move and size like any box.
-**Straighten** asks for the line first and puts a box around it, as wide as **Reach** each side; **Clone Texture**
-asks for the good area first, then adds the box to cover the bad one. To repair inside a polygon or a lasso instead, draw it
+**Straighten** asks for the line first and puts a box around it, as wide as **Reach** each side. To repair inside a polygon or a lasso instead, draw it
 and choose the repair in its list; the **Brush** has its own buttons (below).
+
+**Clone Texture** is a stamp. Click the middle of a good area on the model; the pointer then becomes a square of
+it, laid on the surface under the pointer, with a tick toward the texture's top. A click drops a copy of the good
+area's texture there, its middle where the square's is, blended in over a narrow edge. The wheel turns the square
+15 degrees a notch, Ctrl+wheel or **[** and **]** make it 25 cm larger or smaller (or **Size** and **Turn** in the
+panel), and Shift+wheel zooms; dragging still turns the view and right-dragging moves it. Each stamp keeps the size
+and turn it was dropped with, and a later stamp covers an earlier one. **Done** or Esc stops stamping. The stamps
+are one edit in the list, **Clone Stamps**, each one Undo; picked, it shows their squares, its **Feather** (how wide
+the blend at each stamp's edge is) and **Add Stamps** to stamp more of the same texture. **Pick the Source Again**,
+while stamping, starts a new one from another area.
 
 The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
 step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North** and

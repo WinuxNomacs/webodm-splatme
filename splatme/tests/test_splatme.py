@@ -692,6 +692,27 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertFalse(os.path.exists(texture))
 
+    def test_clone_stamps_clone_the_triangles_under_each_stamp_and_are_checked_and_shifted_with_the_model(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        square = {"center": [2.5, 1.5, 0], "normal": [0, 0, 1], "size": 1, "spin": 0}
+        stamping = {"type": "stamps", "op": "clone", "source": [0.5, 1.5, 0], "feather": 0.1, "stamps": [square]}
+        for bad in ({**stamping, "op": "delete"}, {**stamping, "feather": 6}, {**stamping, "stamps": {}},
+                    {**stamping, "stamps": [{**square, "size": 0}]}, {**stamping, "stamps": [{**square, "normal": [0, 0, 0]}]},
+                    {**stamping, "stamps": [{**square, "spin": 200}]}, {**stamping, "stamps": [{**square, "center": [1, 2]}]}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [stamping])
+        self.assertEqual(res.status_code, 200, res.data)
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["source"], [1000.5, 2001.5, 0])
+        self.assertEqual(stored[0]["stamps"][0]["center"], [1002.5, 2001.5, 0])
+        self.assertEqual(meshes.get(task), [stamping])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["cloned"], 2)  # the square under the stamp
+        self.assertTrue(os.path.exists(os.path.join(folder, meshes.CLONE_TEXTURE)))
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
+
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)
         folder = make_textured_model(task)
