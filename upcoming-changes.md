@@ -3289,6 +3289,12 @@ list, each with - and + (Up, East, North in 5 cm steps; Stretch in 5%; Soft Edge
 each step one Undo. Live on a copy of the check task: four Up steps raised a default box's surface 0.2 m (40,167
 points), a Smooth brush stroke, and the update moved the same 60,061 points as the preview, in 9 s.
 
+R2: Straighten Inside (`op: "straighten"`, `line`, `strength` 0 to 1, `reach` m): choosing it starts the line (two
+clicks on the model, a line tethered to the pointer after the first; the edit is left out of the view meanwhile, so
+what it hid can be clicked); the vertices inside the shape but its rim pulled toward the line, fading to nothing
+at the reach; Strength in 10% steps, Reach in 0.05 m; either end dragged on the model; Draw the Line Again. The
+line is shifted with the shape between the task's projection and the model's frame.
+
 **The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
 line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
 area shows while placing the second), then either end draggable.

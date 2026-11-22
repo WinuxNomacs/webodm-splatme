@@ -91,6 +91,8 @@ export function createViewer(container, handlers){
     let rgb = null, colourShown = "";  // the splats' colours as trained; the Colour Adjust shown ("": none)
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
+    let placing = null;  // Straighten's line being placed: {first: its first end (Vector3) or null, object}
+    let dragging = null;  // an end of the picked edit's Straighten line being dragged: {end: 0 or 1}
     let lasso = null;  // {points: [[x, y] in pixels], down}
     let brush = null;  // {size: pixels across, points: [[x, y] in pixels], down, at: [x, y] the pointer, or null}
     // The lasso's stroke, drawn on a flat canvas over the view
@@ -118,7 +120,9 @@ export function createViewer(container, handlers){
     // The model's triangles each edit removes hidden, by meshEdits.js's rule (the one Update the Model runs): each
     // piece drawn with the triangles kept only, its corners where Flatten moved them
     function applyModelMask(){
-        const result = applyEdits(model.surface, edits, applyShape);
+        // While Straighten's line is placed, the edit it is for is left out: what it hid can be clicked on
+        const shown = placing && placing.skip >= 0 ? edits.filter((_e, i) => i !== placing.skip) : edits;
+        const result = applyEdits(model.surface, shown, applyShape);
         model.kept = result;
         if (result.moved || model.moved){
             model.meshes.forEach((m, k) => {
@@ -333,7 +337,105 @@ export function createViewer(container, handlers){
             shapes.add(object);
             return object;
         });
+        // The picked edit's Straighten line, apart from its shape (a box's object is scaled and turned)
+        const picked = selected >= 0 ? edits[selected] : null;
+        if (picked && picked.line) shapes.add(lineObject(new THREE.Vector3(...picked.line[0]), new THREE.Vector3(...picked.line[1])));
         if (selected >= 0 && edits[selected] && edits[selected].type === "box") transform.attach(handles[selected]);
+    }
+
+    // Straighten's line: a line between its ends, each end a dot
+    function lineObject(a, b){
+        const group = new THREE.Group();
+        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), lineMaterial(colors.keep)));
+        const dots = new THREE.Points(new THREE.BufferGeometry().setFromPoints([a, b]),
+            new THREE.PointsMaterial({color: colors.keep, size: 10, sizeAttenuation: false, depthTest: false, transparent: true}));
+        group.add(dots);
+        group.traverse(o => { o.renderOrder = 10; });
+        return group;
+    }
+
+    // The model's surface under the pointer (its fills included), or null
+    function surfacePoint(event){
+        if (!model) return null;
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const targets = model.meshes.filter(m => m.visible);
+        if (model.fills) targets.push(model.fills);
+        const hit = raycaster.intersectObjects(targets, false)[0];
+        return hit ? hit.point.clone() : null;
+    }
+
+    // Where the pointer is on the plane through a point that faces the view (for a line off the model)
+    function facingPoint(event, through){
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const normal = camera.getWorldDirection(new THREE.Vector3());
+        return raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal, through), new THREE.Vector3());
+    }
+
+    // An end of the picked edit's line within reach of the pointer on screen: 0, 1 or -1
+    function lineEndAt(event){
+        const edit = selected >= 0 ? edits[selected] : null;
+        if (!edit || !edit.line) return -1;
+        const rect = canvas.getBoundingClientRect();
+        camera.updateMatrixWorld();
+        for (const end of [0, 1]){
+            const p = new THREE.Vector3(...edit.line[end]).project(camera);
+            const x = (p.x + 1) / 2 * rect.width, y = (1 - p.y) / 2 * rect.height;
+            if (Math.hypot(x - (event.clientX - rect.left), y - (event.clientY - rect.top)) <= CORNER_PIXELS) return end;
+        }
+        return -1;
+    }
+
+    // Placing Straighten's line: a click on the model drops its first end, a line follows the pointer from it, and
+    // a second click ends it (onLine(line)); the view still turns between clicks
+    // skip: the edit the line is for, left out of the view meanwhile
+    function startLine(skip = -1){
+        endBrush();
+        cancelPolygon();
+        cancelLasso();
+        cancelLine();
+        transform.detach();
+        placing = {first: null, object: null, skip};
+        canvas.style.cursor = "crosshair";
+        if (skip >= 0) queueMask();
+    }
+    function cancelLine(){
+        if (!placing) return;
+        if (placing.object){
+            scene.remove(placing.object);
+            clearGroup(placing.object);
+        }
+        const skipped = placing.skip >= 0;
+        placing = null;
+        canvas.style.cursor = "";
+        drawShapes();
+        if (skipped) queueMask();
+        if (handlers.onLineEnd) handlers.onLineEnd();
+    }
+    function drawPlacing(to){
+        if (placing.object){
+            scene.remove(placing.object);
+            clearGroup(placing.object);
+        }
+        placing.object = lineObject(placing.first, to || placing.first);
+        scene.add(placing.object);
+    }
+    function placeLine(event){
+        const point = surfacePoint(event);
+        if (!point) return;
+        if (!placing.first){
+            placing.first = point;
+            drawPlacing(null);
+            return;
+        }
+        const line = [placing.first, point].map(v => v.toArray().map(round));
+        cancelLine();
+        if (handlers.onLine) handlers.onLine(line);
     }
 
     // The dragged box back as an edit: its turn only about the vertical (the view's own ring may tilt it)
@@ -449,6 +551,19 @@ export function createViewer(container, handlers){
         return [event.clientX - rect.left, event.clientY - rect.top];
     }
     function onPointerMove(event){
+        if (placing && placing.first){
+            drawPlacing(surfacePoint(event) || facingPoint(event, placing.first));
+            return;
+        }
+        if (dragging){
+            const point = surfacePoint(event);
+            if (!point) return;
+            const edit = {...edits[selected], line: edits[selected].line.slice()};
+            edit.line[dragging.end] = point.toArray().map(round);
+            edits[selected] = edit;
+            drawShapes();
+            return;
+        }
         if (brush){
             brush.at = strokePoint(event);
             if (brush.down) brush.points.push(brush.at);
@@ -489,11 +604,33 @@ export function createViewer(container, handlers){
             canvas.setPointerCapture(event.pointerId);
             return;
         }
+        if (!placing && !drawing){
+            const end = lineEndAt(event);
+            if (end >= 0){
+                dragging = {end};
+                controls.enabled = false;
+                canvas.setPointerCapture(event.pointerId);
+                return;
+            }
+        }
         pointer.x = event.clientX;
         pointer.y = event.clientY;
         pointer.down = true;
     }
     function onPointerUp(event){
+        if (dragging){
+            dragging = null;
+            controls.enabled = true;
+            queueMask();
+            if (handlers.onLineChange) handlers.onLineChange(selected, edits[selected].line);
+            return;
+        }
+        if (placing){
+            const click = pointer.down && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= CLICK_PIXELS;
+            pointer.down = false;
+            if (click) placeLine(event);
+            return;
+        }
         if (brush){
             if (brush.down) endBrushStroke();
             return;
@@ -586,6 +723,7 @@ export function createViewer(container, handlers){
         }
     }
     function onKey(event){
+        if (placing && event.key === "Escape") cancelLine();
         if (lasso && event.key === "Escape") cancelLasso();
         if (brush){
             if (event.key === "Escape") endBrush();
@@ -611,6 +749,7 @@ export function createViewer(container, handlers){
 
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
     function startLasso(){
+        cancelLine();
         endBrush();
         cancelPolygon();
         cancelLasso();
@@ -631,6 +770,7 @@ export function createViewer(container, handlers){
     // Painting with the brush: the view holds still while strokes are painted, each letting go one stroke, until
     // endBrush (Done or Escape)
     function startBrush(size, restore){
+        cancelLine();
         cancelPolygon();
         cancelLasso();
         endBrush();
@@ -670,6 +810,7 @@ export function createViewer(container, handlers){
     }
 
     function startPolygon(){
+        cancelLine();
         endBrush();
         cancelLasso();
         cancelPolygon();
@@ -834,7 +975,7 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
-        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
+        startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
             renderer.setAnimationLoop(null);
             observer.disconnect();

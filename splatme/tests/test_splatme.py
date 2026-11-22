@@ -633,6 +633,25 @@ class TestSplatMe(BootTestCase):
         self.assertLess(max(heights), 0.5)
         self.assertGreater(max(heights), 0)
 
+    def test_straighten_keeps_its_line_in_the_tasks_projection_and_pulls_the_surface_to_it(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        around = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1.9, 1.9, 5], "turn": 0}
+        line = {"op": "straighten", **around, "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}
+        for bad in ({**line, "line": [[0, 1, 0]]}, {**line, "strength": 1.5}, {**line, "reach": 0},
+                    {**line, "line": [[0, 1], [2, 1]]}):
+            self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+        res = self.model_edits(task, [line])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["edits"][0]["line"], [[0, 1, 0], [2, 1, 0]])
+        stored = edits.store().get_json(meshes.edits_key(task.id))
+        self.assertEqual(stored[0]["line"], [[1000, 2001, 0], [1002, 2001, 0]])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual(res.data["apply"]["moved"], 2)  # within reach and inside the rim: the bump, and (0, 1) on the line
+        heights = obj_heights(os.path.join(folder, meshes.OBJ))
+        self.assertAlmostEqual(max(heights), 0.25, places=4)  # 0.5 m from the line, reach 1: half the way
+
     def test_an_update_whose_node_fails_says_why_and_leaves_the_model_as_it_was(self):
         task = make_task(self.user)
         folder = make_textured_model(task)

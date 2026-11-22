@@ -25,10 +25,11 @@ const BRUSH_MODES = [
     ["fill", "Fill Holes", "Paint over the holes to fill: a hole is filled when the brush covers all its edge, through to the back."],
     ["object", "Remove Object", "Paint over an object to remove: what is under the brush on screen goes, through to the back, and the hole it leaves is filled."],
 ];
-const OPS_SHOWN = ["flatten", "fill", "object", "move", "smooth"];  // the model's shape edits beside Keep and Remove Inside
+const OPS_SHOWN = ["flatten", "fill", "object", "move", "smooth", "straighten"];  // the model's shape edits beside Keep and Remove Inside
 // The settings Move and Smooth start with, and their steps: [name, axis or null, label, unit, step, low, high,
 // shown as (a factor to show it in the unit)]
-const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, smooth: {passes: 5}};
+const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, smooth: {passes: 5}, straighten: {strength: 0.5, reach: 0.25}};
+const OP_PARAMS = ["offset", "scale", "soft", "passes", "line", "strength", "reach"];
 const OP_STEPS = {
     move: [
         ["offset", 2, "Up", "m", 0.05, -100, 100, 1], ["offset", 0, "East", "m", 0.05, -100, 100, 1],
@@ -37,6 +38,7 @@ const OP_STEPS = {
         ["soft", null, "Soft Edge", "m", 0.25, 0, 20, 1],
     ],
     smooth: [["passes", null, "Passes", "", 1, 1, 100, 1]],
+    straighten: [["strength", null, "Strength", "%", 10, 0, 100, 100], ["reach", null, "Reach", "m", 0.05, 0.05, 20, 1]],
 };
 const BRUSH_OPS = {flatten: "flatten", fill: "fill", object: "object", smooth: "smooth"};  // the model's edit for each mode ("delete" for the rest)
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
@@ -174,6 +176,9 @@ class EditorPanel extends React.Component {
                 onCorners: count => this.setState({drawing: count}),
                 onLasso: this.handleLasso,
                 onLassoEnd: () => this.setState({lassoing: false}),
+                onLine: this.handleLine,
+                onLineEnd: () => this.setState({lining: false}),
+                onLineChange: this.handleLineChange,
                 onBrushStroke: this.handleBrushStroke,
                 onBrushSize: brushSize => this.setState({brushSize}),
                 onBrushEnd: () => this.setState({brushing: false}),
@@ -248,9 +253,37 @@ class EditorPanel extends React.Component {
 
     // The tool in use: "lasso", "brush", "polygon" or null
     activeTool(){
-        const { lassoing, brushing, drawing } = this.state;
-        return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : null;
+        const { lassoing, brushing, drawing, lining } = this.state;
+        return lassoing ? "lasso" : brushing ? "brush" : drawing !== null ? "polygon" : lining ? "line" : null;
     }
+
+    // Straighten's line for edit index: two clicks on the model (handleLine), the edit then straightening to it
+    drawLine(index){
+        this.endTool();
+        if (!this.viewer) return;
+        this.lineIndex = index;
+        this.setState({lining: true});
+        this.viewer.startLine(index);
+    }
+
+    handleLine = line => {
+        const index = this.lineIndex;
+        const edits = this.state.edits.slice();
+        if (!edits[index]) return;
+        const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !OP_PARAMS.includes(name)));
+        const before = edits[index].op === "straighten" ? edits[index] : OP_DEFAULTS.straighten;
+        edits[index] = {...kept, keep: false, op: "straighten", strength: before.strength, reach: before.reach, line};
+        this.setState({lining: false});
+        this.change(edits, index);
+    };
+
+    // An end of the picked edit's line dragged on the model
+    handleLineChange = (index, line) => {
+        const edits = this.state.edits.slice();
+        if (!edits[index]) return;
+        edits[index] = {...edits[index], line};
+        this.change(edits, this.state.selected);
+    };
 
     // The tool in use stopped as Esc stops it (a polygon's corners and a lasso being drawn are dropped)
     endTool(){
@@ -258,7 +291,8 @@ class EditorPanel extends React.Component {
         this.viewer.cancelLasso();
         this.viewer.endBrush();
         this.viewer.cancelPolygon();
-        this.setState({lassoing: false, brushing: false, drawing: null});
+        this.viewer.cancelLine();
+        this.setState({lassoing: false, brushing: false, drawing: null, lining: false});
     }
 
     // A tool's button: ends the tool in use; starts it unless it was the one in use
@@ -421,7 +455,11 @@ class EditorPanel extends React.Component {
         edits[index] = {...edits[index], keep: action === "keep"};
         if (this.isModel()){
             const op = OPS_SHOWN.includes(action) ? action : "delete";
-            const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !["offset", "scale", "soft", "passes"].includes(name)));
+            if (op === "straighten" && !edits[index].line){
+                this.drawLine(index);  // the line first: the edit changes once it is drawn
+                return;
+            }
+            const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !OP_PARAMS.includes(name) || (op === "straighten" && name === "line")));
             edits[index] = {...kept, ...OP_DEFAULTS[op], op};
         }
         this.change(edits, this.state.selected);
@@ -625,6 +663,15 @@ class EditorPanel extends React.Component {
                         );
                     })}
                 </tbody>
+                {edit.op === "straighten" ?
+                    <tfoot>
+                        <tr><td colSpan="5">
+                            <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(index)}
+                                    title={_("Click its two ends on the model again; or drag an end of the line in the view")}>
+                                <i className="fa fa-pencil-alt fa-fw"></i> {_("Draw the Line Again")}
+                            </button>
+                        </td></tr>
+                    </tfoot> : ""}
             </table>
         );
     }
@@ -687,6 +734,7 @@ class EditorPanel extends React.Component {
                                     {this.isModel() ? <option value="object">{_("Remove Object")}</option> : ""}
                                     {this.isModel() ? <option value="move">{_("Move Inside")}</option> : ""}
                                     {this.isModel() ? <option value="smooth">{_("Smooth Inside")}</option> : ""}
+                                    {this.isModel() ? <option value="straighten">{_("Straighten Inside")}</option> : ""}
                                 </select>}
                             {info.can_edit ?
                                 <button type="button" className="btn btn-sm btn-default" title={_("Delete this edit (Delete when it is selected)")} aria-label={_("Delete")} onClick={() => this.remove(i)}>
@@ -792,6 +840,13 @@ class EditorPanel extends React.Component {
                             <i className="fa fa-palette fa-fw"></i> {_("Colour Adjust")}
                         </button>}
                 </div>
+                {this.state.lining ?
+                    <div className="alert alert-info splatme-editor-drawing">
+                        {_("Click the line's first end on the model, then its other end: a line follows the pointer from the first. Inside the shape, the surface is pulled toward the line.")}
+                        <div className="splatme-editor-drawing-actions">
+                            <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>
+                        </div>
+                    </div> : ""}
                 {lassoing ?
                     <div className="alert alert-info splatme-editor-drawing">
                         {_("Drag around what to remove. Everything inside on screen goes, through to the back: turn the view first to see it apart.")}

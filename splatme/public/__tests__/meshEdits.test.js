@@ -353,3 +353,37 @@ describe("Move and Smooth", () => {
         expect(at(five.positions, surface, 1, 1)[2]).toBe(0);
     });
 });
+
+describe("Straighten", () => {
+    // A 4 by 4 grid whose vertex (2, 2) sticks up 0.3 m from the line y = 2 along the ground
+    const surfaceWithBump = () => {
+        const pieces = grid(4);
+        for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 0.3;
+        return weld(pieces);
+    };
+    const middle = {type: "box", keep: false, center: [2, 2, 0], size: [1.9, 1.9, 5], turn: 0, op: "straighten", line: [[1, 2, 0], [3, 2, 0]]};
+    const height = (surface, result, x, y) => {
+        for (let v = 0; v < surface.count; v++) if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return result.positions[3 * v + 2];
+        return null;
+    };
+
+    test("pulls the surface toward the line, more with more strength, none at 0", () => {
+        const surface = surfaceWithBump();
+        const z = strength => height(surface, applyEdits(surface, [{...middle, strength, reach: 1}], applyShape), 2, 2);
+        expect(z(0)).toBeCloseTo(0.3);
+        expect(z(0.5)).toBeLessThan(0.3);
+        expect(z(1)).toBeLessThan(z(0.5));
+        expect(z(1)).toBeGreaterThanOrEqual(0);
+    });
+
+    test("leaves the vertices beyond its reach, and the selection's rim, where they are", () => {
+        const surface = surfaceWithBump();
+        const far = applyEdits(surface, [{...middle, strength: 1, reach: 0.2}], applyShape);
+        expect(far.moved).toBe(0);
+        expect(height(surface, far, 2, 2)).toBeCloseTo(0.3);
+        const tilted = {...middle, line: [[1, 2, 1], [3, 2, 1]], strength: 1, reach: 5};
+        const result = applyEdits(surface, [tilted], applyShape);
+        expect(height(surface, result, 1, 1)).toBe(0);  // on the rim
+        expect(height(surface, result, 2, 2)).toBeGreaterThan(0.3);  // toward the line above
+    });
+});

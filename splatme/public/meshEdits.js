@@ -194,12 +194,15 @@ export function components(faces, count, kept){
 //                              surface stretches instead of tearing
 //   {op: "smooth", ...shape, passes}
 //                              the covered vertices moved toward their neighbours' middle, passes times, the rim fixed
+//   {op: "straighten", ...shape, line: [[x, y, z], [x, y, z]], strength, reach}
+//                              the covered vertices (not the rim) pulled toward the line, strength (0 to 1) of the
+//                              way at the line, fading to nothing at reach metres from it: an edge made straight
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 //   {type: "holes", size}      Fill Holes: every hole of at most size edges filled
 // A hole is a loop of open edges that goes round as a hole's do, not as a piece's outer rim (holes); a fill is triangles
 // between its rim's vertices (fillHole), coloured from around the rim (fillColours, fillAtlas). The edits apply in
 // the list's order: a fill's triangles close their hole for the edits after it.
-export const OPS = ["delete", "flatten", "fill", "object", "move", "smooth"];
+export const OPS = ["delete", "flatten", "fill", "object", "move", "smooth", "straighten"];
 export const MAX_FLOATING = 100000;  // triangles: the largest size Remove Floating Pieces takes
 export const MAX_HOLE = 5000;  // edges: no hole longer is filled
 
@@ -538,6 +541,30 @@ function smooth(surface, kept, selected, positions, passes){
     return moved;
 }
 
+// Straighten: the selection's vertices but its rim pulled toward the line, less the farther; the vertices moved
+function straighten(surface, kept, selected, positions, edit){
+    const { inside, outside } = sides(surface, kept, selected);
+    const [a, b] = edit.line, { strength, reach } = edit;
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+    const length2 = dx * dx + dy * dy + dz * dz;
+    let moved = 0;
+    for (let v = 0; v < surface.count; v++){
+        if (!inside[v] || outside[v]) continue;
+        const px = positions[3 * v], py = positions[3 * v + 1], pz = positions[3 * v + 2];
+        const t = length2 ? Math.min(1, Math.max(0, ((px - a[0]) * dx + (py - a[1]) * dy + (pz - a[2]) * dz) / length2)) : 0;
+        const qx = a[0] + t * dx, qy = a[1] + t * dy, qz = a[2] + t * dz;
+        const d = Math.hypot(px - qx, py - qy, pz - qz);
+        if (d >= reach) continue;
+        const s = 1 - d / reach, w = strength * s * s * (3 - 2 * s);
+        if (!w) continue;
+        positions[3 * v] += (qx - px) * w;
+        positions[3 * v + 1] += (qy - py) * w;
+        positions[3 * v + 2] += (qz - pz) * w;
+        moved++;
+    }
+    return moved;
+}
+
 // The edits on the surface: {kept: Uint8Array per triangle, positions: the surface's vertices after them (a copy),
 // removed: triangles taken out, floating: of them, those Remove Floating Pieces took, flattened: vertices moved,
 // fills: the holes filled, as fillHole gives them, added: their triangles, moved: vertices Flatten, Move and Smooth
@@ -588,10 +615,11 @@ export function applyEdits(surface, edits, applyShape){
         } else if (edit.op === "delete"){
             at = at || centres(surface.faces, positions);
             applyShape(at.xs, at.ys, at.zs, edit, kept, null);
-        } else if (edit.op === "flatten" || edit.op === "move" || edit.op === "smooth"){
+        } else if (["flatten", "move", "smooth", "straighten"].includes(edit.op)){
             const covered = coveredBy(edit);
             const count = edit.op === "flatten" ? flatten(surface, kept, covered, positions) :
-                edit.op === "move" ? move(surface, kept, covered, positions, edit) : smooth(surface, kept, covered, positions, edit.passes);
+                edit.op === "move" ? move(surface, kept, covered, positions, edit) :
+                edit.op === "smooth" ? smooth(surface, kept, covered, positions, edit.passes) : straighten(surface, kept, covered, positions, edit);
             if (count){
                 if (edit.op === "flatten") flattened += count;
                 moved += count;

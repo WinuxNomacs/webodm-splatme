@@ -13,6 +13,8 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
     move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
              scaled about its middle and moved, the move fading to nothing over soft metres around it
     smooth   {"op": "smooth", <a shape>, "passes": n}: what the shape covers smoothed, n passes, its rim fixed
+    straighten {"op": "straighten", <a shape>, "line": [[x, y, z], [x, y, z]], "strength": 0 to 1, "reach": metres}:
+             what the shape covers pulled toward the line, fading to nothing at reach from it
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
     holes    {"type": "holes", "size": n}: Fill Holes, every hole of at most n edges filled
 
@@ -48,8 +50,9 @@ MAX_OFFSET = 100  # metres a move goes along each axis, at most
 SCALES = (0.1, 10)  # a move's stretch along each axis
 MAX_SOFT = 20  # metres: a move's soft edge
 MAX_PASSES = 100  # Smooth's passes
+REACHES = (0.01, 20)  # metres: Straighten's reach
 SHAPES = ("box", "polygon", "lasso", "brush")
-OPS = ("delete", "flatten", "fill", "object", "move", "smooth")
+OPS = ("delete", "flatten", "fill", "object", "move", "smooth", "straighten")
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
@@ -124,6 +127,17 @@ def clean_params(op, edit, i):
         if isinstance(passes, bool) or not isinstance(passes, int) or not 1 <= passes <= MAX_PASSES:
             raise edits.EditsError(f"Edit {i}'s passes must be a whole number from 1 to {MAX_PASSES}.")
         return {"passes": passes}
+    if op == "straighten":
+        line = edit.get("line")
+        if not isinstance(line, list) or len(line) != 2:
+            raise edits.EditsError(f"Edit {i}'s line must be 2 points.")
+        strength = edits.number(edit.get("strength"), f"Edit {i}'s strength")
+        reach = edits.number(edit.get("reach"), f"Edit {i}'s reach")
+        if not 0 <= strength <= 1:
+            raise edits.EditsError(f"Edit {i}'s strength must be from 0 to 1.")
+        if not REACHES[0] <= reach <= REACHES[1]:
+            raise edits.EditsError(f"Edit {i}'s reach must be from {REACHES[0]} to {REACHES[1]} m.")
+        return {"line": [edits.numbers(p, 3, f"Edit {i}'s line") for p in line], "strength": strength, "reach": reach}
     return {}
 
 
@@ -134,6 +148,8 @@ def shift(given, dx, dy):
         if "op" in edit:
             shape = {k: v for k, v in edit.items() if k != "op"}
             (moved,) = edits.shift([shape], dx, dy)
+            if "line" in moved:
+                moved["line"] = [[round(x + dx, 6), round(y + dy, 6), z] for x, y, z in moved["line"]]
             out.append({"op": edit["op"], **moved})
         else:
             out.append(dict(edit))
