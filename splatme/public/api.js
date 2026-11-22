@@ -1,4 +1,4 @@
-// Requests to the plugin's API (api.py), and to WebODM's own for a new task (newTask.js). WebODM checks Django's
+// Requests to the plugin's API (api.py), and to WebODM's own for a new task (taskUpload.js). WebODM checks Django's
 // CSRF token, so every request that changes something sends the session's.
 const BASE = "/api/plugins/splatme/";
 

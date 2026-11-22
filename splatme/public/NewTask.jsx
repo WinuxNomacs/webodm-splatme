@@ -5,13 +5,13 @@ import exifr from 'webodm/vendor/exifr';
 import { _, interpolate } from 'webodm/classes/gettext';
 import SplatMePanel from './SplatMePanel';
 import { request, webodm } from './api';
-import { Upload, photoProblem } from './newTask';
+import { Upload, photoProblem } from './taskUpload';
 import { NOT_LISTENING } from './restartText';
 import { formFromOptions, optionsFromForm } from './trainingView';
 
 // New Task With Splats on SplatMe's Tasks page (Tasks.jsx): the files the user picked, SplatMe's panel (Train Splats
 // When Completed and its options, from the user's New Task With Splats defaults) above WebODM's own New Task panel
-// (name, processing node, options, resize, align to, GCP and map previews), then the upload (newTask.js), followed
+// (name, processing node, options, resize, align to, GCP and map previews), then the upload (taskUpload.js), followed
 // here until WebODM commits the task. The task then shows in its project's list.
 export default class NewTask extends React.Component {
     static propTypes = {
