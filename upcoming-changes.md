@@ -36,6 +36,11 @@ The rest of the UX review, "10. UX review", is possible for later.
 
 **Dropped**
 
+- macOS (2026-11-21, the user's decision after the first setup on a Mac): SplatMe does not support macOS, which
+  cannot train (no NVIDIA GPU), and development continues on a machine that can. The proposals from that setup
+  (the docs saying so, `splatnode.sh install` stopping early on a Mac, Safari's pinch-zoom in Edit Splats) are
+  dropped with it. Kept from it: `taskUpload.js` (the case clash also breaks a media folder on Windows) and
+  `node/splatnode.py`'s executable bit.
 - OpenSplat's other training options (2026-11-19, the user's decision): SplatMe keeps OpenSplat's defaults for
   every option it does not set now. OpenSplat itself gives no guidance on them (its README, `--help`, the
   maintainers' issue replies and WebODM's docs, checked 2026-11-18 at e33f9dd). See "7. OpenSplat's other
