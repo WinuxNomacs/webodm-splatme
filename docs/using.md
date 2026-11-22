@@ -29,7 +29,7 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
       gets a note: up to 2,000 steps grows no new gaussians, and 3,001 to 5,999 trains worse than 3,000.
     - **Image Size** (1,600 by default): the photos' longer side as the trainer sees them. Larger photos are
       scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost; smaller ones
-      are not enlarged, and 0 keeps them as they are. It is what to lower when the GPU runs out of memory, which
+      are not enlarged, and left blank (Full size) keeps them as they are. It is what to lower when the GPU runs out of memory, which
       depends on it most. A table under the number gives the task's photo size (one row per camera), its size
       at the Image Size entered, and how much the longer side and the pixels change. Full-size photos cost far
       more: a training of 12-megapixel photos at 30,000 steps ran about 15 times slower than at 1,600 and
@@ -87,8 +87,8 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     train; another says why SplatMe does not list it). A task's name on the Tasks page opens the Dashboard at its
     panel, with only its project shown.
 
-3. **Train automatically**: on **SplatMe → Tasks**, press **New Task With Splats** in a project's heading
-    (or beside **Select Images and GCP** in a project on the Dashboard, which opens it there) and pick the
+3. **Train automatically**: on **SplatMe → Tasks**, press **New Task With Splats** at the top and choose the
+    project (or press it beside **Select Images and GCP** in a project on the Dashboard, which opens it there) and pick the
     photos, with a GCP file and other text files if the task has them. WebODM's own New Task panel opens (name,
     processing node, options, resize, alignment), with SplatMe's panel above it: **Train Splats When
     Completed**, ticked, with the Quality, Ignore Sky (or Thermal Colours when the photos picked are TIFFs), Crop
