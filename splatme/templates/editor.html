@@ -2,8 +2,8 @@
 
 {% block content %}
 {% comment %}
-Edit Splats, from Edit on a task's row in SplatMe → Tasks: the task's trained model in a 3D view with the edits'
-panel (public/Editor.jsx, built by WebODM's webpack). The 3D view is a plain ES module (public/editor/viewer.js)
+Edit Splats, from Edit on a task's row in SplatMe → Tasks: the task's trained splats or its textured 3D model in a
+3D view with the edits' panel (public/EditorPage.jsx and Editor.jsx, built by WebODM's webpack). The 3D view is a plain ES module (public/editor/viewer.js)
 that imports three.js and Spark, vendored in public/vendor (see its README), through this import map.
 {% endcomment %}
 <script type="importmap">
@@ -13,6 +13,8 @@ that imports three.js and Spark, vendored in public/vendor (see its README), thr
         "three/addons/controls/OrbitControls.js": "/plugins/splatme/vendor/three/OrbitControls.js",
         "three/addons/controls/TransformControls.js": "/plugins/splatme/vendor/three/TransformControls.js",
         "three/addons/postprocessing/Pass.js": "/plugins/splatme/vendor/three/Pass.js",
+        "three/addons/loaders/GLTFLoader.js": "/plugins/splatme/vendor/three/loaders/GLTFLoader.js",
+        "three/addons/loaders/DRACOLoader.js": "/plugins/splatme/vendor/three/loaders/DRACOLoader.js",
         "@sparkjsdev/spark": "/plugins/splatme/vendor/spark/spark.module.min.js"
     }
 }

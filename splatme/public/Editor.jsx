@@ -10,7 +10,10 @@ const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
 const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
 const AXES = ["X", "Y", "Z"];
-const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette"};
+const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette", floating: "fa-broom"};
+const SHAPES = ["box", "polygon", "lasso", "brush"];
+// Remove Floating Pieces: the pieces of surface under this many triangles go
+const FLOATING_SIZES = [[100, "Small"], [1000, "Medium"], [10000, "Large"]];
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 const THUMBNAIL_WIDTH = 320;  // the picture of the model on its row in SplatMe → Tasks, in pixels across
 const THUMBNAIL_AFTER = 2000;  // ms after the model shows before its picture is taken (the splats settle)
@@ -21,11 +24,22 @@ const THUMBNAIL_AFTER = 2000;  // ms after the model shows before its picture is
 // Remove Floaters the splats far from the rest or oversized (found by the server); the view hides what they remove as they change.
 // Colour Adjust changes the whole model's colours, shown as its sliders move. They are saved as they are made. Apply makes the task's model again from its trained model with them
 // (training.py's Apply Edits), which the 3D view, the download and the share links then show.
-export default class Editor extends React.Component {
+class EditorPanel extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,
-        loadViewer: PropTypes.func.isRequired
+        loadViewer: PropTypes.func.isRequired,
+        kind: PropTypes.oneOf(["splats", "model"]).isRequired,  // the trained splats, or the textured 3D model
+        switcher: PropTypes.node  // Splats or 3D Model, under the heading
     };
+
+    // The API's path for the task: "edits" and "apply" are the splats', "model-edits" and "model-apply" the model's
+    path(name){
+        return "task/" + this.props.taskId + "/" + (this.isModel() ? "model-" : "") + name;
+    }
+
+    isModel(){
+        return this.props.kind === "model";
+    }
 
     constructor(props){
         super(props);
@@ -43,13 +57,13 @@ export default class Editor extends React.Component {
         this._mounted = true;
         window.addEventListener("beforeunload", this.handleLeave);
         window.addEventListener("keydown", this.handleKey);
-        request("GET", "task/" + this.props.taskId + "/edits").then(info => {
+        request("GET", this.path("edits")).then(info => {
             if (!this._mounted) return;
             this.savedEdits = info.edits;
             this.setState({info, edits: info.edits, apply: info.apply});
             if (info.model && info.model.size <= LARGE_MODEL) this.loadModel();
             if (info.apply && info.apply.state === "applying") this.poll();
-            if (info.training) this.followTraining();
+            if (info.training && !this.isModel()) this.followTraining();
         }).catch(e => {
             if (this._mounted) this.setState({error: e.message});
         });
@@ -137,17 +151,19 @@ export default class Editor extends React.Component {
                 onLassoEnd: () => this.setState({lassoing: false}),
                 onBrushStroke: this.handleBrushStroke,
                 onBrushSize: brushSize => this.setState({brushSize}),
-                onBrushEnd: () => this.setState({brushing: false})
+                onBrushEnd: () => this.setState({brushing: false}),
+                onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}})
             });
             this.viewer.setMode(this.state.mode);
-            return this.viewer.load(info.model.url, e => {
+            const progress = e => {
                 if (this._mounted && e && e.total) this.setState({progress: Math.round(e.loaded / e.total * 100)});
-            }, info.boundary);
+            };
+            return this.isModel() ? this.viewer.loadModel(info.model.url, progress) : this.viewer.load(info.model.url, progress, info.boundary);
         }).then(loaded => {
             if (!this._mounted || !loaded) return;
             this.setState({loading: false, loaded});
             this.viewer.setEdits(this.state.edits, this.state.selected);
-            if (this.state.info.applied !== false) this.queueThumbnail();
+            if (this.state.info.applied !== false && !this.isModel()) this.queueThumbnail();
         }).catch(e => {
             if (this._mounted) this.setState({loading: false, error: _("The model did not load:") + " " + ((e && e.message) || e)});
         });
@@ -165,6 +181,8 @@ export default class Editor extends React.Component {
     // A change of the edits from the panel: remembered for Undo (unless it goes on the last change: merge), shown,
     // saved shortly
     change(edits, selected, merge){
+        // The model's shapes delete what they cover (meshes.py's op)
+        if (this.isModel()) edits = edits.map(e => SHAPES.includes(e.type) && !e.op ? {...e, op: "delete"} : e);
         const history = merge ? this.state.history : recordChange(this.state.history, this.state.edits);
         this.setState({edits, selected, drafts: {}, history});
         if (this.viewer) this.viewer.setEdits(edits, selected);
@@ -188,7 +206,8 @@ export default class Editor extends React.Component {
         const clean = cleanRing(ring);
         this.setState({drawing: null});
         if (clean.length < 3) return;
-        this.change([...this.state.edits, {type: "polygon", keep: true, ring: clean}], -1);
+        // A polygon keeps its inside for splats; on the model it removes it (keeping would take nearly all)
+        this.change([...this.state.edits, {type: "polygon", keep: !this.isModel(), ring: clean}], -1);
     };
 
     handleLasso = ({ring, view, camera}) => {
@@ -259,9 +278,20 @@ export default class Editor extends React.Component {
     addFloaters = () => {
         this.endTool();
         const { edits } = this.state;
-        if (floatersStrength(edits) || edits.length >= MAX_EDITS) return;
-        this.change([...edits, {type: "floaters", strength: "medium"}], -1);
+        if (this.hasFloaters() || edits.length >= MAX_EDITS) return;
+        this.change([...edits, this.isModel() ? {type: "floating", size: 1000} : {type: "floaters", strength: "medium"}], -1);
     };
+
+    // Whether the list has its Remove Floaters (splats) or Remove Floating Pieces (the model) already
+    hasFloaters(){
+        return this.isModel() ? this.state.edits.some(e => e.type === "floating") : !!floatersStrength(this.state.edits);
+    }
+
+    setFloatingSize(index, size){
+        const edits = this.state.edits.slice();
+        edits[index] = {...edits[index], size};
+        this.change(edits, this.state.selected);
+    }
 
     addColour = () => {
         this.endTool();
@@ -307,7 +337,7 @@ export default class Editor extends React.Component {
             return Promise.resolve();
         }
         this.setState({saving: true});
-        this.saving = request("PUT", "task/" + this.props.taskId + "/edits", {edits}).then(info => {
+        this.saving = request("PUT", this.path("edits"), {edits}).then(info => {
             this.saving = null;
             this.savedEdits = edits;
             if (!this._mounted) return;
@@ -411,7 +441,7 @@ export default class Editor extends React.Component {
 
     apply = () => {
         this.setState({starting: true, applyError: null});
-        this.save().then(() => request("POST", "task/" + this.props.taskId + "/apply")).then(status => {
+        this.save().then(() => request("POST", this.path("apply"))).then(status => {
             if (!this._mounted) return;
             this.setState({starting: false, apply: status.apply});
             if (status.apply && status.apply.state === "applying") this.poll();
@@ -423,7 +453,7 @@ export default class Editor extends React.Component {
 
     cancelApply = () => {
         this.setState({canceling: true, applyError: null});
-        request("POST", "task/" + this.props.taskId + "/apply", {cancel: true}).then(status => {
+        request("POST", this.path("apply"), {cancel: true}).then(status => {
             if (this._mounted) this.setState({canceling: false, apply: status.apply});
         }).catch(e => {
             if (this._mounted) this.setState({canceling: false, applyError: e.message});
@@ -433,7 +463,8 @@ export default class Editor extends React.Component {
     poll(){
         clearTimeout(this.pollTimer);
         this.pollTimer = setTimeout(() => {
-            request("GET", "task/" + this.props.taskId + "/status").then(status => {
+            // The splats' Apply is in the task's status; the model's update in its edits
+            request("GET", this.isModel() ? this.path("edits") : "task/" + this.props.taskId + "/status").then(status => {
                 if (!this._mounted) return;
                 this.setState({apply: status.apply});
                 if (status.apply && status.apply.state === "applying") this.poll();
@@ -448,10 +479,10 @@ export default class Editor extends React.Component {
 
     // What the server says of the edits now: whether the model was made with them, whether a training runs
     refresh(){
-        return request("GET", "task/" + this.props.taskId + "/edits").then(info => {
+        return request("GET", this.path("edits")).then(info => {
             if (!this._mounted) return info;
             this.setState({info: {...this.state.info, applied: info.applied, training: info.training}});
-            if (info.applied && this.state.apply && this.state.apply.state === "completed") this.queueThumbnail();
+            if (info.applied && this.state.apply && this.state.apply.state === "completed" && !this.isModel()) this.queueThumbnail();
             return info;
         }).catch(() => null);
     }
@@ -535,13 +566,18 @@ export default class Editor extends React.Component {
                 {edits.map((edit, i) => (
                     <li key={i} className={"list-group-item" + (i === selected ? " active" : "")}>
                         <a href="javascript:void(0)" onClick={() => this.select(i)} title={edit.type === "box" ? _("Show this box's handles and fields") : edit.type === "colour" ? _("Show its sliders") : ""}>
-                            <i className={"fa fa-fw " + ICONS[edit.type]}></i> {editLabel(edit, this.floatersCount(edit))}
+                            <i className={"fa fa-fw " + ICONS[edit.type]}></i> {edit.type === "floating" ? this.floatingLabel() : editLabel(edit, this.floatersCount(edit))}
                         </a>
                         {(edit.type === "lasso" || edit.type === "brush") && edit.camera && this.viewer ?
                             <a href="javascript:void(0)" className="splatme-editor-goto" onClick={() => this.viewer.goTo(edit.camera)}>{_("Go to Its View")}</a> : ""}
                         <div className="splatme-editor-item-actions">
                             {edit.type === "brush" ? <span className="splatme-editor-item-note">{edit.restore ? _("Brings back what it painted over") : _("Removes what it painted over")}</span> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
+                            edit.type === "floating" ?
+                                <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
+                                        aria-label={_("Which pieces to remove")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
+                                    {FLOATING_SIZES.map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("under")} {size.toLocaleString("en-US")} {_("triangles")})</option>)}
+                                </select> :
                             edit.type === "floaters" ?
                                 <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}
                                         aria-label={_("How many floaters to remove")} onChange={e => this.setStrength(i, e.target.value)}>
@@ -561,6 +597,13 @@ export default class Editor extends React.Component {
                 ))}
             </ul>
         );
+    }
+
+    // Remove Floating Pieces in the list, with how many triangles the edits take with it, once the view has said
+    floatingLabel(){
+        const result = this.viewer && this.state.loaded ? this.viewer.modelResult() : null;
+        if (!result) return _("Floating Pieces");
+        return _("Floating Pieces") + ", " + result.floating.toLocaleString("en-US") + " " + (result.floating === 1 ? _("triangle") : _("triangles"));
     }
 
     // How many splats the floaters edit is, once the server has said (null before)
@@ -621,14 +664,20 @@ export default class Editor extends React.Component {
                             title={_("Paint over what to remove, or what to bring back: everything under the brush on screen, through to the back (B)")}>
                         <i className="fa fa-paint-brush fa-fw"></i> {_("Brush")}
                     </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={busy || !!floatersStrength(edits)}
-                            onClick={this.addFloaters} title={_("Remove the splats far from the rest, and the oversized ones")}>
-                        <i className="fa fa-broom fa-fw"></i> {_("Remove Floaters")}
-                    </button>
-                    <button type="button" className="btn btn-sm btn-default" disabled={busy || !!colourEdit(edits)}
-                            onClick={this.addColour} title={_("Change the whole model's brightness, contrast, saturation and warmth")}>
-                        <i className="fa fa-palette fa-fw"></i> {_("Colour Adjust")}
-                    </button>
+                    {this.isModel() ?
+                        <button type="button" className="btn btn-sm btn-default" disabled={busy || this.hasFloaters()}
+                                onClick={this.addFloaters} title={_("Remove the small pieces of surface apart from the rest of the model")}>
+                            <i className="fa fa-broom fa-fw"></i> {_("Remove Floating Pieces")}
+                        </button> :
+                        <button type="button" className="btn btn-sm btn-default" disabled={busy || this.hasFloaters()}
+                                onClick={this.addFloaters} title={_("Remove the splats far from the rest, and the oversized ones")}>
+                            <i className="fa fa-broom fa-fw"></i> {_("Remove Floaters")}
+                        </button>}
+                    {this.isModel() ? "" :
+                        <button type="button" className="btn btn-sm btn-default" disabled={busy || !!colourEdit(edits)}
+                                onClick={this.addColour} title={_("Change the whole model's brightness, contrast, saturation and warmth")}>
+                            <i className="fa fa-palette fa-fw"></i> {_("Colour Adjust")}
+                        </button>}
                 </div>
                 {lassoing ?
                     <div className="alert alert-info splatme-editor-drawing">
@@ -699,22 +748,23 @@ export default class Editor extends React.Component {
                     </div> : ""}
                 {info.can_edit ?
                     <div className="splatme-editor-apply">
-                        <button type="button" className="btn btn-primary" disabled={applying || starting || info.training}
-                                title={_("Make the task's splat model again from its trained model, with these edits, for its 3D view, download and share links")} onClick={this.apply}>
+                        <button type="button" className="btn btn-primary" disabled={applying || starting || (info.training && !this.isModel())}
+                                title={this.isModel() ? _("Make the task's textured 3D model again from its original, with these edits, for WebODM's 3D view, share links and Textured Model download") :
+                                    _("Make the task's splat model again from its trained model, with these edits, for its 3D view, download and share links")} onClick={this.apply}>
                             <i className={(applying || starting ? "fa fa-circle-notch fa-spin" : "fa fa-check") + " fa-fw"}></i> {_("Update the Model")}
                         </button>
                         {applying ?
                             <button type="button" className="btn btn-sm btn-default" disabled={this.state.canceling} onClick={this.cancelApply}
                                     title={_("Stop applying the edits: the task's model stays as it was")}>
                                 <i className="fa fa-times fa-fw"></i> {_("Cancel")}
-                            </button> : this.renderDownload()}
-                        {info.training ? <p className="text-warning">{_("The task's splats are being trained: update the model when the training is done.")}</p> : ""}
+                            </button> : this.isModel() ? "" : this.renderDownload()}
+                        {info.training && !this.isModel() ? <p className="text-warning">{_("The task's splats are being trained: update the model when the training is done.")}</p> : ""}
                         {applyText(apply) ? <p className={apply.state === "failed" ? "text-danger" : ""}>{applyText(apply)}</p> : ""}
-                        {!applying && modelText(info.applied, apply) ?
-                            <p className={"splatme-editor-model " + (info.applied ? "text-success" : "text-warning")}>{modelText(info.applied, apply)}</p> : ""}
+                        {!applying && modelText(info.applied, apply, this.props.kind) ?
+                            <p className={"splatme-editor-model " + (info.applied ? "text-success" : "text-warning")}>{modelText(info.applied, apply, this.props.kind)}</p> : ""}
                         {applyError ? <p className="text-danger">{applyError}</p> : ""}
                         {apply && apply.state === "completed" && info.applied ?
-                            <a className="btn btn-sm btn-default" href={"/3d/project/" + info.project + "/task/" + this.props.taskId + "/?t=splats"}>
+                            <a className="btn btn-sm btn-default" href={"/3d/project/" + info.project + "/task/" + this.props.taskId + "/" + (this.isModel() ? "" : "?t=splats")}>
                                 <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                             </a> : ""}
                     </div> : ""}
@@ -732,11 +782,11 @@ export default class Editor extends React.Component {
                 </div>
             );
         }
-        if (loading) return <div className="splatme-editor-note"><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading the trained model")}{progress != null ? " (" + progress + "%)" : ""}</div>;
+        if (loading) return <div className="splatme-editor-note"><i className="fa fa-circle-notch fa-spin fa-fw"></i> {this.isModel() ? _("Loading the 3D model") : _("Loading the trained model")}{progress != null ? " (" + progress + "%)" : ""}</div>;
         if (!loaded && info && info.model && info.model.size > LARGE_MODEL){
             return (
                 <div className="splatme-editor-note">
-                    <p>{_("This model is large:")} {sizeText(info.model.size)}, {Number(info.model.splats).toLocaleString("en-US")} {_("splats")}. {_("It is loaded whole, which may be slow, or fail on a phone or a computer with little memory.")}</p>
+                    <p>{_("This model is large:")} {sizeText(info.model.size)}{info.model.splats ? ", " + Number(info.model.splats).toLocaleString("en-US") + " " + _("splats") : ""}. {_("It is loaded whole, which may be slow, or fail on a phone or a computer with little memory.")}</p>
                     <button type="button" className="btn btn-primary" onClick={this.loadModel}>{_("Load Anyway")}</button>
                 </div>
             );
@@ -744,24 +794,32 @@ export default class Editor extends React.Component {
         return null;
     }
 
+    // "854,042 triangles, 53,471 of them removed by the edits."
+    modelStats(loaded){
+        const result = this.viewer ? this.viewer.modelResult() : null;
+        const removed = result && result.removed ? ", " + result.removed.toLocaleString("en-US") + " " + _("of them removed by the edits") : "";
+        return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + ".";
+    }
+
     render(){
         const { info, error, loaded } = this.state;
         const heading = (
             <div>
-                <h3><i className="fa fa-splat fa-fw"></i> {_("Edit Splats")}{info ? ": " + (info.name || this.props.taskId) : ""}</h3>
+                <h3><i className="fa fa-splat fa-fw"></i> {this.isModel() ? _("Edit 3D Model") : _("Edit Splats")}{info ? ": " + (info.name || this.props.taskId) : ""}</h3>
                 <p><a href="../../">{_("Back to SplatMe Tasks")}</a></p>
+                {this.props.switcher || ""}
             </div>
         );
         if (!info){
             return <div>{heading}{error ? <p className="text-danger">{error}</p> : <p><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading")}</p>}</div>;
         }
         if (!info.can_edit){
-            // The trained model, uncut, is only for those who may edit
+            // The trained model (or the textured model's original), uncut, is only for those who may edit
             return (
                 <div>
                     {heading}
-                    <p className="text-warning">{_("Only those who may change this task's project may edit its splats.")}</p>
-                    {!info.editable ? <div className="splatme-editor-apply">{this.renderDownload()}</div> : ""}
+                    <p className="text-warning">{this.isModel() ? _("Only those who may change this task's project may edit its 3D model.") : _("Only those who may change this task's project may edit its splats.")}</p>
+                    {!info.editable && !this.isModel() ? <div className="splatme-editor-apply">{this.renderDownload()}</div> : ""}
                 </div>
             );
         }
@@ -775,9 +833,64 @@ export default class Editor extends React.Component {
                         </div>
                         {this.renderPanel()}
                     </div>}
-                {loaded ? <p className="splatme-editor-stats">{Number(loaded.splats).toLocaleString("en-US")} {_("splats")}
+                {loaded && this.isModel() ? <p className="splatme-editor-stats">{this.modelStats(loaded)}</p> : ""}
+                {loaded && !this.isModel() ? <p className="splatme-editor-stats">{Number(loaded.splats).toLocaleString("en-US")} {_("splats")}
                     {loaded.outside ? ", " + Number(loaded.outside).toLocaleString("en-US") + " " + _("of them hidden for being outside the task's boundary (the model was trained with Crop to Boundary)") : ""}.</p> : ""}
             </div>
         );
+    }
+}
+
+// Edit Splats' page: the task's splats or its textured 3D model, chosen above the panel. It starts with the splats
+// when the task has a model SplatMe trained, else with the 3D model; ?model=1 in the address asks for the 3D model.
+export default class EditorPage extends React.Component {
+    static propTypes = {
+        taskId: PropTypes.string.isRequired,
+        loadViewer: PropTypes.func.isRequired
+    };
+
+    constructor(props){
+        super(props);
+        const asked = /[?&]model=1(&|$)/.test(window.location.search);
+        this.state = {kind: asked ? "model" : null, choices: null};
+    }
+
+    componentDidMount(){
+        this._mounted = true;
+        request("GET", "task/" + this.props.taskId + "/status").then(status => {
+            if (!this._mounted) return;
+            const choices = {splats: !!status.editable, model: !!status.model_editable};
+            this.setState({choices, kind: this.state.kind || (choices.splats || !choices.model ? "splats" : "model")});
+        }).catch(() => {
+            if (this._mounted) this.setState({choices: {splats: true, model: true}, kind: this.state.kind || "splats"});
+        });
+    }
+
+    componentWillUnmount(){
+        this._mounted = false;
+    }
+
+    choose(kind){
+        if (kind === this.state.kind) return;
+        const url = new URL(window.location.href);
+        if (kind === "model") url.searchParams.set("model", "1");
+        else url.searchParams.delete("model");
+        window.history.replaceState(null, "", url.pathname + url.search);
+        this.setState({kind});
+    }
+
+    render(){
+        const { kind, choices } = this.state;
+        if (!kind) return <div><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Loading")}</div>;
+        const switcher = choices && choices.splats && choices.model ?
+            <div className="btn-group splatme-editor-kind" role="group" aria-label={_("What to edit")}>
+                {[["splats", _("Splats"), "fa-splat"], ["model", _("3D Model"), "fa-cube"]].map(([k, label, icon]) => (
+                    <button key={k} type="button" className={"btn btn-sm " + (kind === k ? "btn-primary active" : "btn-default")}
+                            aria-pressed={kind === k} onClick={() => this.choose(k)}>
+                        <i className={"fa fa-fw " + icon}></i> {label}
+                    </button>
+                ))}
+            </div> : null;
+        return <EditorPanel key={kind} kind={kind} taskId={this.props.taskId} loadViewer={this.props.loadViewer} switcher={switcher} />;
     }
 }

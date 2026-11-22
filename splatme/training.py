@@ -794,6 +794,9 @@ def removed(task_id):
     forget(task_id)
     reset_auto(task_id)
     edits.forget(task_id)
+    from . import meshes  # it imports this module
+
+    meshes.forget(task_id)
     store().del_key(apply_key(task_id))
     store().del_key(shown_key(task_id))
     shutil.rmtree(work_dir(task_id), ignore_errors=True)
@@ -807,7 +810,10 @@ def sweep():
     starts, so until WebODM restarts after this plugin is installed, a task the worker deletes sends this plugin
     no signal.
     """
-    keys = (job_key(""), auto_key(""), edits.edits_key(""), apply_key(""), shown_key(""))
+    from . import meshes  # it imports this module
+
+    keys = (job_key(""), auto_key(""), edits.edits_key(""), apply_key(""), shown_key(""), meshes.edits_key(""),
+            meshes.shown_key(""), apply_key("", meshes.KIND))  # fmt: skip
     for prefix in (store().db_key(key) for key in keys):
         for key in PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", flat=True):
             task_id = key[len(prefix) :]
@@ -1511,18 +1517,29 @@ APPLYING = "applying"
 APPLY_REQUEUES = 30  # times an Apply whose worker job never started is queued again (STALE seconds apart)
 
 
-def apply_key(task_id):
-    return f"apply::{task_id}"
+# An update's kind: "apply" makes the splat model again (here), "modelapply" the textured model (meshes.py). Both
+# keep their record under "<kind>::<task id>" and work in their own folder.
+def apply_key(task_id, kind="apply"):
+    return f"{kind}::{task_id}"
 
 
-def apply_dir(task_id, run=None):
-    parts = ("apply", str(task_id)) + ((run,) if run else ())
+def apply_dir(task_id, run=None, kind="apply"):
+    parts = (kind, str(task_id)) + ((run,) if run else ())
     return get_plugins_persistent_path(NAME, *parts)
 
 
-def get_apply(task_id):
+def job_of(kind):
+    """The worker job that runs an update of this kind."""
+    if kind == "modelapply":
+        from . import meshes
+
+        return meshes.apply_job
+    return apply_job
+
+
+def get_apply(task_id, kind="apply"):
     """
-    The task's last Apply Edits, or None. One that lost its worker fails here: it is short, so it is not taken over.
+    The task's last Apply Edits (or update of the textured model, kind "modelapply"), or None. One that lost its worker fails here: it is short, so it is not taken over.
     One whose worker job never started (it waited in WebODM's worker queue, or a restart lost the queue) is queued
     again, up to APPLY_REQUEUES times.
     """
@@ -1545,17 +1562,17 @@ def get_apply(task_id):
             error = "The edits were not applied: WebODM's worker stopped. Update the model again."
         record.update(state="failed", run=None, waiting=None, status="", error=error, finished=time.time())
 
-    record = store().get_json(apply_key(task_id), None)
+    record = store().get_json(apply_key(task_id, kind), None)
     if record and lost(record):
-        record = change_record(apply_key(task_id), fail_or_requeue)
+        record = change_record(apply_key(task_id, kind), fail_or_requeue)
     for run in requeued:
         # After the record's change is committed, so the job finds its run
-        transaction.on_commit(lambda run=run: run_function_async(apply_job, PACKAGE, str(task_id), run))
+        transaction.on_commit(lambda run=run: run_function_async(job_of(kind), PACKAGE, str(task_id), run))
     return record
 
 
-def applying(task_id):
-    record = get_apply(task_id)
+def applying(task_id, kind="apply"):
+    record = get_apply(task_id, kind)
     return bool(record) and record.get("state") == APPLYING
 
 
@@ -1601,7 +1618,7 @@ def apply_job(package, task_id, run):
     importlib.import_module(package + ".training").apply(task_id, run)
 
 
-def update_apply(task_id, run, **fields):
+def update_apply(task_id, run, kind="apply", **fields):
     """An Apply Edits job's report. Raises Superseded when the record is no longer this run's."""
 
     def change(record):
@@ -1609,26 +1626,26 @@ def update_apply(task_id, run, **fields):
             raise Superseded()
         record.update(fields, updated=time.time())
 
-    if change_record(apply_key(task_id), change) is None:
+    if change_record(apply_key(task_id, kind), change) is None:
         raise Superseded()
 
 
-def check_apply(task_id, run):
+def check_apply(task_id, run, kind="apply"):
     """Raises Superseded when the Apply is no longer this run's: canceled, or failed as lost."""
-    record = store().get_json(apply_key(task_id), None)
+    record = store().get_json(apply_key(task_id, kind), None)
     if not record or record.get("run") != run:
         raise Superseded()
 
 
-def cancel_apply(task_id):
+def cancel_apply(task_id, kind="apply"):
     """Stops the task's Apply: its job stops at its next chunk or step, and the task's model stays as it was."""
 
     def stop(record):
         if record.get("state") == APPLYING:
             record.update(state="canceled", run=None, waiting=None, status="", finished=time.time())
 
-    change_record(apply_key(task_id), stop)
-    return get_apply(task_id)
+    change_record(apply_key(task_id, kind), stop)
+    return get_apply(task_id, kind)
 
 
 def apply(task_id, run):
@@ -1691,8 +1708,8 @@ def apply(task_id, run):
             pass
 
 
-def finish_apply(task_id, run, error):
+def finish_apply(task_id, run, error, kind="apply"):
     try:
-        update_apply(task_id, run, state="failed", status="", error=error, finished=time.time())
+        update_apply(task_id, run, kind, state="failed", status="", error=error, finished=time.time())
     except Superseded:
         pass

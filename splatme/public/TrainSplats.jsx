@@ -127,8 +127,9 @@ export default class TrainSplats extends React.Component {
                             title={waiting ? _("The task has not completed processing.") : applying ? _("The task's edits are being applied.") : _("Train this task's Gaussian splats on the splat node")}>
                         <i className="fa fa-splat fa-fw"></i> {status.has_splats && !waiting ? _("Train Splats Again") : _("Train Splats")}
                     </button>
-                    {status.editable && status.can_train && !waiting ?
-                        <a className="btn btn-sm btn-primary" href={"/plugins/splatme/edit/" + this.props.taskId + "/"} title={_("Crop the splat model, and remove splats from it")}>
+                    {(status.editable || status.model_editable) && status.can_train && !waiting ?
+                        <a className="btn btn-sm btn-primary" href={"/plugins/splatme/edit/" + this.props.taskId + "/" + (status.editable ? "" : "?model=1")}
+                           title={status.editable ? _("Edit the splat model and the textured 3D model") : _("Clean up the textured 3D model")}>
                             <i className="fa fa-edit fa-fw"></i> {_("Edit")}
                         </a> : ""}
                     {more.map(m => (

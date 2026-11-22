@@ -29,6 +29,13 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/download  the task's model with its saved edits, as Apply makes it, as a .ply (training.edited_model)
     GET  task/<id>/thumbnail a JPEG of the task's model, taken by Edit Splats (404 without one)
     PUT  task/<id>/thumbnail keeps the JPEG in the request's body as its thumbnail (those who may edit)
+    GET  task/<id>/model-edits   the task's textured model's edits (meshes.py) in the model's frame, why it cannot be
+                                 edited (editable), its last update, whether the model has the edits (applied) and,
+                                 for those who may edit, the original model's URL and size
+    PUT  task/<id>/model-edits   replaces them (edits), then answers as GET does
+    GET  task/<id>/model-original the textured model's original GLB, before any update (those who may edit)
+    POST task/<id>/model-apply   makes the task's textured model again from its original files and the edits; with
+                                 cancel, stops the one that runs
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
                              them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
@@ -49,7 +56,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import crop, edits, thermal, training
+from . import crop, edits, meshes, thermal, training
 from .node import Node, NodeError
 
 logger = logging.getLogger("app.logger")
@@ -92,6 +99,13 @@ def describe(request, task, job):
     return summary(request, task, job, can_train(request, task))
 
 
+MODEL_APPLY_PUBLIC = ("state", "status", "error", "user", "started", "finished", "removed", "triangles")
+
+
+def describe_model_apply(record):
+    return {name: record.get(name) for name in MODEL_APPLY_PUBLIC} if record else None
+
+
 def describe_apply(record):
     return {name: record.get(name) for name in APPLY_PUBLIC} if record else None
 
@@ -105,6 +119,8 @@ def summary(request, task, job, may_train):
     out["task_status"] = task.status
     out["editable"] = out["has_splats"] and training.editable(task) is None
     out["thumbnail"] = training.thumbnail_version(task) if out["has_splats"] else None
+    out["model_editable"] = meshes.editable(task) is None
+    out["model_apply"] = describe_model_apply(training.get_apply(task.id, meshes.KIND))
     out["apply"] = describe_apply(training.get_apply(task.id))
     out["auto"] = describe_auto(training.get_auto(task.id, request.user))
     # Whether WebODM's worker tells the plugin of completed tasks, for a task set to train (None: not known)
@@ -331,6 +347,77 @@ class Thumbnail(TaskView):
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"thumbnail": training.thumbnail_version(task)})
+
+
+class ModelEdits(TaskView):
+    def describe(self, request, task):
+        reason = meshes.editable(task)
+        try:
+            saved, unreadable = meshes.get(task), None
+        except edits.EditsError as e:
+            saved, unreadable = [], str(e)
+        out = {
+            "edits": saved, "unreadable": unreadable, "editable": reason, "can_edit": can_train(request, task),
+            "name": task.name, "project": task.project.id, "model": None,
+            "apply": describe_model_apply(training.get_apply(task.id, meshes.KIND)),
+        }  # fmt: skip
+        if reason is None:
+            out["applied"] = meshes.shown_current(task.id)
+            if out["can_edit"]:
+                try:
+                    out["model"] = meshes.info(task)
+                except OSError as e:
+                    logger.warning(f"SplatMe: task {task.id}'s textured model could not be read: {e}")
+                    out["editable"] = "This task's textured model could not be read."
+        return out
+
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        return Response(self.describe(request, task))
+
+    def put(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        reason = meshes.editable(task)
+        if reason:
+            return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            meshes.save(task, request.data.get("edits") if isinstance(request.data, dict) else None)
+        except edits.EditsError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.describe(request, task))
+
+
+class ModelOriginal(TaskView):
+    """The textured model's original GLB, for the editor: only for those who may change the task's project."""
+
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        reason = meshes.editable(task)
+        if reason:
+            return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            model = open(meshes.original(task, meshes.GLB), "rb")  # noqa: SIM115 (FileResponse closes it)
+        except OSError as e:
+            logger.warning(f"SplatMe: task {task.id}'s textured model could not be opened: {e}")
+            return Response({"error": "The textured model could not be read."}, status=status.HTTP_400_BAD_REQUEST)
+        return FileResponse(model, content_type="model/gltf-binary")
+
+
+class ModelApply(TaskView):
+    def post(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        if isinstance(request.data, dict) and is_true(request.data.get("cancel")):
+            training.cancel_apply(task.id, meshes.KIND)
+        else:
+            try:
+                meshes.start_apply(task, request.user.username)
+            except meshes.ModelError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"apply": describe_model_apply(training.get_apply(task.id, meshes.KIND)),
+                         "applied": meshes.shown_current(task.id)})
 
 
 class Automation(APIView):

@@ -101,6 +101,10 @@ describe("whether the task's model has the edits", () => {
         expect(modelText(true, null)).toBe("The task's model has these edits.");
         expect(modelText(true, {state: "failed"})).toBe("The task's model has these edits.");
     });
+    test("counts the textured model's triangles", () => {
+        expect(modelText(true, {state: "completed", removed: 53471}, "model")).toBe("The task's model has these edits (53,471 triangles removed).");
+        expect(modelText(true, {state: "completed", removed: 0}, "model")).toBe("The task's model has these edits (no triangle removed).");
+    });
     test("says nothing when it is not known", () => {
         expect(modelText(null, null)).toBe("");
         expect(modelText(undefined, {state: "completed"})).toBe("");
