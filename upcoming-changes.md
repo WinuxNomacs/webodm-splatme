@@ -9,10 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The rest of the UX review (asked 2026-11-22: all twelve findings of "10. UX review"), in three branches:
-   A. Edit Splats (findings 1 to 5), B. SplatMe → Tasks and its dialogs (6, 7, 8, 12), C. the pages (9, 10, 11).
-   Then the next release, with Grow Until and the file names apart from their case. See "12. UX review, the
-   rest".
+1. Left from "12. UX review, the rest" (built): a live Update the Model and a real training (Grow Until on node
+   0.2.3, the stage times in the summary, the thumbnail dropped and taken again) once `sm-worker` restarts.
+2. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
+   (CHANGELOG's Unreleased; Getting Started's node upgrade steps on its branch).
 
 **Then**
 
@@ -54,6 +54,8 @@ other software. The plugin does that step.
 
 **Done**
 
+- The rest of the UX review (2026-11-22), all twelve findings, in `ux-editor` (1 to 5), `ux-tasks` (6, 7, 8,
+  12) and `ux-pages` (9, 10, 11). See "12. UX review, the rest". For the next release's changelog (written).
 - The 0.3.0 directory entry (2026-11-19): the user's pull request,
   https://github.com/WebODM/WebODM-Plugins/pull/13, was merged on 2026-11-19 (branch `splatme-0.3.0` on the
   user's fork, from upstream's `main` at 28e61d0; the release zip's SHA-256 `092648bf...`). Checked 2026-11-22
@@ -3065,4 +3067,26 @@ Inside; the per-project New Task With Splats buttons go; thumbnails are taken by
 
 **Docs** with each branch (Editing Splats, Using SplatMe, the API), and the changelog's next version.
 
-**Build.** (to be filled in as each branch is merged)
+**Built (2026-11-22)** as designed, except:
+
+- Finding 1 needed no new server state: `info.applied` already says it (`modelText` in `editShapes.js`).
+- Finding 8: the stages table is hidden only when the added steps do not grow the model (`stepsGrow`); with
+  Grow Until set past the model's steps, it shows the growing.
+- Finding 11: the Dashboard's button stays icon-only on a phone, as WebODM's own buttons beside it are.
+- Finding 7: the earlier training time is kept in `splatme-model.json` as `_training_seconds`
+  (`trained_options` leaves it out); a model trained before keeps "not known", and its summary gives the last
+  part's time only.
+- Finding 6: secondary buttons use WebODM's `btn-secondary` (its task panel's action menu), which reads as
+  available, not as disabled.
+
+Code: `splatme/public/Editor.jsx`, `editor/viewer.js` (`centreOn`, `capture`), `editShapes.js` (`newHistory`,
+`recordChange`, `undoChange`, `redoChange`, `modelText`, `newBox`), `trainingView.js` (`resultText`, `stepsGrow`,
+Image Size blank), `TrainSplats.jsx`, `Tasks.jsx`, `TrainDialog.jsx`, `OptionsFields.jsx`, `api.js`
+(`thumbnailUrl`, a Blob body), `training.py` (`enter_state`, `trained_seconds`, the thumbnail), `api.py`
+(`Thumbnail`), the templates. Tests: Django 155 (4 new: the stage times and Continue's earlier time, a model
+without it, the thumbnail's rights and its drop by a training, a thumbnail that is not a small JPEG), Jest 144.
+Live (headless, GPU), on copies of the check task (deleted): the keys, tool states, Undo and Redo, the new box
+removing its inside, double-click centring, Reset View, the hint, phone width; the thumbnail taken (320 px,
+11 kB) and shown on its row; the row at desktop and phone width with its menu; Continue without the table and
+with it once Grow Until is set; the three pages' intros; Settings' Image Size round trip (the options restored
+after). Not live yet: Update the Model (runs in `sm-worker`, which still has the old code) and a real training.

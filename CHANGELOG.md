@@ -3,6 +3,27 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
+## Unreleased
+
+Needs splat node 0.2.3 for Grow Until (an older node refuses a training only when Grow Until is set).
+
+- **Grow Until**, under Advanced and on **Continue From Step**: the step the model stops growing at (blank keeps
+  the trainer's own: half the steps, at most 15,000), so a long training or a continued one can add gaussians.
+- **Edit Splats**: **Apply** is now **Update the Model**, with a line under it saying whether the task's model
+  has the edits as they are; **Side View** is **Reset View**, and a double-click centres the view on the splat
+  under the pointer; the tool in use is highlighted, and another tool's button ends it; **Redo**, and keys:
+  Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y, Delete, B, L, P and X; **Add Box** starts a third of the model's width and
+  removes what is inside it.
+- **SplatMe → Tasks**: each row has its status line above its buttons, **Edit** beside **Train Splats** as a main
+  action, and **View in 3D** and **Download .ply** in a menu on a phone; a picture of the model, taken by Edit
+  Splats; the summary gives the day and the trainer's own time (a continued model's whole training included),
+  with Ignore Sky's and the waiting apart. One **New Task With Splats** button, at the top.
+- **Continue From Step** shows the stages table only when the added steps grow the model.
+- **Image Size** left blank means full size (it showed 0).
+- Shorter page introductions, each with a link into the documentation.
+- **API**: `task/<id>/thumbnail` (GET, PUT); `status` adds `times`, `resume`, `earlier_training` and `thumbnail`.
+- Fixed: on a case-insensitive disk (a WebODM whose media folder is on one), New Task With Splats showed nothing.
+
 ## 0.3.0 (2026-11-19)
 
 Editing a trained model. Works with splat node 0.2.0 or later; no new node (0.2.2 is the latest). Restart WebODM
