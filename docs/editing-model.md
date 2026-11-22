@@ -49,6 +49,12 @@ covers. What it does is chosen in the list:
   turns it, and **Feather** blends it into the surface's own texture near the shape's edge. It changes only the
   texture, after all the other edits.
 
+The **Repair** buttons under the tools start the repairs without drawing first: **Flatten**, **Smooth**, **Move**
+and **Remove Object** each add a box doing that in the middle of the view, to move and size like any box.
+**Straighten** asks for the line first and puts a box around it, as wide as **Reach** each side; **Clone Texture**
+asks for the good area first, then adds the box to cover the bad one. To repair inside a polygon or a lasso instead, draw it
+and choose the repair in its list; the **Brush** has its own buttons (below).
+
 The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
 step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North** and
 **Stretch Up** (5%) and **Soft Edge** (0.25 m); Smooth Inside's **Passes**; Straighten Inside's **Strength** (10%)

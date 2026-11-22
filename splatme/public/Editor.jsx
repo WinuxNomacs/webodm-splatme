@@ -2,7 +2,7 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { request, downloadUrl } from './api';
-import { newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
+import { newBox, boxAroundLine, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
@@ -32,6 +32,15 @@ const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, smo
     clone: {patch: 1, feather: 0.25, spin: 0}};
 const OP_PARAMS = ["offset", "scale", "soft", "passes", "line", "strength", "reach", "source", "patch", "feather", "spin"];
 const NEEDS_POINTS = {straighten: "line", clone: "source"};  // the ops whose edit waits for points on the model
+// The model's Repair buttons: each adds a box doing its op, Straighten's around the line drawn first
+const REPAIRS = [
+    ["flatten", "Flatten", "grip-lines", "A box that makes what it covers flat"],
+    ["smooth", "Smooth", "water", "A box that evens out what it covers, its edge fixed"],
+    ["move", "Move", "arrows-alt", "A box that raises, shifts or stretches what it covers, a step at a time"],
+    ["straighten", "Straighten", "ruler-horizontal", "Draw a line on the model: a box around it pulls the surface toward the line"],
+    ["clone", "Clone Texture", "clone", "Click a good area on the model: a box covers what it covers with that area's texture"],
+    ["object", "Remove Object", "eraser", "A box that removes what it covers and fills the hole it leaves"],
+];
 const OP_STEPS = {
     move: [
         ["offset", 2, "Up", "m", 0.05, -100, 100, 1], ["offset", 0, "East", "m", 0.05, -100, 100, 1],
@@ -272,8 +281,14 @@ class EditorPanel extends React.Component {
     }
 
     handleLine = points => {
-        const index = this.lineIndex, op = this.lineOp;
+        const op = this.lineOp;
         const edits = this.state.edits.slice();
+        let index = this.lineIndex;
+        if (index < 0){  // a Repair button's: its box made now
+            if (edits.length >= MAX_EDITS || !this.state.loaded) return this.setState({lining: false});
+            index = edits.length;
+            edits.push(op === "straighten" ? boxAroundLine(points, OP_DEFAULTS.straighten.reach) : newBox(this.state.loaded.frame));
+        }
         if (!edits[index]) return;
         const kept = Object.fromEntries(Object.entries(edits[index]).filter(([name]) => !OP_PARAMS.includes(name)));
         const before = edits[index].op === op ? edits[index] : OP_DEFAULTS[op];
@@ -442,6 +457,19 @@ class EditorPanel extends React.Component {
         if (!loaded || !info.can_edit || edits.length >= MAX_EDITS) return;
         this.change([...edits, newBox(loaded.frame)], edits.length);
     };
+
+    // A Repair button: a box doing its op, in the middle of the view; Straighten's line and Clone Texture's source
+    // are picked first, and the box made once they are (none if cancelled)
+    addRepair(op){
+        this.endTool();
+        const { edits, loaded, info } = this.state;
+        if (!loaded || !info.can_edit || edits.length >= MAX_EDITS) return;
+        if (NEEDS_POINTS[op]){
+            this.drawLine(-1, op);
+            return;
+        }
+        this.change([...edits, {...newBox(loaded.frame), op}], edits.length);
+    }
 
     drawPolygon = () => {
         if (!this.canStart("polygon")) return;
@@ -707,7 +735,7 @@ class EditorPanel extends React.Component {
 
     renderList(){
         const { edits, selected, info } = this.state;
-        if (!edits.length) return <p className="splatme-editor-empty">{this.isModel() ? _("No edits yet. The tools above remove, flatten or fill parts of the model.") : _("No edits yet. The tools above keep or remove parts of the model, or adjust its colours.")}</p>;
+        if (!edits.length) return <p className="splatme-editor-empty">{this.isModel() ? _("No edits yet. The tools above remove, fill and repair parts of the model.") : _("No edits yet. The tools above keep or remove parts of the model, or adjust its colours.")}</p>;
         return (
             <ul className="list-group splatme-editor-list">
                 {edits.map((edit, i) => (
@@ -852,6 +880,15 @@ class EditorPanel extends React.Component {
                             <i className="fa fa-palette fa-fw"></i> {_("Colour Adjust")}
                         </button>}
                 </div>
+                {this.isModel() ? <h4>{_("Repair")}</h4> : ""}
+                {this.isModel() ?
+                    <div className="splatme-editor-tools splatme-editor-repairs" role="group" aria-label={_("Repair")}>
+                        {REPAIRS.map(([op, label, icon, title]) =>
+                            <button key={op} type="button" className={"btn btn-sm " + (this.state.lining === op && this.lineIndex < 0 ? "btn-primary active" : "btn-default")}
+                                    disabled={busy} onClick={() => this.addRepair(op)} title={_(title)}>
+                                <i className={"fa fa-" + icon + " fa-fw"}></i> {_(label)}
+                            </button>)}
+                    </div> : ""}
                 {this.state.lining ?
                     <div className="alert alert-info splatme-editor-drawing">
                         {this.state.lining === "clone" ?
