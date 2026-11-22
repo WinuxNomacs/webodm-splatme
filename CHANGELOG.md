@@ -8,11 +8,14 @@ where a release needs a newer one.
 Cleaning up WebODM's textured 3D model, and better splat training. Needs splat node 0.2.3 for Grow Until (an older
 node refuses a training only when Grow Until is set).
 
-- **3D model cleanup**: **Edit** now edits the task's textured 3D model too (**Splats** and **3D Model** above the
-  editor's view; a task with a textured model but no splats opens on it). **Remove Floating Pieces** and **Fill
-  Holes** act on the whole model; each shape (box, polygon, lasso, brush) can **Remove** or **Keep Inside**,
-  **Flatten Inside** (onto the plane of its edge), **Fill Holes Inside**, or **Remove Object** (remove it and
-  fill the hole it leaves). Filled holes are coloured from the texture around them. The view shows the edits as
+- **3D model cleanup and repair**: **Edit** now edits the task's textured 3D model too (**Splats** and **3D
+  Model** above the editor's view; a task with a textured model but no splats opens on it). **Remove Floating
+  Pieces** and **Fill Holes** act on the whole model; each shape (box, polygon, lasso, brush) can **Remove** or
+  **Keep Inside**, **Flatten Inside** (onto the plane of its edge), **Fill Holes Inside**, **Remove Object**
+  (remove it and fill the hole it leaves), **Move Inside** (raise, shift or stretch it, with a soft edge),
+  **Smooth Inside**, **Straighten Inside** (toward a line clicked on the model) or **Clone Texture Inside** (a
+  good area's texture tiled over it and blended in). Their settings change a step at a time with - and +.
+  Filled holes take the texture of the surface beside them. The view shows the edits as
   they change; **Update the Model** writes them into the GLB (WebODM's 3D view and share links) and the OBJ (the
   Textured Model download) in seconds, keeping the original files, so **Clear Edits** then **Update the Model**
   puts the model back. See [Editing the 3D Model](https://winuxnomacs.github.io/webodm-splatme/editing-model/).

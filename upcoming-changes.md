@@ -9,16 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Model repair tools, before the release (the user's decision, 2026-11-22): Move, Smooth, Straighten, Clone
-   Texture and fills with detail. Phases R1 to R5 in "14. Model repair tools".
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
-Model editing (M0 to M4 and its docs) is built: see "13. Model editing". A possible follow-up, after the release:
-detail in the fills (texture from beside each hole, or photo projection), and fills that stay inside the removed
-area when it joins older holes.
+Model editing (M0 to M4) and the repair tools (R1 to R5) are built: see sections 13 and 14. Possible follow-ups,
+after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
+joins older holes.
 
 **Then**
 
@@ -3233,7 +3231,7 @@ photo projection could follow.
   zipped from `odm_texturing/` as it is when asked for: the originals are kept in `data/splatme`, not there. A
   task's 3D Tiles model (`3d_tiles/model`) is not edited.
 
-### 14. Model repair tools (asked 2026-11-22)
+### 14. Model repair tools (asked and built 2026-11-22, branch model-repair)
 
 **The request** (the user, with a close-up of a real model: a dormer window under a shingled roof). What users see
 and need to correct:
