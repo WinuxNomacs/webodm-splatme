@@ -3,7 +3,7 @@ import { _ } from 'webodm/classes/gettext';
 import TrainSplats from './TrainSplats';
 import NewTask from './NewTask';
 import { request, webodm } from './api';
-import { ACCEPT, projectByName } from './newTask';
+import { ACCEPT, projectByName } from './taskUpload';
 import { panelMode, rowNote, taskStatusText, nextRefresh, runningPercent, resultText, justCompleted, dashboardLink,
     TASK_FAILED, TASK_QUEUED, TASK_RUNNING, FAST, SLOW, SETTLE } from './trainingView';
 import './TrainSplats.scss';

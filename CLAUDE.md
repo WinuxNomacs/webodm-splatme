@@ -49,7 +49,7 @@ it short; edit in place.
   `TrainSplats.jsx` with `TrainDialog.jsx`, `AutoDialog.jsx`
   (Change), `OptionsFields.jsx` (with `StagesTable.jsx` and `ImageSizeTable.jsx`), `LogDialog.jsx`, `Dialog.jsx` and `api.js`; and `NewTask.jsx`, New Task With
   Splats: `SplatMePanel.jsx` above WebODM's own `NewTaskPanel` (imported from WebODM, as webodm-dji-thermal
-  does), then `newTask.js`, the upload through WebODM's task API), `templates/settings.html`
+  does), then `taskUpload.js`, the upload through WebODM's task API), `templates/settings.html`
   (SplatMe → Settings) and `templates/admin.html` (its page under Administration, whose item `main.js` adds),
   both from `node.html` and `options.html` (plain script), and `templates/editor.html` (Edit Splats, from Edit on
   a task's row: `public/Editor.jsx`, the panel, and `public/editor/viewer.js`, the 3D view, a plain ES module
@@ -61,7 +61,7 @@ it short; edit in place.
   Task ID). SplatMe answers none of WebODM's task panel hooks: WebODM keeps the first answer and drops the
   other plugins'. The `.jsx` are built by WebODM's webpack into `public/build`, which git ignores, as it does
   the generated `webpack.config.js`. `restartText.js` holds the restart notice's words.
-  `public/trainingView.js` (what they show, as plain functions), `api.js` and `newTask.js` are what Jest tests.
+  `public/trainingView.js` (what they show, as plain functions), `api.js` and `taskUpload.js` are what Jest tests.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what
   runs; base images pinned by digest, OpenSplat by commit, libtorch by checksum), `splatnode.sh` (install,

@@ -1,4 +1,4 @@
-import { CHUNK, Upload, partsOf, photoProblem, projectByName, retried, taskData } from '../newTask';
+import { CHUNK, Upload, partsOf, photoProblem, projectByName, retried, taskData } from '../taskUpload';
 
 const TASKS = "/api/projects/7/tasks/";
 

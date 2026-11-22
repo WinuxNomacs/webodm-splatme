@@ -54,6 +54,12 @@ The rest of the UX review, "10. UX review", is possible for later.
 
 **Done**
 
+- File names apart from their case (2026-11-21, found on the first setup on macOS): `public/newTask.js` (the
+  upload) is now `public/taskUpload.js`. Beside `NewTask.jsx`, on a case-insensitive disk (the dev stack's mount on
+  a Mac or Windows; a WebODM whose media folder, where uploaded plugins live, is on one) `import NewTask from
+  './NewTask'` opened `newTask.js`, so New Task With Splats on SplatMe → Tasks had no component. A Jest test
+  (`__tests__/fileNames.test.js`) fails when two files in a folder share a name apart from case or extension.
+  Checked in Chromium and WebKit with the box, both panels and a picked photo. For the next release's changelog.
 - Grow Until (2026-11-21): OpenSplat's `--densify-until` as an optional option, in Advanced and on Continue;
   node 0.2.3. Code in `node/splatnode.py`, `splatme/training.py`, `public/trainingView.js` and the forms; tests in
   `node/tests`, `test_splatme.py` and Jest. Not yet: a real training with it (the dev node rebuilt as 0.2.3), and
