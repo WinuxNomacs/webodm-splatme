@@ -94,7 +94,9 @@ fill replaces its texture with one you choose.
 
 The line under the view says how many triangles the model has, how many the edits remove and retexture, how many
 points they move and how many holes they fill. The
-view shows the edits as they change, by the same rule **Update the Model** uses. **Undo**, **Redo**, **Clear
+view shows the edits as they change, by the same rule **Update the Model** uses; while it works them out, the line
+says **Showing the edits…** and the view can still be turned. The first time, a model with many filled holes can take
+several seconds; after that, a change works out again only from the edit changed. **Undo**, **Redo**, **Clear
 Edits**, the keys, moving around (a double-click centres the view on the surface under the pointer) and saving
 work as on [Editing Splats](editing.md#moving-around).
 

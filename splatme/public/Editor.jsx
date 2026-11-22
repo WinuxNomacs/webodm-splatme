@@ -206,7 +206,8 @@ class EditorPanel extends React.Component {
                 onStamp: this.handleStamp,
                 onStampChange: (size, spin) => this.setState({stamping: this.state.stamping && {...this.state.stamping, size, spin}}),
                 onStampEnd: () => this.setState({stamping: null}),
-                onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}})
+                onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}}),
+                onModelBusy: modelBusy => this.setState({modelBusy})
             });
             this.viewer.setMode(this.state.mode);
             const progress = e => {
@@ -798,7 +799,7 @@ class EditorPanel extends React.Component {
                                     <i className="fa fa-crosshairs fa-fw"></i> {_("Pick the Source Again")}
                                 </button>}
                         </td></tr>
-                    </tfoot> : ""}
+                    </tfoot> : null}
             </table>
         );
     }
@@ -1110,7 +1111,8 @@ class EditorPanel extends React.Component {
         const flattened = result && result.moved ? "; " + result.moved.toLocaleString("en-US") + " " + (result.moved === 1 ? _("point moved") : _("points moved")) : "";
         const cloned = result && result.cloned ? "; " + result.cloned.toLocaleString("en-US") + " " + (result.cloned === 1 ? _("triangle retextured") : _("triangles retextured")) : "";
         const filled = result && result.filled ? "; " + result.filled.toLocaleString("en-US") + " " + (result.filled === 1 ? _("hole filled") : _("holes filled")) : "";
-        return loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + cloned + ".";
+        const line = loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + cloned + ".";
+        return this.state.modelBusy ? <span>{line} <i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Showing the edits…")}</span> : line;
     }
 
     render(){

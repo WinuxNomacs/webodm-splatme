@@ -3406,3 +3406,24 @@ Proposed phases:
 under the paint fill too) replaces the stamp; shapes keep only large-area work (Remove Inside, Keep Inside, Move
 Inside, Remove Object), with Flatten, Smooth, Fill Holes and Clone moving to the brush and Straighten becoming a
 line with a reach; the brush's size is in metres on the surface; performance first (R7a, then R7b, R7c, R7d).
+
+**R7a built (branch `tools-rework`):** `meshEdits.js` `startEdits`, `applyEdit`, `finishEdits`, `copyEdits` and
+`createPreview` (the state before the first changed edit kept, at most PREVIEW_STATES besides the start; Jest checks
+it answers as applyEdits through a sequence of changes); clones keep face lists, not masks; Move's soft edge looks
+only near the selection; `cloneParts` and `packParts` (cloneAtlas is both) with a part cache keyed by a part's
+settings, triangles and corners' places; the wide fills' sources, rim colours and grid made only for parts being
+made (the grid only around them); `cornersOf` once a surface. `editor/modelWorker.js`, a module Web Worker: the
+weld, the preview, the atlases, each piece's triangles; textures read as 256-texel tiles when first needed (bilinear,
+clamped, as meshApply reads them); answers carry only the pieces and 8 m chunks of the clones' texture that changed.
+The worker imports the versioned module URLs the page's map gives (`import.meta.resolve`); `editor/modelWorker.js`
+is in `EDITOR_MODULES`. The panel says "Showing the edits…" while the worker works.
+
+A cached wide fill's texture is kept while its rim is where it was: when surface beside it changes (a removal near
+its source patch) the preview keeps the old texture, Update the Model picks a fresh source. Rare and small.
+
+Measured live (the check task with Fill Holes Large, before another WebODM stack on the machine started using 1.5
+to 2.5 CPUs; later runs were 3 to 6 times slower and are not comparable): changes after the heavy edit 0.6 to 1.2 s
+end to end, the worker's edits step 90 to 140 ms, the clones step 250 to 450 ms (16 fills re-made a Move step, about
+50 ms of it in Node: the rest was texel reads, since made faster but not measured on a quiet machine); the page's
+long tasks from several of 150 to 490 ms to one of about 110 ms. The first preview with Fill Holes Large takes about
+12 s in the browser (4.9 s in Node), now in the worker with the view usable. To measure again on a quiet machine.

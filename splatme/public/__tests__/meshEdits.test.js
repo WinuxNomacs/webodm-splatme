@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, stampAxes, insideStamp } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, stampAxes, insideStamp, createPreview, PREVIEW_STATES } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -568,6 +568,43 @@ describe("Clone Texture's stamps", () => {
                 expect(colour[0]).toBeCloseTo((1 + da) / 4 * 255, -0.7);
                 expect(colour[1]).toBeCloseTo((1 - db) / 4 * 255, -0.7);
             }
+        }
+    });
+});
+
+describe("the preview", () => {
+    // A 6 by 6 grid with two holes, and edits of each kind
+    const surface = weld(grid(6, (i, j) => (i === 1 && j === 1) || (i === 4 && j === 3)));
+    const box = (center, size) => ({type: "box", keep: false, center, size, turn: 0});
+    const edits = {
+        remove: {...box([5.5, 5.5, 0], [0.9, 0.9, 1]), op: "delete"},
+        move: {...box([3, 3, 0], [2, 2, 1]), op: "move", offset: [0, 0, 0.5], scale: [1, 1, 1], soft: 1},
+        smooth: {...box([3, 3, 0], [2, 2, 1]), op: "smooth", passes: 3},
+        holes: {type: "holes", size: 10},
+        clone: {...box([0.5, 4.5, 0], [0.9, 0.9, 5]), op: "clone", source: [2.5, 0.5, 0], patch: 1, feather: 0, spin: 0},
+        stamps: {type: "stamps", op: "clone", source: [2.5, 0.5, 0], feather: 0, stamps: [{center: [1.5, 1.5, 0], normal: [0, 0, 1], size: 1.2, spin: 0}]},
+    };
+    const summary = r => ({kept: Array.from(r.kept), positions: Array.from(r.positions), removed: r.removed, moved: r.moved, added: r.added,
+        fills: r.fills.map(f => [f.ring, !!f.clone]), clones: r.clones.map(c => [c.edit.op, Array.from(c.faces)]), cloned: r.cloned});
+
+    test("answers what applyEdits does, however the list changes", () => {
+        const preview = createPreview(surface, applyShape);
+        const { remove, move, smooth, holes, clone, stamps } = edits;
+        const lists = [[], [remove], [remove, move], [remove, {...move, offset: [0, 0, 1]}], [remove, {...move, offset: [0, 0, 1]}, holes],
+            [remove, {...move, offset: [0, 0, 1]}, holes, clone], [remove, smooth, holes, clone], [stamps], [remove, holes, stamps],
+            [remove, holes, {...stamps, stamps: [...stamps.stamps, {center: [4.5, 3.5, 0], normal: [0, 0, 1], size: 1.2, spin: 0}]}],
+            [remove], [], [holes, move, smooth, clone, remove, stamps], [holes, move, smooth, clone, remove, {...stamps, feather: 0.1}]];
+        for (const list of lists) expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
+    });
+
+    test("keeps no more than a few states however many edits change", () => {
+        const preview = createPreview(surface, applyShape);
+        const list = [];
+        for (let i = 0; i < PREVIEW_STATES + 4; i++){
+            list.push({...edits.remove, center: [i % 6 + 0.5, 5.5, 0]});
+            expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
+            list[i] = {...list[i], center: [i % 6 + 0.5, 4.5, 0]};
+            expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
         }
     });
 });
