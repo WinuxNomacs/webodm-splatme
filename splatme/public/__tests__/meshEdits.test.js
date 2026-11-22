@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills } from "../meshEdits";
 import { applyShape } from "../editShapes";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
@@ -448,5 +448,29 @@ describe("Clone Texture", () => {
         expect(sampleRegion(region, 2.5 / 4, 0.5)[0]).toBeCloseTo(0);
         expect(sampleRegion(region, 3 / 4, 0.5)[0]).toBeCloseTo(50);
         expect(sampleRegion(region, 0.99, 0.5)[0]).toBeCloseTo(100);
+    });
+});
+
+describe("fills with detail", () => {
+    test("a wide fill is textured from beside it, a narrow one keeps the smooth blend", () => {
+        // A 5 by 5 grid, 1 m squares, its middle square missing (0.7 m wide from its middle), all one red texture
+        const model = grid(5, (i, j) => i === 2 && j === 2).map(p => ({...p, uvs: new Float32Array(p.positions.length / 3 * 2).fill(0.5)}));
+        const surface = weld(model);
+        const result = applyEdits(surface, [{type: "holes", size: 4}], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(splitFills(result.fills).detailed.length).toBe(1);
+        expect(splitFills(result.fills).smooth.length).toBe(0);
+        const regions = cloneRegions(surface, model, result);
+        expect(regions.size).toBeGreaterThan(0);
+        const atlas = cloneAtlas(surface, model, result, () => [200, 50, 50]);
+        expect(atlas.piece.indices.length).toBe(6);
+        const u = (atlas.piece.uvs[0] + atlas.piece.uvs[2] + atlas.piece.uvs[4]) / 3, v = (atlas.piece.uvs[1] + atlas.piece.uvs[3] + atlas.piece.uvs[5]) / 3;
+        const i = 4 * (Math.floor(v * atlas.height) * atlas.width + Math.floor(u * atlas.width));
+        expect(Array.from(atlas.rgba.slice(i, i + 3)).map(Math.round)).toEqual([200, 50, 50]);
+
+        // The same hole a tenth the size is narrow
+        const small = grid(5, (i, j) => i === 2 && j === 2).map(p => ({...p, positions: p.positions.map(x => x / 10)}));
+        const tiny = applyEdits(weld(small), [{type: "holes", size: 4}], applyShape);
+        expect(splitFills(tiny.fills).smooth.length).toBe(1);
     });
 });

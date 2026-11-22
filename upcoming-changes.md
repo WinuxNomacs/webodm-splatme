@@ -3305,6 +3305,13 @@ wins; applied after all other edits. Only the texture regions involved are read 
 Node, a canvas `drawImage` of the sub-rectangle in the browser). Live: a default box retextured with lawn from a
 1 m source (55,375 triangles; preview 1.7 s; update 8 s).
 
+R4: fills with detail: a fill 0.1 m or more from its middle to its rim (`FILL_DETAIL`) is textured as a clone is,
+from a patch as wide as it beside it (of four, one fill-width along its plane's directions, the one with the most
+surface facing as the fill does, found through a grid of triangle centres), blended from the rim's colours over
+half its width; narrower fills keep the smooth blend. Both textures' parts go in the clones' texture
+(`splatme_clone`). Live: Fill Holes Small and Remove Object over the round flower bed: the bed is lawn with grass
+detail where it was a smooth patch; Fill Holes' preview 2.2 s, the update 10 s.
+
 **The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
 line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
 area shows while placing the second), then either end draggable.

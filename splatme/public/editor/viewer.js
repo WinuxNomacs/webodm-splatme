@@ -9,7 +9,7 @@ import { SparkRenderer, SplatMesh, utils } from "@sparkjsdev/spark";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, applyShape, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
-import { weld, applyEdits, fillColours, fillAtlas, sampleImage, cloneSource, cloneRegions, cloneAtlas, sampleRegion, regionRect } from "../meshEdits.js";
+import { weld, applyEdits, fillColours, fillAtlas, splitFills, sampleImage, cloneSource, cloneRegions, cloneAtlas, sampleRegion, regionRect } from "../meshEdits.js";
 
 const SAMPLE_SIZE = 256;  // texels: the copy of each texture the fills' colours come from (as meshApply.mjs's)
 
@@ -203,7 +203,7 @@ export function createViewer(container, handlers){
             model.clones.material.dispose();
             model.clones = null;
         }
-        if (!result.clones.length) return;
+        if (!result.clones.length && !splitFills(result.fills).detailed.length) return;
         const regions = new Map();
         for (const [k, r] of cloneRegions(model.surface, model.pieces, result)){
             const region = textureRegion(k, r);
@@ -245,12 +245,13 @@ export function createViewer(container, handlers){
             model.fills.material.dispose();
             model.fills = null;
         }
-        if (!result.fills.length) return;
-        const colours = fillColours(model.surface, model.pieces, result.fills, (k, u, v) => {
+        const smooth = splitFills(result.fills).smooth;  // the wider ones are textured as clones are
+        if (!smooth.length) return;
+        const colours = fillColours(model.surface, model.pieces, smooth, (k, u, v) => {
             const copy = textureCopy(k);
             return copy ? sampleImage(copy, SAMPLE_SIZE, u, v) : [128, 128, 128];
         });
-        const atlas = fillAtlas(result.fills, colours, result.positions);
+        const atlas = fillAtlas(smooth, colours, result.positions);
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.BufferAttribute(atlas.piece.positions, 3));
         geometry.setAttribute("uv", new THREE.BufferAttribute(atlas.piece.uvs, 2));

@@ -122,11 +122,11 @@ def glb_json(path):
     return json.loads(data[20 : 20 + length])
 
 
-def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False):
+def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False, unit=1.0):
     """
     A textured model as WebODM's texturing writes one, small: a GLB (no Draco, one primitive per material) with its
     OBJ and MTL. Material 0 is a 3 by 3 grid of 1 m squares at z 0 (its vertex at 1, 1 raised by bump; with hole,
-    no middle square); material 1
+    no middle square; unit: its squares' size in metres); material 1
     a lone triangle 10 m away, a floating piece. coords.txt gives the task's offset.
     """
     folder = task.assets_path("odm_texturing")
@@ -141,7 +141,7 @@ def make_textured_model(task, offset=(1000.0, 2000.0), bump=0.0, hole=False):
                 continue
             base = len(grid_positions)
             corners = [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
-            grid_positions += [(x, y, bump if (x, y) == (1, 1) else 0) for x, y in corners]
+            grid_positions += [(x * unit, y * unit, bump if (x, y) == (1, 1) else 0) for x, y in corners]
             grid_indices += [base, base + 1, base + 2, base, base + 2, base + 3]
     pieces = [(grid_positions, grid_indices), ([(10, 10, 0), (11, 10, 0), (10, 11, 0)], [0, 1, 2])]
     binary, views, accessors, primitives = bytearray(), [], [], []
@@ -575,7 +575,7 @@ class TestSplatMe(BootTestCase):
 
     def test_fill_holes_adds_triangles_with_a_texture_of_their_own_which_goes_when_no_fill_needs_it(self):
         task = make_task(self.user)
-        folder = make_textured_model(task, hole=True)
+        folder = make_textured_model(task, hole=True, unit=0.05)  # a narrow hole: the smooth blend
         texture = os.path.join(folder, meshes.FILL_TEXTURE)
         for bad in ([{"type": "holes", "size": 0}], [{"type": "holes", "size": meshes.MAX_HOLE + 1}], [{"type": "holes"}]):
             self.assertEqual(self.model_edits(task, bad).status_code, 400, bad)
@@ -604,6 +604,19 @@ class TestSplatMe(BootTestCase):
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
         self.assertFalse(os.path.exists(texture))
+
+    def test_a_wide_fill_is_textured_from_beside_it_in_the_clones_texture(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, hole=True)  # a 1 m hole
+        self.assertEqual(self.model_edits(task, [{"type": "holes", "size": 4}]).status_code, 200)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertEqual((res.data["apply"]["filled"], res.data["apply"]["added"]), (1, 2))
+        self.assertTrue(os.path.exists(os.path.join(folder, meshes.CLONE_TEXTURE)))
+        self.assertFalse(os.path.exists(os.path.join(folder, meshes.FILL_TEXTURE)))
+        with open(os.path.join(folder, meshes.MTL)) as f:
+            self.assertIn("newmtl splatme_clone\n", f.read())
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 19)
 
     def test_move_and_smooth_change_the_models_shape_in_steps_checked_by_the_server(self):
         task = make_task(self.user)

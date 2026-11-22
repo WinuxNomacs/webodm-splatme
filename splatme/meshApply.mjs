@@ -14,7 +14,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import { weld, applyEdits, editedPieces, fillColours, fillAtlas, sampleImage, cloneRegions, cloneAtlas, sampleRegion, regionRect } from './public/meshEdits.js';
+import { weld, applyEdits, editedPieces, fillColours, fillAtlas, splitFills, sampleImage, cloneRegions, cloneAtlas, sampleRegion, regionRect } from './public/meshEdits.js';
 import { applyShape } from './public/editShapes.js';
 
 const require = createRequire(path.join(process.env.WEBODM_DIR || '/webodm', 'package.json'));
@@ -133,10 +133,11 @@ async function main(){
         return copies.get(k);
     };
     const needed = new Set();
-    fillColours(surface, pieces, result.fills, k => { needed.add(k); return [0, 0, 0]; });
+    const smooth = splitFills(result.fills).smooth;  // the wider ones are textured as clones are
+    fillColours(surface, pieces, smooth, k => { needed.add(k); return [0, 0, 0]; });
     for (const k of needed) await textureOf(k);
-    const colours = fillColours(surface, pieces, result.fills, (k, u, v) => copies.get(k) ? sampleImage(copies.get(k), SAMPLE_SIZE, u, v) : [128, 128, 128]);
-    const fillTexture = fillAtlas(result.fills, colours, result.positions);
+    const colours = fillColours(surface, pieces, smooth, (k, u, v) => copies.get(k) ? sampleImage(copies.get(k), SAMPLE_SIZE, u, v) : [128, 128, 128]);
+    const fillTexture = fillAtlas(smooth, colours, result.positions);
 
     // The clones: the parts of the textures they read, at full size, then a texture made for them
     const regions = new Map();
