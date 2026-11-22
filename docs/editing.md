@@ -74,6 +74,10 @@ straight down, and **Reset View** goes back to the view the page opened with.
 
 Edits are saved as you make them ("Saved" under the list); leaving the page before then asks first.
 
+The page also takes a picture of the model for its row on **SplatMe → Tasks**, from the view it opens with when
+the task's model has the edits, and from the view as it is after **Update the Model**. A training removes the
+picture until the page is opened again.
+
 ## Updating the Model
 
 **Update the Model** makes the task's model again from its trained model with the edits, as the end of a training does:

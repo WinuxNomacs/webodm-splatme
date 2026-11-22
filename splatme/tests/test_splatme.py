@@ -178,7 +178,7 @@ class TestSplatMe(BootTestCase):
             self.status(task),
             {
                 "state": None, "active": False, "has_splats": False, "can_train": True,
-                "task_status": status_codes.COMPLETED, "editable": False, "apply": None,
+                "task_status": status_codes.COMPLETED, "editable": False, "apply": None, "thumbnail": None,
                 "auto": {"enabled": False, "options": training.DEFAULTS}, "listening": None,
             },
         )  # fmt: skip
@@ -299,6 +299,87 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.converted, [trained(10), trained(40)])
         self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["trained_steps"], 40)
         self.assertIsNone(self.node.jobs["job1"]["resume"])
+
+    def test_a_training_keeps_each_stages_time_and_a_continued_model_its_earlier_training_time(self):
+        clock = iter(range(1_000_000, 2_000_000, 10))  # every look at the time is 10 s later
+        task = make_task(self.user)
+        with mock.patch.object(training.time, "time", lambda: float(next(clock))):
+            self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+            first = self.status(task)
+            self.assertEqual(first["state"], "completed")
+            times = first["times"]
+            for stage in ("starting", "exporting", "uploading", "training", "importing"):
+                self.assertGreater(times.get(stage, 0), 0, (stage, times))
+            self.assertEqual(first["earlier_training"], 0)
+            self.assertIsNone(first["resume"])
+            self.assertEqual(training.trained_seconds(task), times["training"])
+            self.assertNotIn(training.TRAINING_SECONDS, training.trained_options(task))
+
+            self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+            second = self.status(task)
+            self.assertEqual(second["state"], "completed")
+            self.assertEqual(second["resume"], 10)
+            self.assertEqual(second["earlier_training"], times["training"])
+            self.assertEqual(training.trained_seconds(task), times["training"] + second["times"]["training"])
+            self.assertEqual(second["options"], {"steps": 15, "image_size": 16})
+
+    def test_a_model_without_its_training_time_continues_with_the_earlier_time_unknown(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        path = training.trained_options_file(task)
+        with open(path, "w") as f:
+            json.dump({"steps": 10, "image_size": 16}, f)  # as SplatMe 0.3 kept it
+        self.assertIsNone(training.trained_seconds(task))
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        status = self.status(task)
+        self.assertEqual(status["state"], "completed")
+        self.assertIsNone(status["earlier_training"])
+        self.assertIsNone(training.trained_seconds(task))
+
+    def jpeg(self, size=(32, 20), kind="JPEG"):
+        out = io.BytesIO()
+        Image.new("RGB", size, (10, 120, 30)).save(out, kind)
+        return out.getvalue()
+
+    def test_a_thumbnail_is_kept_for_those_who_may_see_the_task_and_dropped_by_a_training(self):
+        task = make_task(self.user)
+        url = f"{API}/task/{task.id}/thumbnail"
+        self.assertEqual(self.client.put(url, self.jpeg(), content_type="image/jpeg").status_code, 400)  # no model yet
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertIsNone(self.status(task)["thumbnail"])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+        res = self.client.put(url, self.jpeg(), content_type="image/jpeg")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIsNotNone(self.status(task)["thumbnail"])
+        got = self.client.get(url)
+        self.assertEqual(got.status_code, 200)
+        self.assertEqual(got["Content-Type"], "image/jpeg")
+        self.assertEqual(b"".join(got.streaming_content), self.jpeg())
+
+        # Someone who may only see the project sees it, and may not change it
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        self.assertEqual(other.get(url).status_code, 404)
+        assign_perm("view_project", User.objects.get(username="testuser2"), task.project)
+        self.assertEqual(other.get(url).status_code, 200)
+        self.assertEqual(other.put(url, self.jpeg(), content_type="image/jpeg").status_code, 404)  # as WebODM answers
+
+        # A training replaces the model, and the picture of it goes
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        self.assertIsNone(self.status(task)["thumbnail"])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_a_thumbnail_must_be_a_small_jpeg(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        url = f"{API}/task/{task.id}/thumbnail"
+        for body in (b"", b"not an image", self.jpeg(kind="PNG"), self.jpeg(size=(2000, 10)),
+                     self.jpeg()[:-200], b"\xff\xd8\xff" + b"0" * training.THUMBNAIL_BYTES):
+            res = self.client.put(url, body, content_type="image/jpeg")
+            self.assertEqual(res.status_code, 400, body[:20])
+            self.assertIn("thumbnail", res.data["error"])
+        self.assertIsNone(self.status(task)["thumbnail"])
 
     def find_sky(self, sky_rows):
         """Stands in for the sky model: the top rows of every photo are sky."""

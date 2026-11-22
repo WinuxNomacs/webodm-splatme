@@ -2,7 +2,7 @@ import React from 'React';
 import { _ } from 'webodm/classes/gettext';
 import TrainSplats from './TrainSplats';
 import NewTask from './NewTask';
-import { request, webodm } from './api';
+import { request, webodm, thumbnailUrl } from './api';
 import { ACCEPT, projectByName } from './taskUpload';
 import { panelMode, rowNote, taskStatusText, nextRefresh, runningPercent, resultText, justCompleted, dashboardLink,
     TASK_FAILED, TASK_QUEUED, TASK_RUNNING, FAST, SLOW, SETTLE } from './trainingView';
@@ -236,25 +236,33 @@ export default class Tasks extends React.Component {
         const percent = runningPercent(task);
         return (
             <li key={task.id} id={"splatme-task-" + task.id} className={"list-group-item splatme-row" + (task.id === this.focus ? " theme-border-primary splatme-focus" : "")}>
-                <div className="splatme-row-head">
-                    <a href={dashboard} className="splatme-task-name"><i className="fa fa-tasks fa-fw"></i> {name}</a>
-                    <span className="splatme-task-meta">
-                        {_(taskStatusText(task.status))}{percent === null ? "" : ", " + percent + "%"}
-                        {task.images_count ? " · " + Number(task.images_count).toLocaleString("en-US") + " " + (task.images_count === 1 ? _("image") : _("images")) : ""}
-                    </span>
+                {status.thumbnail && status.has_splats ?
+                    <a className="splatme-thumb" href={"/3d/project/" + project.id + "/task/" + task.id + "/?t=splats"} title={_("View in 3D")}>
+                        <img src={thumbnailUrl(task.id, status.thumbnail)} alt={_("The splat model")} />
+                    </a> : ""}
+                <div className="splatme-row-main">
+                    <div className="splatme-row-head">
+                        <a href={dashboard} className="splatme-task-name"><i className="fa fa-tasks fa-fw"></i> {name}</a>
+                        <span className="splatme-task-meta">
+                            {_(taskStatusText(task.status))}{percent === null ? "" : ", " + percent + "%"}
+                            {task.images_count ? " · " + Number(task.images_count).toLocaleString("en-US") + " " + (task.images_count === 1 ? _("image") : _("images")) : ""}
+                        </span>
+                    </div>
+                    {task.status === TASK_FAILED && task.last_error ? <div className="text-danger splatme-task-error">{task.last_error}</div> : ""}
+                    {hidden ?
+                        <div className="splatme-task splatme-idle">
+                            {result ? <div className="splatme-result">{result}</div> : ""}
+                            {note ? <div className="text-muted splatme-result">{_(note)}</div> : ""}
+                            {status.has_splats ?
+                                <div className="splatme-actions">
+                                    <a className="btn btn-sm btn-secondary" href={"/3d/project/" + project.id + "/task/" + task.id + "/?t=splats"}>
+                                        <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
+                                    </a>
+                                </div> : ""}
+                        </div> :
+                        <TrainSplats taskId={task.id} projectId={project.id} status={status}
+                                     onStatus={s => this.handleStatus(task.id, s)} onRefresh={this.load} />}
                 </div>
-                {task.status === TASK_FAILED && task.last_error ? <div className="text-danger splatme-task-error">{task.last_error}</div> : ""}
-                {hidden ?
-                    <div className="splatme-task splatme-idle">
-                        {status.has_splats ?
-                            <a className="btn btn-sm btn-default" href={"/3d/project/" + project.id + "/task/" + task.id + "/?t=splats"}>
-                                <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
-                            </a> : ""}
-                        {result ? <span className="splatme-result">{result}</span> : ""}
-                        {note ? <span className="text-muted">{_(note)}</span> : ""}
-                    </div> :
-                    <TrainSplats taskId={task.id} projectId={project.id} status={status}
-                                 onStatus={s => this.handleStatus(task.id, s)} onRefresh={this.load} />}
             </li>
         );
     }

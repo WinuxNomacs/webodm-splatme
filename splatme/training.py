@@ -13,6 +13,7 @@ for all the trainings, the follower (follow_node), follows them; when one is tra
 imports the model. So the trainings waiting in the node's queue take one place in WebODM's worker, not one each.
 """
 import fcntl
+import io
 import json
 import logging
 import math
@@ -34,6 +35,7 @@ from app.plugins.worker import run_function_async
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from nodeodm import status_codes
+from PIL import Image
 
 from . import crop, edits, sky, thermal
 from .node import Node, NodeError
@@ -251,13 +253,30 @@ def change_job(task_id, change):
     return change_record(job_key(task_id), change)
 
 
+def enter_state(job, state, now=None):
+    """
+    The time the job spent in its state so far added to its times (seconds by state: the summary gives the
+    training's apart from the rest), when it moves to another.
+    """
+    if job.get("state") == state:
+        return
+    now = time.time() if now is None else now
+    since = job.get("since") or job.get("started") or now
+    times = dict(job.get("times") or {})
+    times[job["state"]] = round(times.get(job["state"], 0) + max(0.0, now - since), 1)
+    job.update(times=times, since=now)
+
+
 def update(task_id, run, **fields):
     """A worker job's report. Raises Superseded when the record is no longer this run's."""
 
     def change(job):
         if job.get("run") != run:
             raise Superseded()
-        job.update(fields, updated=time.time())
+        now = time.time()
+        if "state" in fields:
+            enter_state(job, fields["state"], now)
+        job.update(fields, updated=now)
 
     if change_job(task_id, change) is None:
         raise Superseded()
@@ -351,6 +370,48 @@ def trained_dir(task):
     return task.data_path(TRAINED_DIR)
 
 
+THUMBNAIL = "thumbnail.jpg"  # a picture of the model, from Edit Splats' view, for its row on SplatMe → Tasks
+THUMBNAIL_BYTES = 200 * 1024
+THUMBNAIL_PIXELS = 1024  # at most, each side
+
+
+def thumbnail_file(task):
+    return os.path.join(trained_dir(task), THUMBNAIL)
+
+
+def thumbnail_version(task):
+    """When the task's thumbnail was saved (a number that changes with it), or None without one."""
+    try:
+        return int(os.path.getmtime(thumbnail_file(task)))
+    except OSError:
+        return None
+
+
+def save_thumbnail(task, data):
+    """Keeps a JPEG of the task's model, after checking it is one. Raises TrainingError with the reason it is not."""
+    if not data or len(data) > THUMBNAIL_BYTES:
+        raise TrainingError(f"A thumbnail must be a JPEG of at most {THUMBNAIL_BYTES // 1024} kB.")
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format != "JPEG" or max(image.size) > THUMBNAIL_PIXELS:
+                raise TrainingError(f"A thumbnail must be a JPEG of at most {THUMBNAIL_PIXELS} pixels a side.")
+            image.verify()
+    except (OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+        raise TrainingError("A thumbnail must be a JPEG.") from None
+    path = thumbnail_file(task)
+    os.makedirs(trained_dir(task), exist_ok=True)
+    with open(path + NEW, "wb") as f:
+        f.write(data)
+    os.replace(path + NEW, path)
+
+
+def drop_thumbnail(task):
+    try:
+        os.remove(thumbnail_file(task))
+    except FileNotFoundError:
+        pass
+
+
 def trained_model(task):
     path = os.path.join(trained_dir(task), TRAINED_MODEL)
     if not os.path.exists(path):
@@ -387,14 +448,30 @@ def trained_options_file(task):
     return os.path.join(trained_dir(task), TRAINED_OPTIONS)
 
 
-def trained_options(task):
-    """The options the task's trained model was trained with, or None (a model trained by SplatMe 0.1)."""
+TRAINING_SECONDS = "_training_seconds"  # kept with the options: the model's training time, Continue's included
+
+
+def read_trained_options(task):
     try:
         with open(trained_options_file(task)) as f:
             options = json.load(f)
     except (OSError, ValueError):
         return None
     return options if isinstance(options, dict) else None
+
+
+def trained_options(task):
+    """The options the task's trained model was trained with, or None (a model trained by SplatMe 0.1)."""
+    options = read_trained_options(task)
+    if options is None:
+        return None
+    return {k: v for k, v in options.items() if k != TRAINING_SECONDS}
+
+
+def trained_seconds(task):
+    """The seconds the trainer took to make the task's trained model, all its continuations included, or None."""
+    seconds = (read_trained_options(task) or {}).get(TRAINING_SECONDS)
+    return seconds if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds >= 0 else None
 
 
 def reconstruction(task):
@@ -549,7 +626,9 @@ def start(task, username, given, auto=False):
     job = {
         "state": "starting", "run": run, "options": options, "user": username, "auto": auto, "progress": 0,
         "status": "", "node_job": None, "error": None, "started": now, "updated": now, "finished": None,
-        "resume": resume, "source": reconstruction(task), "waiting": run,
+        "resume": resume, "source": reconstruction(task), "waiting": run, "since": now, "times": {},
+        # On Continue, the training time of the model continued from (None: not known, a model of SplatMe 0.3)
+        "earlier_training": trained_seconds(task) if resume is not None else 0,
     }  # fmt: skip
     with transaction.atomic():
         lock_records()
@@ -612,6 +691,7 @@ def stop_job(task_id, state, error, keep_node_job=False):
 
     def stop(j):
         if j["state"] in ACTIVE:
+            enter_state(j, state)
             j.update(state=state, run=None, error=error, status="", time_left=None, finished=time.time())
 
     change_job(task_id, stop)
@@ -629,7 +709,11 @@ def cancel(task):
     store().set_bool(cancel_key(task.id), True)
     if is_stale(job):
         drop_node_job(job)
-        change_job(task.id, lambda j: j.update(state="canceled", run=None, finished=time.time()))
+        def canceled(j):
+            enter_state(j, "canceled")
+            j.update(state="canceled", run=None, finished=time.time())
+
+        change_job(task.id, canceled)
         shutil.rmtree(work_dir(task.id), ignore_errors=True)
     return get_job(task.id)
 
@@ -1111,6 +1195,7 @@ def follow_job(task_id, run, node, node_job, memory):
         def to_import(j):
             if j.get("run") != run:
                 raise Superseded()
+            enter_state(j, "importing")
             j.update(state="importing", run=importing, waiting=importing, progress=0, status="", time_left=None,
                  updated=time.time())
 
@@ -1225,7 +1310,11 @@ def import_model(task_id, run, node, node_job, work):
         raise TrainingError("The task was processed again while its splats trained. Start the training again.")
     dest = task.get_asset_file_or_stream("splats.rad")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    replace_files(task, model, trained, options)
+    job = get_job(task_id) or job  # its times, up to the import
+    earlier, took = job.get("earlier_training"), (job.get("times") or {}).get("training")
+    total = earlier + took if isinstance(earlier, (int, float)) and isinstance(took, (int, float)) else None
+    replace_files(task, model, trained, {**options, TRAINING_SECONDS: total} if total is not None else options)
+    drop_thumbnail(task)  # a picture of the model replaced; Edit Splats takes another
     set_shown(task.id, cut["made_with"])
     store().del_key(apply_key(task.id))  # the last Apply no longer says what the model is (Apply waits for a training)
     task.refresh_from_db()

@@ -4,7 +4,7 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, DEFAULT_PALETTE } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, DEFAULT_PALETTE } from './trainingView';
 import StagesTable from './StagesTable';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
@@ -106,7 +106,9 @@ export default class TrainDialog extends React.Component {
                             <div className="col-sm-8">
                                 <input type="number" min="1" className="form-control splatme-more-steps" id="splatme-more-steps" value={more}
                                        onChange={e => this.setState({more: e.target.value, error: null})} />
-                                <StagesTable total={total} from={trained} growUntil={String(growUntil).trim() || modelGrowUntil} />
+                                {stepsGrow(total, trained, String(growUntil).trim() || modelGrowUntil) ?
+                                    <StagesTable total={total} from={trained} growUntil={String(growUntil).trim() || modelGrowUntil} /> :
+                                    <p className="help-block">{_("The model grows no more in these steps: they refine it. Grow Until makes it grow again.")}</p>}
                                 <span className="help-block">
                                     {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
                                 </span>

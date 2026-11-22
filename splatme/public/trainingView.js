@@ -79,6 +79,13 @@ export function trainingStages(total, from, growUntil){
     return {stages: stages.map((s, i) => ({...s, percent: percents[i]})), rounds};
 }
 
+// Whether the steps from+1 to total grow the model: a continued training's stages table is shown only then (its
+// warm-up and growing at 0% read as a mistake otherwise)
+export function stepsGrow(total, from, growUntil){
+    const result = trainingStages(total, from, growUntil);
+    return !!result && result.rounds > 0;
+}
+
 // The stages' table under Steps as text, cell by cell: [{label, value}] with the growing's rounds after its share,
 // a dash for each when the number is not a training's
 export function stagesCells(total, from, growUntil){
@@ -300,14 +307,32 @@ export function thermalText(drawn, imperial){
 export function resultText(job, imperial){
     if (!job || !job.state) return "";
     if (job.state === "completed"){
-        const took = job.started && job.finished ? " in " + duration(job.finished - job.started) : "";
         const steps = (job.options || {}).steps;
+        const stepsText = steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "";
         // sky_masks: in how many photos Ignore Sky found sky; not there when it was off
         const sky = job.sky_masks == null ? "" : job.sky_masks > 0 ?
             " Sky ignored in " + Number(job.sky_masks).toLocaleString("en-US") + (job.sky_masks === 1 ? " photo." : " photos.") :
             " No photo shows the sky.";
-        return "Splats trained" + (steps ? " (" + Number(steps).toLocaleString("en-US") + " steps)" : "") + took + "." + sky +
-            (job.cropped ? " Cropped to the task's boundary." : "") + (job.thermal ? " " + thermalText(job.thermal, imperial) : "");
+        const rest = (job.cropped ? " Cropped to the task's boundary." : "") + (job.thermal ? " " + thermalText(job.thermal, imperial) : "");
+        const times = job.times;
+        if (!times || times.training == null){
+            // A record of SplatMe 0.3 or before: from the request to the end
+            const took = job.started && job.finished ? " in " + duration(job.finished - job.started) : "";
+            return "Splats trained" + stepsText + took + "." + sky + rest;
+        }
+        const day = job.finished ? " on " + new Date(job.finished * 1000).toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric"}) : "";
+        let training = duration(times.training) + " of training";
+        if (job.resume && steps > job.resume){
+            const last = " for the last " + Number(steps - job.resume).toLocaleString("en-US");
+            training = typeof job.earlier_training === "number" ?
+                duration(job.earlier_training + times.training) + " of training, " + duration(times.training) + " of it" + last :
+                training + last;
+        }
+        const masking = times.masking || 0;
+        const other = Object.keys(times).reduce((sum, stage) => stage === "training" || stage === "masking" ? sum : sum + times[stage], 0);
+        return "Splats trained" + stepsText + day + ": " + training + "." + sky +
+            (masking >= 1 ? " Finding the sky took " + duration(masking) + "." : "") +
+            (other >= 1 ? " Preparing, transfers and waiting took " + duration(other) + "." : "") + rest;
     }
     if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
     // A training SplatMe stopped itself (the task was processed again) says why

@@ -21,6 +21,7 @@ from .api import (
     SharedAutomation,
     Status,
     Tasks,
+    Thumbnail,
     Train,
 )
 
@@ -82,6 +83,7 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/floaters$", Floaters.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/model$", Model.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/download$", Download.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/thumbnail$", Thumbnail.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("automation$", Automation.as_view()),
             MountPoint("automation/shared$", SharedAutomation.as_view()),

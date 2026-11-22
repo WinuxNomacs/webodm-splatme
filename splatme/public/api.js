@@ -20,7 +20,11 @@ function sendTo(url, method, body){
         init.headers["X-CSRFToken"] = csrfToken();
         // A form (files) sets its own type, with its boundary
         if (typeof FormData !== "undefined" && body instanceof FormData) init.body = body;
-        else {
+        else if (typeof Blob !== "undefined" && body instanceof Blob){
+            // A picture, sent as it is
+            init.headers["Content-Type"] = body.type || "application/octet-stream";
+            init.body = body;
+        } else {
             init.headers["Content-Type"] = "application/json";
             init.body = JSON.stringify(body || {});
         }
@@ -55,6 +59,11 @@ export function request(method, path, body){
 // Where the browser downloads the task's model with its saved edits, as a .ply (a link: the server names the file)
 export function downloadUrl(taskId){
     return BASE + "task/" + encodeURIComponent(taskId) + "/download";
+}
+
+// The task's thumbnail (Edit Splats' picture of its model); version, from its status, changes with it
+export function thumbnailUrl(taskId, version){
+    return BASE + "task/" + encodeURIComponent(taskId) + "/thumbnail?v=" + encodeURIComponent(version);
 }
 
 // The same for a URL of WebODM's own API (/api/projects/...), or SplatMe's given whole
