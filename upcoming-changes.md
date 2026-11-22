@@ -9,7 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. Model repair tools, before the release (the user's decision, 2026-11-22): Move, Smooth, Straighten, Clone
+   Texture and fills with detail. Phases R1 to R5 in "14. Model repair tools".
+2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
@@ -3230,3 +3232,57 @@ photo projection could follow.
   cache, never checked against the GLB's time): Update the Model deletes them. The Textured Model download is
   zipped from `odm_texturing/` as it is when asked for: the originals are kept in `data/splatme`, not there. A
   task's 3D Tiles model (`3d_tiles/model`) is not edited.
+
+### 14. Model repair tools (asked 2026-11-22)
+
+**The request** (the user, with a close-up of a real model: a dormer window under a shingled roof). What users see
+and need to correct:
+
+- holes in the windows and in the shingles;
+- shingles clear in places but broken and curved in others;
+- part of the shingled eave sits in front of the siding below it, where it should be raised above it;
+- the roof sits lower than it should.
+
+Tools asked for: select areas to fill in; raise, shift, align, stretch, straighten and smooth them; copy texture
+from a known good area, tiled and blended into others (windows, shingles, lawn, objects); adjustments made in steps.
+For example: select the gutter, draw a line inside the selection to show how straight it should be, then press + or
+- to pull the selection toward the line in steps, or let it go back.
+
+**What it builds on:** section 13's edit list (shape + `op`, the same rule in the preview and in Update the Model,
+originals kept). Each new tool is one more `op` with its parameters, so a step is a parameter change in the list:
+it can be undone, stays editable, and never piles up.
+
+**Proposed tools, as ops:**
+
+- **Move** (raise, shift, stretch): what the shape covers moved by an offset, scaled or turned with the box's
+  handles, the move fading to nothing across a soft edge (a width in metres), so the surface stretches instead of
+  tearing. Steps: the offset in centimetres (+/-). This raises the roof, and lifts the eave above the siding.
+- **Smooth**: the covered vertices moved toward their neighbours' mean (Laplacian), the rim fixed. Steps: the number
+  of passes (+/-). This settles curved and broken shingles and lumpy walls.
+- **Straighten**: a line drawn inside the selection (two points on the surface); the covered vertices pulled toward
+  it, the pull fading with distance from the line. Steps: the strength, 0 to 100% in tens (+/-). This straightens
+  gutters, eaves, ridges and window frames. Flatten (built) is the same idea for a plane.
+- **Clone Texture**: a source shape (the known good area) and a target shape. The source's texture, rendered flat on
+  its plane at its own resolution, is tiled across the target on the target's plane (rows kept level: each plane's v
+  axis is its most upward direction) and blended into the target's own texture across a feathered edge. Steps: the
+  feather width, and an offset or turn of the tiling. The target's triangles get new uvs into a texture made for
+  them, as fills do. This repairs shingles, siding, lawn and windows.
+- **Fills with detail**: Fill Holes and Remove Object filling with Clone Texture from a ring around each hole,
+  instead of the smooth blend.
+
+**Technical notes:**
+
+- Clone Texture needs the full-resolution textures. In Node: sharp decodes only the textures the source touches. In
+  the browser: those textures read once into a canvas (`getImageData`; Brave's noise does not matter for a preview).
+  The source is rasterised in plain JS (barycentric, in `meshEdits.js`), so the preview and the update share it.
+- Moving vertices never changes uvs, so the texture stretches over a moved area's soft edge. Clone Texture is the
+  repair where that shows.
+- The eave in front of the siding may be geometry (fixed by Move) or texture (shingles painted on the siding's
+  triangles, fixed by Clone Texture from the siding); both tools cover it.
+
+**Proposed phases:** R1 Move and Smooth, with the list's step controls (+/-) for any op with a strength. R2
+Straighten, with the line drawn on the surface. R3 Clone Texture. R4 Fills with detail (R3's renderer). R5 docs.
+
+**The user's decisions (2026-11-22):** the release waits for all of them (R1 to R5, in that order). Straighten's
+line: two clicks on the model, the first dropping a point with a line tethered from it to the pointer (so the line's
+area shows while placing the second), then either end draggable.
