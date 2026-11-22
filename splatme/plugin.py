@@ -1,3 +1,6 @@
+import hashlib
+import os
+
 from app.plugins import Menu, MountPoint, PluginBase, signals
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -27,6 +30,24 @@ from .api import (
     Thumbnail,
     Train,
 )
+
+# The editor's plain ES modules (not built by webpack): their URLs carry a version made from their files, so that a
+# browser fetches them again once they change (the server gives them no Cache-Control)
+EDITOR_MODULES = ("editor/viewer.js", "meshEdits.js", "editShapes.js")
+
+
+def editor_modules():
+    """The editor's modules as the page's import map gives them: {published path: path with its version}."""
+    public = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
+    out = {}
+    for name in EDITOR_MODULES:
+        try:
+            info = os.stat(os.path.join(public, name))
+            version = hashlib.sha256(f"{info.st_mtime_ns}:{info.st_size}".encode()).hexdigest()[:12]
+        except OSError:
+            version = "0"
+        out[f"/plugins/splatme/{name}"] = f"/plugins/splatme/{name}?v={version}"
+    return out
 
 
 class Plugin(PluginBase):
@@ -66,7 +87,7 @@ class Plugin(PluginBase):
         # Edit Splats: the API answers whether the user may see and change the task
         @login_required
         def editor_page(request, task_id):
-            return render(request, self.template_path("editor.html"), {"title": "Edit Splats", "task_id": task_id})
+            return render(request, self.template_path("editor.html"), {"title": "Edit Splats", "task_id": task_id, "modules": editor_modules()})
 
         return [
             MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page),

@@ -3352,3 +3352,10 @@ fill inside it textured from it with the stamp's anchor and no feather (`fill.cl
 detailed). Live on the check task's roof: one 2 m stamp filled 16 holes (136 triangles) and retextured 2,437; the
 update matched. The cursor's first picture at a size takes about 0.7 s (the texture region read once), then about
 50 to 90 ms a move.
+
+**Bug (reported 2026-11-22): stamps did not fill the holes on the user's roof.** The cause found: the editor's
+plain ES modules (`editor/viewer.js`, `meshEdits.js`, `editShapes.js`) were served with no Cache-Control and loaded
+by a dynamic `import()`, so the browser kept an earlier copy (the stamps without hole filling) after the update.
+Fixed: the page's import map gives them URLs with a version made from each file's modification time and size
+(`plugin.py`'s `editor_modules`); a Django test checks the map and that the version changes with the file. Also
+matters for users upgrading SplatMe: the new panel would otherwise run with the old 3D view.
