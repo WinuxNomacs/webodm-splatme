@@ -980,7 +980,9 @@ class EditorPanel extends React.Component {
                     </div> : ""}
                 {this.state.lining ?
                     <div className="alert alert-info splatme-editor-drawing">
-                        {this.state.lining === "clone" ?
+                        {this.state.lining === "clone" && this.lineIndex < 0 ?
+                            _("Click the middle of a good area on the model to copy from. Then click where its texture is needed.") :
+                        this.state.lining === "clone" ?
                             _("Click the middle of a good area on the model to copy from: a square of it, Source Size across, is tiled over what the shape covers.") :
                             _("Click the line's first end on the model, then its other end: a line follows the pointer from the first. Inside the shape, the surface is pulled toward the line.")}
                         <div className="splatme-editor-drawing-actions">

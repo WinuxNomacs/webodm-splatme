@@ -531,6 +531,28 @@ describe("Clone Texture's stamps", () => {
         expect(applyEdits(surface, [stamps([stamp([3.5, 2.5, 0], 1), stamp([0.5, 0.5, 0], 1)])], applyShape).cloned).toBe(4);
     });
 
+    test("a stamp fills the holes whose whole rim it covers, textured in line with the stamp", () => {
+        const model = grid(4, (i, j) => i === 2 && j === 2).map(p => {
+            const uvs = new Float32Array(p.positions.length / 3 * 2);
+            for (let c = 0; c < p.positions.length / 3; c++){
+                uvs[2 * c] = p.positions[3 * c] / 4;
+                uvs[2 * c + 1] = p.positions[3 * c + 1] / 4;
+            }
+            return {...p, uvs};
+        });
+        const surface = weld(model);
+        expect(applyEdits(surface, [stamps([stamp([2.5, 2.5, 0], 0.9)])], applyShape).fills.length).toBe(0);  // its rim is not all inside
+        const result = applyEdits(surface, [stamps([stamp([2.5, 2.5, 0], 1.2)])], applyShape);
+        expect(result.fills.length).toBe(1);
+        expect(splitFills(result.fills).detailed.length).toBe(1);
+        const atlas = cloneAtlas(surface, model, result, sample);
+        for (const [x, y] of [[2.5, 2.5], [2.7, 2.4], [2.3, 2.75]]){
+            const colour = colourAt(atlas, x, y);
+            expect(colour[0]).toBeCloseTo((1 + x - 2.5) / 4 * 255, -0.7);
+            expect(colour[1]).toBeCloseTo((1 + y - 2.5) / 4 * 255, -0.7);
+        }
+    });
+
     test("a stamp's patch has its middle where the stamp is, turned with it", () => {
         const model = pieces();
         const surface = weld(model);

@@ -55,9 +55,10 @@ and **Remove Object** each add a box doing that in the middle of the view, to mo
 **Straighten** asks for the line first and puts a box around it, as wide as **Reach** each side. To repair inside a polygon or a lasso instead, draw it
 and choose the repair in its list; the **Brush** has its own buttons (below).
 
-**Clone Texture** is a stamp. Click the middle of a good area on the model; the pointer then becomes a square of
-it, laid on the surface under the pointer, with a tick toward the texture's top. A click drops a copy of the good
-area's texture there, its middle where the square's is, blended in over a narrow edge. The wheel turns the square
+**Clone Texture** is a stamp. Click the middle of a good area on the model; the pointer then becomes a square showing
+its texture, laid on the surface under the pointer, with a tick toward the texture's top. A click drops that
+texture there, its middle where the square's is, blended in over a narrow edge, and fills the holes whose whole edge
+the square covers with it, in line with the texture around them (fills made earlier inside the square take it too). The wheel turns the square
 15 degrees a notch, Ctrl+wheel or **[** and **]** make it 25 cm larger or smaller (or **Size** and **Turn** in the
 panel), and Shift+wheel zooms; dragging still turns the view and right-dragging moves it. Each stamp keeps the size
 and turn it was dropped with, and a later stamp covers an earlier one. **Done** or Esc stops stamping. The stamps

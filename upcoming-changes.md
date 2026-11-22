@@ -3344,3 +3344,11 @@ patches shared between stamps (`clonesSources`); `meshes.py` `clean_stamps` and 
 stamp, seen failing without the anchor), Django (checks, shift, an update). Live on a copy of the check task:
 lawn stamped onto the driveway, turned 45 degrees and 2.75 m, a drag turning the view without stamping, Undo per
 stamp, the update retexturing 7,641 triangles in about 6 s.
+
+R6 follow-up (asked 2026-11-22, the user's roof showing holes left inside stamps): the cursor shows the source's
+patch (`stampSource` through the stamping's grid, `stampRegions`, `stampPatch`; a DataTexture on the square, made
+once a size; pointer moves handled once a frame), and a stamp fills the holes whose whole rim it covers, every
+fill inside it textured from it with the stamp's anchor and no feather (`fill.clone`; `splitFills` counts it as
+detailed). Live on the check task's roof: one 2 m stamp filled 16 holes (136 triangles) and retextured 2,437; the
+update matched. The cursor's first picture at a size takes about 0.7 s (the texture region read once), then about
+50 to 90 ms a move.

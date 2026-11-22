@@ -633,11 +633,17 @@ export function applyEdits(surface, edits, applyShape){
             fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.every(v => !outside[v])));
         } else if (edit.type === "stamps"){
             at = at || centres(surface.faces, positions);
+            // The holes whose whole rim a stamp covers are filled, and every fill inside a stamp takes its texture
+            const open = edit.stamps.length ? holes(surface, kept, fills, positions) : [];
+            const inside = (stamp, ring) => ring.every(v => insideStamp(stamp, positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]));
             for (const stamp of edit.stamps){
                 const covered = new Uint8Array(n);
                 for (let f = 0; f < n; f++) covered[f] = insideStamp(stamp, at.xs[f], at.ys[f], at.zs[f]) ? 1 : 0;
-                clones.push([{op: "clone", source: edit.source, patch: stamp.size, feather: edit.feather, spin: stamp.spin,
-                    anchor: stamp.center, normal: stamp.normal}, covered]);
+                const clone = {op: "clone", source: edit.source, patch: stamp.size, feather: edit.feather, spin: stamp.spin,
+                    anchor: stamp.center, normal: stamp.normal};
+                fill(open.filter(hole => !hole.taken && inside(stamp, hole.rim) && (hole.taken = true)));
+                for (const made of fills) if (inside(stamp, made.ring)) made.clone = clone;
+                clones.push([clone, covered]);
             }
         } else if (edit.op === "clone"){
             clones.push([edit, coveredBy(edit)]);
@@ -863,6 +869,22 @@ export function planeFrame(normal){
     return {u, v};
 }
 
+// Clone Texture's stamp as the pointer shows it: the source patch, size metres across, {rgb, size (texels)} or null
+// where no triangle is near the source; sample as cloneAtlas's, loaded where stampRegions says
+// (stampSource: cloneSource's for it, found through a faceGrid; stampRegions: where its texture is read, as
+// cloneRegions says)
+export function stampSource(surface, positions, kept, source, size, grid){
+    return cloneSource(surface, positions, kept, {source, patch: size}, grid);
+}
+export function stampRegions(surface, pieces, found){
+    const regions = new Map();
+    for (const f of found.faces) takeRegion(surface, pieces, regions, f);
+    return regions;
+}
+export function stampPatch(surface, pieces, positions, found, sample){
+    return sourcePatch(surface, pieces, positions, found, sample);
+}
+
 // A stamp's square on its plane: the normal, and the square's sides' directions (a, b), its turn as renderPart turns
 // the patch, so that the patch's square lands on it
 export function stampAxes(normal, spin){
@@ -961,7 +983,8 @@ function fillSource(surface, positions, kept, fill, grid){
 
 // The fills drawn with the smooth blend (fillAtlas) and those textured from beside them (cloneAtlas)
 export function splitFills(fills){
-    return {smooth: fills.filter(f => f.radius < FILL_DETAIL), detailed: fills.filter(f => f.radius >= FILL_DETAIL)};
+    const detailed = f => f.radius >= FILL_DETAIL || !!f.clone;  // a stamp's fills take the stamp's texture
+    return {smooth: fills.filter(f => !detailed(f)), detailed: fills.filter(detailed)};
 }
 
 export const CLONE_TEXEL = 0.01;  // metres a texel of a source patch covers
@@ -970,21 +993,24 @@ const MAX_CELL = 2048;  // texels across one clone's part of the texture
 export const CLONE_WIDTH = 4096;  // texels: the clones' texture's width
 
 // Where each piece's texture is read by the clones: {piece: [u0, v0, u1, v1]}, for the caller to load those parts
+// Grows regions ({piece: [u0, v0, u1, v1]}) to take in triangle f's texture
+function takeRegion(surface, pieces, regions, f){
+    const k = surface.pieceOf[f], uvs = pieces[k].uvs;
+    if (!uvs) return;
+    const r = regions.get(k) || [Infinity, Infinity, -Infinity, -Infinity];
+    for (let c = 0; c < 3; c++){
+        const corner = pieces[k].indices[3 * surface.localOf[f] + c];
+        r[0] = Math.min(r[0], uvs[2 * corner]);
+        r[1] = Math.min(r[1], uvs[2 * corner + 1]);
+        r[2] = Math.max(r[2], uvs[2 * corner]);
+        r[3] = Math.max(r[3], uvs[2 * corner + 1]);
+    }
+    regions.set(k, r);
+}
+
 export function cloneRegions(surface, pieces, result){
     const regions = new Map();
-    const take = f => {
-        const k = surface.pieceOf[f], uvs = pieces[k].uvs;
-        if (!uvs) return;
-        const r = regions.get(k) || [Infinity, Infinity, -Infinity, -Infinity];
-        for (let c = 0; c < 3; c++){
-            const corner = pieces[k].indices[3 * surface.localOf[f] + c];
-            r[0] = Math.min(r[0], uvs[2 * corner]);
-            r[1] = Math.min(r[1], uvs[2 * corner + 1]);
-            r[2] = Math.max(r[2], uvs[2 * corner]);
-            r[3] = Math.max(r[3], uvs[2 * corner + 1]);
-        }
-        regions.set(k, r);
-    };
+    const take = f => takeRegion(surface, pieces, regions, f);
     const sourceOf = clonesSources(surface, result);
     for (const clone of result.clones){
         for (const f of clone.faces) take(f);
@@ -997,8 +1023,8 @@ export function cloneRegions(surface, pieces, result){
         const faceOf = firstFaces(surface);
         for (const fill of detailed){
             for (const vtx of fill.ring) take(faceOf[vtx]);
-            const edit = fillSource(surface, result.positions, result.kept, fill, grid);
-            const source = edit && cloneSource(surface, result.positions, result.kept, edit, grid);
+            const edit = fill.clone ? null : fillSource(surface, result.positions, result.kept, fill, grid);
+            const source = fill.clone ? sourceOf(fill.clone) : edit && cloneSource(surface, result.positions, result.kept, edit, grid);
             if (source) for (const f of source.faces) take(f);
         }
     }
@@ -1188,8 +1214,8 @@ export function cloneAtlas(surface, pieces, result, sample){
         const grid = faceGrid(surface, result.positions, result.kept, 0.5);
         const colours = fillColours(surface, pieces, detailed, sample);
         detailed.forEach((fill, k) => {
-            const edit = fillSource(surface, result.positions, result.kept, fill, grid);
-            const source = edit && cloneSource(surface, result.positions, result.kept, edit, grid);
+            const edit = fill.clone ? null : fillSource(surface, result.positions, result.kept, fill, grid);
+            const source = fill.clone ? sourceOf(fill.clone) : edit && cloneSource(surface, result.positions, result.kept, edit, grid);
             if (!source) return;
             const triangles = [];
             for (let t = 0; t < fill.triangles.length; t += 3) triangles.push([fill.ring[fill.triangles[t]], fill.ring[fill.triangles[t + 1]], fill.ring[fill.triangles[t + 2]]]);
@@ -1213,7 +1239,9 @@ export function cloneAtlas(surface, pieces, result, sample){
                 }
                 return [r / weights, g / weights, bl / weights];
             };
-            const part = renderPart(surface, pieces, result.positions, triangles, own, source, {feather: fill.radius / 2, spin: 0}, sample);
+            // A stamp's fill: in line with the stamp's texture around it, no blend
+            const settings = fill.clone ? {...fill.clone, feather: 0} : {feather: fill.radius / 2, spin: 0};
+            const part = renderPart(surface, pieces, result.positions, triangles, own, source, settings, sample, patches);
             if (part) parts.push(part);
         });
     }
