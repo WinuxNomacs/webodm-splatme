@@ -9,7 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
+1. Model editing, before the release (the user's decision, 2026-11-22): 3D model cleanup and the splat training
+   improvements are the release's headlines. Remove Floating Pieces, Flatten, Fill Holes and Remove Object on
+   WebODM's textured model. Steps M0 to M5 in "13. Model editing (planned)".
+2. The next release: Grow Until, the UX review's twelve findings and the file names apart from their case
    (CHANGELOG's Unreleased; Getting Started's node upgrade steps on its branch).
 
 **Then**
@@ -18,16 +21,12 @@ other software. The plugin does that step.
 
 **Later**
 
-1. Proposed, to plan with the user: a model editor (asked 2026-11-22), touching up WebODM's textured 3D
-   model as well as the splats: fill and repair holes, remove objects (trees, cars) blended in as if never
-   there, straighten curved overhangs and ragged edges, as DJI Modify does; intuitive, not Blender. A major
-   feature: a spike, then phases. See "13. Model editing (proposed)".
-2. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
+1. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
-3. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
+2. Review with the user which features would be better with small, targeted pull requests to WebODM (a SplatMe
    section in Task Options, SplatMe's row in the New Task panel), then reach out to the maintainer.
-4. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
+3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
 
@@ -3098,7 +3097,7 @@ thumbnail taken again; a real training on node 0.2.3 (5,000 steps, Image Size 80
 thumbnail dropped, the row reading "Splats trained (5,000 steps) on 22 Nov 2026: 2 min 36 s of training.
 Preparing, transfers and waiting took 24 s. Cropped to the task's boundary."
 
-### 13. Model editing (proposed)
+### 13. Model editing (planned)
 
 Asked by the user (2026-11-22, from `new.md`): a major update of SplatMe's own editor so its users can touch up
 WebODM's 3D models as well as the splats, approached the way DJI Modify does: fill and repair holes, remove
@@ -3152,3 +3151,38 @@ made flat, and texture repair of the edited areas. The list to match is the user
   texture, or an inpainting model on the splat node (a dependency to vet).
 - Whether the point cloud is edited with the model, or only the textured model.
 - The page's name ("Edit Splats" becoming "Edit Model and Splats", or a separate "Edit Model").
+
+**Checked 2026-11-22.**
+
+- DJI Modify, from DJI's pages (https://enterprise.dji.com/modify/faq,
+  https://enterprise-insights.dji.com/blog/dji-modify-top-features): Fill Holes, Flatten (a nearly flat surface
+  fitted to the surrounding mesh, not levelled to the ground), Remove Floating Parts, Water Surface Repair and
+  Texture Repair (erase, clone, repair); its hole fill textures from the aerial photos, a solid colour without
+  them.
+- The check task's model: `odm_textured_model_geo.obj` 106 MB (566,173 vertices, 854,042 faces, 271 PNG
+  textures), `odm_textured_model_geo.glb` 40 MB (`KHR_draco_mesh_compression`, `CESIUM_RTC`,
+  `KHR_materials_unlit`, 271 JPEG textures, one mesh of 271 primitives).
+- No new dependency: WebODM's container runs Node with `@gltf-transform/*` ^4.2.1, `draco3dgltf` ^1.5.7 and
+  `sharp` (WebODM's `package.json`, used by `app/scripts/glbopti.js` for `get_safe_textured_model`); WebODM
+  serves its Draco decoder (`app/static/app/js/vendor/draco`); `GLTFLoader` and `DRACOLoader` come with the
+  vendored three.js 0.187.0 (examples, same release and licence).
+
+**Decisions (the user, 2026-11-22).**
+
+- In this release: Remove Floating Pieces, Flatten, Fill Holes and Remove Object (with deleting a selection,
+  Undo and Redo, and Update the Model).
+- New surfaces are textured from their surroundings (built here); projecting the task's photos may follow.
+- One plain JS module of mesh edits, used by the browser for the preview and by Node in WebODM's worker for
+  Update the Model, reading and writing the GLB with WebODM's own gltf-transform and Draco.
+- Update the Model rewrites the GLB (the 3D view, share links) and the OBJ (the Textured Model download), the
+  originals kept in `data/splatme` so edits stay undoable, as the trained splats are.
+
+**Steps.**
+
+- M0. Spike: the GLB in Edit Splats' view (load time, memory, frame rate on the dev GPU), the OBJ and GLB
+  frames against the splats' (the task's projection), a Node round trip of the GLB in `sm-worker` (time), and
+  the core of each tool on the check task's model.
+- M1. A Model view in the editor: Splats or Model, the shapes selecting faces, Delete and Remove Floating
+  Pieces, the edit list saved, Update the Model writing GLB and OBJ.
+- M2. Flatten. M3. Fill Holes (textured from the surroundings). M4. Remove Object.
+- M5. Docs, changelog with the headlines, then the release.
