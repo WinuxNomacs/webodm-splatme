@@ -12,6 +12,8 @@ const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
 const AXES = ["X", "Y", "Z"];
 const ICONS = {box: "fa-cube", polygon: "fa-draw-polygon", lasso: "fa-pencil-alt", brush: "fa-paint-brush", floaters: "fa-broom", colour: "fa-palette"};
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
+const THUMBNAIL_WIDTH = 320;  // the picture of the model on its row in SplatMe → Tasks, in pixels across
+const THUMBNAIL_AFTER = 2000;  // ms after the model shows before its picture is taken (the splats settle)
 
 // Edit Splats (templates/editor.html, Edit on a task's row in SplatMe → Tasks): the task's trained model in a 3D view
 // (editor/viewer.js, loaded by loadViewer through the page's import map) and this panel beside it, below it on a
@@ -88,6 +90,7 @@ export default class Editor extends React.Component {
         clearTimeout(this.saveTimer);
         clearTimeout(this.pollTimer);
         clearTimeout(this.trainingTimer);
+        clearTimeout(this.thumbnailTimer);
         if (this.viewer) this.viewer.dispose();
     }
 
@@ -144,6 +147,7 @@ export default class Editor extends React.Component {
             if (!this._mounted || !loaded) return;
             this.setState({loading: false, loaded});
             this.viewer.setEdits(this.state.edits, this.state.selected);
+            if (this.state.info.applied !== false) this.queueThumbnail();
         }).catch(e => {
             if (this._mounted) this.setState({loading: false, error: _("The model did not load:") + " " + ((e && e.message) || e)});
         });
@@ -445,9 +449,24 @@ export default class Editor extends React.Component {
     // What the server says of the edits now: whether the model was made with them, whether a training runs
     refresh(){
         return request("GET", "task/" + this.props.taskId + "/edits").then(info => {
-            if (this._mounted) this.setState({info: {...this.state.info, applied: info.applied, training: info.training}});
+            if (!this._mounted) return info;
+            this.setState({info: {...this.state.info, applied: info.applied, training: info.training}});
+            if (info.applied && this.state.apply && this.state.apply.state === "completed") this.queueThumbnail();
             return info;
         }).catch(() => null);
+    }
+
+    // A picture of the view sent as the task's thumbnail, for its row in SplatMe → Tasks: when the model shows
+    // what the task's model has (after loading, and after an update). Nothing is said when it fails: it is a nicety.
+    queueThumbnail(){
+        clearTimeout(this.thumbnailTimer);
+        if (!this.state.info.can_edit) return;
+        this.thumbnailTimer = setTimeout(() => {
+            if (!this._mounted || !this.viewer) return;
+            this.viewer.capture(THUMBNAIL_WIDTH)
+                .then(picture => picture ? request("PUT", "task/" + this.props.taskId + "/thumbnail", picture) : null)
+                .catch(() => null);
+        }, THUMBNAIL_AFTER);
     }
 
     // A training running when the page opened keeps Apply disabled until it ends

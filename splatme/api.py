@@ -27,6 +27,8 @@ The plugin's API, under /api/plugins/splatme/.
     POST task/<id>/apply     makes the task's shown model again from its trained model and its edits; with cancel,
                              stops the one that runs
     GET  task/<id>/download  the task's model with its saved edits, as Apply makes it, as a .ply (training.edited_model)
+    GET  task/<id>/thumbnail a JPEG of the task's model, taken by Edit Splats (404 without one)
+    PUT  task/<id>/thumbnail keeps the JPEG in the request's body as its thumbnail (those who may edit)
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
                              them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
@@ -55,7 +57,7 @@ logger = logging.getLogger("app.logger")
 # What a page may know of a job: not its run id, nor the node's job
 PUBLIC = (
     "state", "progress", "status", "error", "options", "user", "auto", "started", "finished", "sky_masks", "cropped",
-    "time_left", "thermal", "edited", "edits_error",
+    "time_left", "thermal", "edited", "edits_error", "times", "earlier_training", "resume",
 )  # fmt: skip
 # What a page may know of an Apply Edits
 APPLY_PUBLIC = ("state", "status", "error", "user", "started", "finished", "cropped", "edited")
@@ -102,6 +104,7 @@ def summary(request, task, job, may_train):
     out["can_train"] = may_train
     out["task_status"] = task.status
     out["editable"] = out["has_splats"] and training.editable(task) is None
+    out["thumbnail"] = training.thumbnail_version(task) if out["has_splats"] else None
     out["apply"] = describe_apply(training.get_apply(task.id))
     out["auto"] = describe_auto(training.get_auto(task.id, request.user))
     # Whether WebODM's worker tells the plugin of completed tasks, for a task set to train (None: not known)
@@ -306,6 +309,28 @@ class Download(TaskView):
             return HttpResponse(text, status=status.HTTP_400_BAD_REQUEST, content_type="text/plain; charset=utf-8")
         name = f"{slugify(task.name or '') or task.id}-splats.ply"
         return FileResponse(model, as_attachment=True, filename=name, content_type="application/octet-stream")
+
+
+class Thumbnail(TaskView):
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        try:
+            image = open(training.thumbnail_file(task), "rb")  # noqa: SIM115 (FileResponse closes it)
+        except OSError:
+            return Response({"error": "This task has no thumbnail."}, status=status.HTTP_404_NOT_FOUND)
+        return FileResponse(image, content_type="image/jpeg")
+
+    def put(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
+        reason = training.editable(task)
+        if reason:
+            return Response({"error": reason}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            training.save_thumbnail(task, request.body)
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"thumbnail": training.thumbnail_version(task)})
 
 
 class Automation(APIView):

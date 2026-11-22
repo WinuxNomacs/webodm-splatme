@@ -65,7 +65,7 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
     Steps** and, optionally, **Grow Until**. The other options stay as the model was trained. Continuing sharpens the model the task has: left
     blank, Grow Until stays as the model was trained (by default the model grows only before half the new total
     of steps, and before step 15,000), so continuing a model by as many steps again, or fewer, adds no gaussians
-    (the steps table says so). To grow it again, set **Grow Until** from 1,000 steps after the model's to 3,000
+    (the dialog says so in place of the steps table). To grow it again, set **Grow Until** from 1,000 steps after the model's to 3,000
     before the new total (4,000 more steps at least). A model that lacks detail everywhere is still better
     started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
     be continued. A task processed again while its splats train has that training canceled (its model would not
@@ -73,8 +73,13 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
     about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
     progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after
-    a reload. When it is done, **View in 3D** opens the model; **Edit** and **Download .ply** are in [Editing
-    Splats](editing.md). A task that cannot be trained (failed or canceled
+    a reload. When it is done, the row says when it ended and how long the trainer took ("Splats trained (7,000
+    steps) on 22 Nov 2026: 4 min 30 s of training."; after **Continue From Step**, the model's whole training
+    time and the last part's), then apart the time spent finding the sky and the time spent preparing, sending and
+    waiting (for WebODM's worker or the splat node's queue). **View in 3D** opens the model; **Edit** and
+    **Download .ply** are in [Editing Splats](editing.md). On a phone, **View in 3D** and **Download .ply** are in
+    the menu beside **Edit**. Once someone has opened the model in **Edit Splats**, the row shows a picture of
+    it, which opens it in 3D. A task that cannot be trained (failed or canceled
     processing; for users who may only look at the project, any task) says why.
 
     On the Dashboard, a task's panel has a **Splats** line under its Task ID ("Trained, 7,000 steps", or the

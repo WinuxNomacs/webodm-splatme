@@ -1,8 +1,15 @@
 // SplatMe's part of a task's panel and its dialogs. Colours are WebODM's and Bootstrap's own classes: none here.
 .splatme-task{
-    .splatme-idle > *{
-        margin-right: 4px;
-        vertical-align: middle;
+    .splatme-result, .splatme-apply{
+        margin-bottom: 6px;
+        word-break: break-word;
+    }
+
+    .splatme-actions{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
     }
 
     .splatme-progress{
@@ -97,6 +104,35 @@
 
         .form-inline{
             margin: 4px 10px 4px 0;
+        }
+    }
+
+    // A task's row: its thumbnail, when Edit Splats took one, beside its name, status line and buttons
+    .splatme-row{
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .splatme-row-main{
+        flex: 1;
+        min-width: 0;
+    }
+
+    .splatme-thumb{
+        flex: none;
+
+        img{
+            display: block;
+            width: 120px;
+            height: auto;
+            border-radius: 3px;
+        }
+
+        @media (max-width: 767px){
+            img{
+                width: 64px;
+            }
         }
     }
 

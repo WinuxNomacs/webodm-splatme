@@ -1,4 +1,4 @@
-import { PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink } from "../trainingView";
+import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -121,6 +121,15 @@ describe("the dialog's options", () => {
     });
 });
 
+describe("a continued training's stages", () => {
+    test("are shown only when the added steps grow the model", () => {
+        expect(stepsGrow(37000, 30000, "")).toBe(false);  // the trainer's own: growing ended at 15,000
+        expect(stepsGrow(37000, 30000, "33000")).toBe(true);
+        expect(stepsGrow(7000, 0, "")).toBe(true);
+        expect(stepsGrow("abc", 0, "")).toBe(false);
+    });
+});
+
 describe("a finished training", () => {
     test("its time is in seconds, minutes or hours", () => {
         expect(duration(42.4)).toBe("42 s");
@@ -140,6 +149,23 @@ describe("a finished training", () => {
         expect(resultText({state: "canceled", error: "The task was processed again while its splats trained."}))
             .toBe("Training canceled: The task was processed again while its splats trained.");
         expect(resultText({state: null})).toBe("");
+    });
+
+    // 22 Nov 2026 at noon UTC: the same day in every time zone a test runs in
+    const NOON = Date.UTC(2026, 10, 22, 12) / 1000;
+    test("its training time is told apart from the rest, with the day it ended", () => {
+        const job = {state: "completed", options: {steps: 7000}, started: NOON - 600, finished: NOON, resume: null, earlier_training: 0,
+                     times: {starting: 20, exporting: 60, uploading: 30, queued: 40, training: 270, importing: 30}};
+        expect(resultText(job)).toBe("Splats trained (7,000 steps) on 22 Nov 2026: 4 min 30 s of training. Preparing, transfers and waiting took 3 min 0 s.");
+    });
+    test("Ignore Sky's time is given on its own", () => {
+        const job = {state: "completed", options: {steps: 7000}, finished: NOON, sky_masks: 12, times: {training: 270, masking: 120, exporting: 0.4}};
+        expect(resultText(job)).toBe("Splats trained (7,000 steps) on 22 Nov 2026: 4 min 30 s of training. Sky ignored in 12 photos. Finding the sky took 2 min 0 s.");
+    });
+    test("a continued training counts the earlier training too, when it is known", () => {
+        const job = {state: "completed", options: {steps: 14000}, finished: NOON, resume: 7000, earlier_training: 270, times: {training: 300}};
+        expect(resultText(job)).toBe("Splats trained (14,000 steps) on 22 Nov 2026: 9 min 30 s of training, 5 min 0 s of it for the last 7,000.");
+        expect(resultText({...job, earlier_training: null})).toBe("Splats trained (14,000 steps) on 22 Nov 2026: 5 min 0 s of training for the last 7,000.");
     });
 });
 

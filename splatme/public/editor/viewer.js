@@ -662,6 +662,25 @@ export function createViewer(container, handlers){
             transform.setMode(mode);
             transform.showX = transform.showY = mode !== "rotate";
         },
+        // A picture of the view as it is, without the shapes and handles: a promise of a JPEG Blob at most width
+        // pixels across (null when there is no model, or the browser could not make it)
+        capture(width){
+            return new Promise(resolve => {
+                if (!mesh) return resolve(null);
+                const helper = transform.getHelper();
+                const was = [shapes.visible, helper.visible];
+                shapes.visible = helper.visible = false;
+                renderer.render(scene, camera);
+                // Copied before the browser shows the frame, which clears the drawing buffer
+                const w = Math.min(width, canvas.width), h = Math.max(1, Math.round(canvas.height * w / canvas.width));
+                const out = document.createElement("canvas");
+                out.width = w;
+                out.height = h;
+                out.getContext("2d").drawImage(canvas, 0, 0, w, h);
+                [shapes.visible, helper.visible] = was;
+                out.toBlob(resolve, "image/jpeg", 0.8);
+            });
+        },
         // How many splats the edits leave
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
