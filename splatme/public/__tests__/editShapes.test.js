@@ -72,7 +72,7 @@ test("a ring is kept without its closing corner and repeated corners", () => {
 test("the list words an edit by its kind and size", () => {
     expect(editLabel({type: "box", size: [12.345, 3, 1000]})).toBe("Box, 12.3 × 3 × 1,000 m");
     expect(editLabel({type: "polygon", ring: [[0, 0], [1, 0], [1, 1]]})).toBe("Polygon, 3 corners");
-    expect(editLabel({type: "straighten", line: [[0, 0, 0], [3, 4, 0]]})).toBe("Straighten, 5 m");
+    expect(editLabel({type: "straighten", points: [[0, 0, 0], [1, 2, 0], [3, 4, 0]]})).toBe("Straighten, 5 m");
     expect(editLabel({type: "paint", op: "raise", amount: -0.02, strokes: [{}, {}]})).toBe("Lower Brush, 2 strokes");
 });
 

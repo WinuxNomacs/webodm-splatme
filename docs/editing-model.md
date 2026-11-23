@@ -74,15 +74,21 @@ mark. **Clone** can go over it after, for a pattern such as shingles.
 
 ### Straighten
 
-**Straighten** pulls the surface toward a straight line: a gutter, an eave, a ridge, a window frame. Click one end
-of the line on the model, and a line follows the pointer from it; click the other end. The pull is strongest at the
-line and fades to nothing at **Reach** from it (25 cm at first), so only the surface near the line moves. Picked in
-the list, either end of the line can be dragged on the model, or **Draw the Line Again**; while a line is placed,
-the view leaves its edit out, so what it hid can be clicked.
+**Straighten** makes a broken or wavy edge straight: a gutter, an eave, a ridge, a window frame. Trace the edge as
+it is now: click points along it on the model, starting where it is straight at one end and ending where it is
+straight at the other; a line follows the pointer from the last point. Double-click the last point, or **Finish**,
+to end it (at least 3 points); Backspace takes back the last point, and Esc stops. The edge is then made straight
+between the first and last points: each place on the traced line moves to the place as far along the straight line
+(shown dashed), and the surface near it moves with it by the same amount, so a gutter stays whole and the roof
+behind it stretches. Everything within **Reach** of the traced line (30 cm at first) moves fully, and the move fades
+to nothing over a **Soft Edge** past it (50 cm at first). **Strength** starts at 100%, fully straight: **-** steps
+it back toward where the edge was. Picked in the list, any point of the line can be dragged on the model, or
+**Draw the Line Again**; while a line is traced, the view leaves its edit out, so what it hid can be clicked.
 
 The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
 step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North**
-and **Stretch Up** (5%) and **Soft Edge** (0.25 m); Straighten's **Strength** (10%) and **Reach** (5 cm). The view
+and **Stretch Up** (5%) and **Soft Edge** (0.25 m); Straighten's **Strength** (10%), **Reach** (5 cm) and **Soft
+Edge** (10 cm). The view
 shows each step as it is made.
 
 Two tools act on the whole model, once each:

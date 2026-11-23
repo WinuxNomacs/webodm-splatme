@@ -10,8 +10,9 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
              surface it stands on and the hole it leaves filled (also a paint edit's op: marked with the brush)
     move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
              scaled about its middle and moved, the move fading to nothing over soft metres around it
-    straighten {"type": "straighten", "line": [[x, y, z], [x, y, z]], "strength": 0 to 1, "reach": metres}: the
-             surface within reach of the line pulled toward it, fading to nothing at reach from it
+    straighten {"type": "straighten", "points": [[x, y, z], ...], "strength": 0 to 1, "reach": metres, "soft": metres}:
+             a broken edge traced by points made straight between its first and last, the surface within reach of it
+             moving with it, fading to nothing over soft past reach
     paint    {"type": "paint", "op": one of PAINT_OPS, "strokes": [{"points", "radius", "view"}], ...}: the surface
              brush, on the triangles within radius of each stroke's path that face view
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
@@ -50,6 +51,7 @@ SCALES = (0.1, 10)  # a move's stretch along each axis
 MAX_SOFT = 20  # metres: a move's soft edge
 MAX_PASSES = 100  # the Smooth brush's passes
 REACHES = (0.01, 20)  # metres: Straighten's reach
+MAX_LINE_POINTS = 200  # Straighten's traced line
 MAX_FEATHER = 5  # metres: the Clone brush's blend at the edge
 PAINT_OPS = ("delete", "restore", "fill", "clone", "smooth", "flatten", "raise", "object")  # as meshEdits.PAINT_OPS
 PAINT_RADII = (0.01, 10)  # metres: a surface brush stroke's radius
@@ -140,17 +142,21 @@ def clean_params(op, edit, i):
 
 
 def clean_straighten(edit, i):
-    """Straighten's line, strength and reach, checked. Raises EditsError."""
-    line = edit.get("line")
-    if not isinstance(line, list) or len(line) != 2:
-        raise edits.EditsError(f"Edit {i}'s line must be 2 points.")
+    """Straighten's traced line, strength, reach and soft edge, checked. Raises EditsError."""
+    points = edit.get("points")
+    if not isinstance(points, list) or not 2 <= len(points) <= MAX_LINE_POINTS:
+        raise edits.EditsError(f"Edit {i}'s line must be from 2 to {MAX_LINE_POINTS} points.")
     strength = edits.number(edit.get("strength"), f"Edit {i}'s strength")
     reach = edits.number(edit.get("reach"), f"Edit {i}'s reach")
     if not 0 <= strength <= 1:
         raise edits.EditsError(f"Edit {i}'s strength must be from 0 to 1.")
     if not REACHES[0] <= reach <= REACHES[1]:
         raise edits.EditsError(f"Edit {i}'s reach must be from {REACHES[0]} to {REACHES[1]} m.")
-    return {"line": [edits.numbers(p, 3, f"Edit {i}'s line") for p in line], "strength": strength, "reach": reach}
+    soft = edits.number(edit.get("soft", 0), f"Edit {i}'s soft edge")
+    if not 0 <= soft <= MAX_SOFT:
+        raise edits.EditsError(f"Edit {i}'s soft edge must be from 0 to {MAX_SOFT} m.")
+    points = [edits.numbers(p, 3, f"Edit {i}'s line") for p in points]
+    return {"points": points, "strength": strength, "reach": reach, "soft": soft}
 
 
 def clean_paint(edit, i):
@@ -210,7 +216,7 @@ def shift(given, dx, dy):
             out.append({**edit, "strokes": [{**s, "points": [moved(p) for p in s["points"]]} for s in edit["strokes"]],
                         **({"source": moved(edit["source"]), "target": moved(edit["target"])} if "source" in edit else {})})
         elif edit.get("type") == "straighten":
-            out.append({**edit, "line": [moved(p) for p in edit["line"]]})
+            out.append({**edit, "points": [moved(p) for p in edit["points"]]})
         elif "op" in edit:
             shape = {k: v for k, v in edit.items() if k != "op"}
             (shifted,) = edits.shift([shape], dx, dy)

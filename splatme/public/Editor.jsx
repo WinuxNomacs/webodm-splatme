@@ -24,7 +24,7 @@ const BRUSH_MODES = [
 const OPS_SHOWN = ["object", "move"];  // the model's shape edits beside Keep and Remove Inside
 // The settings Move and Straighten start with, and their steps: [name, axis or null, label, unit, step, low, high,
 // shown as (a factor to show it in the unit)]
-const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, straighten: {strength: 0.5, reach: 0.25}};
+const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, straighten: {strength: 1, reach: 0.3, soft: 0.5}};
 const OP_PARAMS = ["offset", "scale", "soft"];
 // The model's Repair buttons: the surface brush's modes (Remove Object's too), a box doing Move, and Straighten's line
 const REPAIRS = [
@@ -33,7 +33,7 @@ const REPAIRS = [
     ["smooth", "Smooth", "water", "Paint over bumps and broken surface to even it out"],
     ["flatten", "Flatten", "grip-lines", "Paint over a surface to make it flat"],
     ["move", "Move", "arrows-alt", "A box that raises, shifts or stretches what it covers, a step at a time"],
-    ["straighten", "Straighten", "ruler-horizontal", "Click a line's two ends on the model: the surface near it is pulled toward it"],
+    ["straighten", "Straighten", "ruler-horizontal", "Click points along a broken edge on the model, end to end: it is made straight between its ends"],
     ["object", "Remove Object", "eraser", "Paint over an object to remove it down to the surface it stands on, or outline it with Lasso or Polygon"],
 ];
 // The surface brush's modes (the 3D model's Brush): [mode, label, its edit's op, what it does]
@@ -63,7 +63,8 @@ const OP_STEPS = {
         ["scale", 1, "Stretch North", "%", 5, 10, 1000, 100], ["scale", 2, "Stretch Up", "%", 5, 10, 1000, 100],
         ["soft", null, "Soft Edge", "m", 0.25, 0, 20, 1],
     ],
-    straighten: [["strength", null, "Strength", "%", 10, 0, 100, 100], ["reach", null, "Reach", "m", 0.05, 0.05, 20, 1]],
+    straighten: [["strength", null, "Strength", "%", 10, 0, 100, 100], ["reach", null, "Reach", "m", 0.05, 0.05, 20, 1],
+        ["soft", null, "Soft Edge", "m", 0.1, 0, 20, 1]],
 };
 // The steps an edit's settings take: Straighten's own, else its op's
 const stepsOf = edit => edit.type === "straighten" ? "straighten" : edit.op;
@@ -205,6 +206,7 @@ class EditorPanel extends React.Component {
                 onLassoEnd: () => this.setState({lassoing: false}),
                 onLine: this.handleLine,
                 onLineEnd: () => this.setState({lining: false}),
+                onLinePoints: linePoints => this.setState({linePoints}),
                 onLineChange: this.handleLineChange,
                 onBrushStroke: this.handleBrushStroke,
                 onBrushSize: brushSize => this.setState({brushSize}),
@@ -295,33 +297,33 @@ class EditorPanel extends React.Component {
         return lassoing ? "lasso" : brushing || painting ? "brush" : drawing !== null ? "polygon" : lining ? "line" : null;
     }
 
-    // Straighten's line, two clicks on the model (handleLine): for Straighten edit index, or a new one (-1)
+    // Straighten's traced line, clicks on the model (handleLine): for Straighten edit index, or a new one (-1)
     drawLine(index){
         this.endTool();
         if (!this.viewer) return;
         this.lineIndex = index;
-        this.setState({lining: true});
+        this.setState({lining: true, linePoints: 0});
         this.viewer.startLine(index);
     }
 
-    handleLine = line => {
+    handleLine = points => {
         const edits = this.state.edits.slice();
         let index = this.lineIndex;
         this.setState({lining: false});
         if (index < 0){  // the Repair button's: the edit made now
             if (edits.length >= MAX_EDITS) return;
             index = edits.length;
-            edits.push({type: "straighten", line, ...OP_DEFAULTS.straighten});
-        } else if (edits[index]) edits[index] = {...edits[index], line};
+            edits.push({type: "straighten", points, ...OP_DEFAULTS.straighten});
+        } else if (edits[index]) edits[index] = {...edits[index], points};
         else return;
         this.change(edits, index);
     };
 
-    // An end of the picked edit's line dragged on the model
-    handleLineChange = (index, line) => {
+    // A point of the picked edit's traced line dragged on the model
+    handleLineChange = (index, points) => {
         const edits = this.state.edits.slice();
         if (!edits[index]) return;
-        edits[index] = {...edits[index], line};
+        edits[index] = {...edits[index], points};
         this.change(edits, this.state.selected);
     };
 
@@ -829,7 +831,7 @@ class EditorPanel extends React.Component {
                     <tfoot>
                         <tr><td colSpan="5">
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.drawLine(index)}
-                                    title={_("Click its two ends on the model again; or drag an end of the line in the view")}>
+                                    title={_("Trace it on the model again; or drag a point of the line in the view")}>
                                 <i className="fa fa-pencil-alt fa-fw"></i> {_("Draw the Line Again")}
                             </button>
                         </td></tr>
@@ -876,7 +878,7 @@ class EditorPanel extends React.Component {
                                     {HOLE_SIZES.map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("up to")} {size} {_("edges")})</option>)}
                                 </select> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
-                            edit.type === "straighten" ? <span className="splatme-editor-item-note">{_("Pulls the surface near its line toward it")}</span> :
+                            edit.type === "straighten" ? <span className="splatme-editor-item-note">{_("Makes its traced line straight between its ends")}</span> :
                             edit.type === "paint" ? <span className="splatme-editor-item-note">{_(PAINT_NOTES[edit.op === "raise" && edit.amount < 0 ? "lower" : edit.op])}</span> :
                             edit.type === "floating" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
@@ -1010,8 +1012,9 @@ class EditorPanel extends React.Component {
                     </div> : ""}
                 {this.state.lining ?
                     <div className="alert alert-info splatme-editor-drawing">
-                        {_("Click the line's first end on the model, then its other end: a line follows the pointer from the first. The surface within Reach of the line is pulled toward it.")}
+                        {_("Click points along the edge where it is now, from where it is straight at one end to where it is straight at the other; double-click the last, or Finish. Backspace takes back the last point. The edge is then made straight between the first and last points, the surface within Reach moving with it.")}
                         <div className="splatme-editor-drawing-actions">
+                            <button type="button" className="btn btn-sm btn-primary" disabled={(this.state.linePoints || 0) < 3} onClick={() => this.viewer.finishLine()}>{_("Finish")}</button>
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>
                         </div>
                     </div> : ""}

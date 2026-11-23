@@ -309,7 +309,7 @@ export function editLabel(edit, count){
         return name + " Brush, " + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
     }
     if (edit.type === "straighten"){
-        const [a, b] = edit.line;
+        const a = edit.points[0], b = edit.points[edit.points.length - 1];
         return "Straighten, " + Number(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]).toFixed(1)).toLocaleString("en-US") + " m";
     }
     if (edit.type === "floaters"){
