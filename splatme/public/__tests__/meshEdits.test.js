@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 import speck from "./speck.json";
 import thinHole from "./thinhole.json";
@@ -843,5 +843,28 @@ describe("the surface brush", () => {
                 expect(summary(preview(list))).toEqual(summary(applyEdits(surface, list, applyShape)));
             }
         }
+    });
+});
+
+describe("faceGrid", () => {
+    // Two triangles a metre apart, at x, y, z
+    const pair = (x, y, z) => weld([{positions: new Float32Array([x, y, z, x + 0.2, y, z, x, y + 0.2, z,
+        x + 1, y, z, x + 1.2, y, z, x + 1, y + 0.2, z]), indices: new Uint32Array([0, 1, 2, 3, 4, 5])}]);
+    const found = (surface, point, reach) => {
+        const grid = faceGrid(surface, surface.positions, new Uint8Array(2).fill(1), 0.5), out = [];
+        grid.near(point, reach, f => out.push(f));
+        return out;
+    };
+
+    test("finds the triangles near a point, and not those farther than its cells", () => {
+        const surface = pair(3, -4, 200);
+        expect(found(surface, [3, -4, 200], 0.2)).toEqual([0]);
+        expect(found(surface, [3.5, -4, 200], 0.6).sort()).toEqual([0, 1]);
+    });
+
+    test("finds them as well past the cells it keys by number (over 32 km from the origin)", () => {
+        const surface = pair(40000, -50000, 200);
+        expect(found(surface, [40000, -50000, 200], 0.2)).toEqual([0]);
+        expect(found(surface, [40001, -50000, 200], 0.2)).toEqual([1]);
     });
 });
