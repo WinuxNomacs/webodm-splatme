@@ -25,6 +25,8 @@ export const PAINT_RADII = [0.02, 5];  // metres: the surface brush's radius, sm
 const PAINT_STEP = 1.25;  // the wheel's and the [ and ] keys' change of the surface brush's radius
 const PAINT_SPACING = 0.3;  // of the radius: how far the pointer moves before a stroke takes another point
 const PAINT_POINTS = 1000;
+const PAINT_JUMP = 4;  // radii: a move of the point under the pointer farther than this ends the stroke, and another starts
+const PAINT_JUMP_LEAST = 0.25;  // metres: but a move this short never does (a small brush moved fast)
 const round4 = x => Math.round(x * 10000) / 10000;  // to a tenth of a millimetre
 const PICK_LAYER = 1;  // the layer of the model's meshes (its pieces, fills and clones): what picking draws
 const PICK_SIZE = 7;  // pixels: the square about the pointer picking draws  // a stroke's points, at most (meshes.py's MAX_BRUSH_POINTS over all strokes)
@@ -565,9 +567,28 @@ export function createViewer(container, handlers){
     function paintTo(hit){
         const points = paint.stroke.points, last = points[points.length - 1];
         if (points.length >= PAINT_POINTS) return;
-        if (Math.hypot(hit.point.x - last[0], hit.point.y - last[1], hit.point.z - last[2]) < paint.radius * PAINT_SPACING) return;
+        const distance = Math.hypot(hit.point.x - last[0], hit.point.y - last[1], hit.point.z - last[2]);
+        if (distance < paint.radius * PAINT_SPACING) return;
+        if (distance > Math.max(paint.radius * PAINT_JUMP, PAINT_JUMP_LEAST)){
+            // The pointer left the surface, or jumped off an edge to one far behind: the stroke ends where it was
+            // and another starts here, rather than painting a line through the air between them
+            sendStroke();
+            startStroke(hit);
+            return;
+        }
         points.push(hit.point.toArray().map(round4));
         paint.trail.add(paintCircle(hit, paint.radius, true));
+    }
+    function startStroke(hit){
+        const view = camera.position.clone().sub(hit.point).normalize();
+        paint.stroke = {points: [hit.point.toArray().map(round4)], view: view.toArray().map(round4), normal: hit.normal.toArray().map(round4)};
+        paint.trail.add(paintCircle(hit, paint.radius, true));
+    }
+    function sendStroke(){
+        const stroke = paint.stroke;
+        paint.stroke = null;
+        clearGroup(paint.trail);
+        if (handlers.onPaintStroke) handlers.onPaintStroke({points: stroke.points, radius: paint.radius, view: stroke.view}, stroke.normal);
     }
     function onPaintDown(event){
         if (event.button !== 0 || event.altKey) return false;  // the view's controls turn or move it
@@ -579,18 +600,12 @@ export function createViewer(container, handlers){
             if (handlers.onPaintSource) handlers.onPaintSource(paint.source, hit.normal.toArray().map(round4));
             return true;
         }
-        const view = camera.position.clone().sub(hit.point).normalize();
-        paint.stroke = {points: [hit.point.toArray().map(round4)], view: view.toArray().map(round4), normal: hit.normal.toArray().map(round4)};
-        paint.trail.add(paintCircle(hit, paint.radius, true));
+        startStroke(hit);
         canvas.setPointerCapture(event.pointerId);
         return true;
     }
     function onPaintUp(){
-        if (!paint.stroke) return;
-        const stroke = paint.stroke;
-        paint.stroke = null;
-        clearGroup(paint.trail);
-        if (handlers.onPaintStroke) handlers.onPaintStroke({points: stroke.points, radius: paint.radius, view: stroke.view}, stroke.normal);
+        if (paint.stroke) sendStroke();
     }
     // Pointer moves while painting, at most once a frame: finding the surface under the pointer takes a while
     function onPaintMove(event){
