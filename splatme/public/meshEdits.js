@@ -419,12 +419,24 @@ function viewPlane(positions, ring, normal){
 // encloses the piece: one whose rim is all near lies there too). Real holes are often long and thin, chains of
 // specks joined by slits, their rims so crumpled that they turn as an outer rim does. small (metres): a loop no
 // wider is a hole whichever way it turns (where a rim pinches at a vertex, the loops it is cut into do not always
-// turn as a hole's do)
-function holes(surface, kept, fills, positions, near = null, small = 0){
+// turn as a hole's do). nearList (optional): the near vertices, so that only the triangles at them are looked at,
+// in the same order, rather than every triangle of the model
+function holes(surface, kept, fills, positions, near = null, small = 0, nearList = null){
     const { faces, count } = surface;
     let all = faces, keep = kept;
     const extra = fills.reduce((sum, fill) => sum + fill.triangles.length, 0);
-    if (extra){
+    if (near && nearList){
+        // The kept triangles with a near corner, then the fills' triangles with one, as below but no others
+        const at = facesAt(surface, nearList).filter(f => kept[f]), taken = [];
+        for (const fill of fills) for (let t = 0; t < fill.triangles.length; t += 3){
+            const a = fill.ring[fill.triangles[t]], b = fill.ring[fill.triangles[t + 1]], c = fill.ring[fill.triangles[t + 2]];
+            if (near[a] || near[b] || near[c]) taken.push(a, b, c);
+        }
+        all = new Int32Array(3 * at.length + taken.length);
+        at.forEach((f, i) => all.set(faces.subarray(3 * f, 3 * f + 3), 3 * i));
+        all.set(taken, 3 * at.length);
+        keep = new Uint8Array(all.length / 3).fill(1);
+    } else if (extra){
         all = new Int32Array(faces.length + extra);
         all.set(faces);
         keep = new Uint8Array(all.length / 3).fill(1);
@@ -432,7 +444,7 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
         let at = faces.length;
         for (const fill of fills) for (const t of fill.triangles) all[at++] = fill.ring[t];
     }
-    if (near){
+    if (near && !nearList){
         const touching = new Uint8Array(all.length / 3);
         for (let f = 0; f < touching.length; f++) touching[f] = keep[f] && (near[all[3 * f]] || near[all[3 * f + 1]] || near[all[3 * f + 2]]) ? 1 : 0;
         keep = touching;
@@ -490,6 +502,13 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
         }
         return ax * nx + ay * ny + az * nz < 0;
     }).map(rim => ({rim}));
+}
+
+// The triangles with a corner among the vertices given, in order
+function facesAt(surface, vertices){
+    const { start, list } = vertexFaces(surface), found = new Set();
+    for (const v of vertices) for (let i = start[v]; i < start[v + 1]; i++) found.add(list[i]);
+    return Int32Array.from(found).sort();
 }
 
 // The triangles at each vertex of a surface: {start, list}, vertex v's in list[start[v]] to list[start[v + 1]]. Made
@@ -792,15 +811,19 @@ function removeObject(surface, state, marked, toward, fill){
             const tolerance = Math.max(OBJECT_ABOVE, Math.min(OBJECT_BELOW, 3 * spread));
             above = f => height(f) > -tolerance;
         }
-        const touched = new Uint8Array(count);
+        const touched = new Uint8Array(count), corners = [];
         let removed = 0;
         for (const f of piece){
             if (!above(f)) continue;
             kept[f] = 0;
             removed++;
-            for (let k = 0; k < 3; k++) touched[faces[3 * f + k]] = 1;
+            for (let k = 0; k < 3; k++){
+                const v = faces[3 * f + k];
+                if (!touched[v]) corners.push(v);
+                touched[v] = 1;
+            }
         }
-        if (removed) fill(objectHoles(surface, state, touched, normal || unit(toward)));
+        if (removed) fill(objectHoles(surface, state, touched, corners, normal || unit(toward)));
     }
     for (let i = before; i < state.fills.length; i++) state.fillDetail[i] = true;
 }
@@ -809,18 +832,20 @@ function removeObject(surface, state, marked, toward, fill){
 // loops of open edges there when they close all the open edges it made; otherwise (its rim runs on into the
 // model's other open edges, as a crumpled surface's seams do) one hole round the whole footprint, through the
 // outermost corners left round it in each direction from its middle, across the fitted surface (normal)
-function objectHoles(surface, state, touched, normal){
+function objectHoles(surface, state, touched, touchedList, normal){
     const { faces, count } = surface, { kept, positions: p, fills } = state;
-    const found = holes(surface, kept, fills, p, touched);
+    const found = holes(surface, kept, fills, p, touched, 0, touchedList);
     const onLoop = new Set(found.flatMap(hole => hole.rim));
-    // The open edges made there that no loop closes
-    const near = new Uint8Array(kept.length);
-    for (let f = 0; f < near.length; f++) near[f] = kept[f] && (touched[faces[3 * f]] || touched[faces[3 * f + 1]] || touched[faces[3 * f + 2]]) ? 1 : 0;
-    const loose = openEdges(faces, count, near).filter(([a, b]) => touched[a] && touched[b] && !(onLoop.has(a) && onLoop.has(b)));
+    // The open edges made there that no loop closes: of the kept triangles with a corner there (only those looked at,
+    // in order)
+    const at = facesAt(surface, touchedList).filter(f => kept[f]);
+    const near = new Int32Array(3 * at.length);
+    at.forEach((f, i) => near.set(faces.subarray(3 * f, 3 * f + 3), 3 * i));
+    const loose = openEdges(near, count, null).filter(([a, b]) => touched[a] && touched[b] && !(onLoop.has(a) && onLoop.has(b)));
     if (loose.length <= OBJECT_LOOSE) return found.map(hole => ({...hole, normal}));
     // The corners left round the footprint (of a kept triangle), across the fitted surface from their middle
     const rim = [];
-    for (let f = 0; f < near.length; f++) if (near[f]) for (let k = 0; k < 3; k++) if (touched[faces[3 * f + k]]) rim.push(faces[3 * f + k]);
+    for (let i = 0; i < near.length; i++) if (touched[near[i]]) rim.push(near[i]);
     const corners = [...new Set(rim)];
     if (corners.length < 3) return [];
     const { u, v } = planeFrame(normal);
