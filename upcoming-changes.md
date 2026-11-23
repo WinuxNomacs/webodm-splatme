@@ -9,16 +9,16 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
-   14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user. The release waits for it.
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
-Model editing (M0 to M4) and the repair tools (R1 to R5) are built: see sections 13 and 14. Built 2026-11-23 and in
-the release: trainings of 2 to 4.29 GB datasets, which failed with "Invalid zip archive" (the node now unpacks the
-dataset itself; section 15, branch node-zip-folder). Possible follow-ups,
+Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
+after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
+tests) are built: see sections 13 and 14. Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
+which failed with "Invalid zip archive" (the node now unpacks the dataset itself; section 15, branch
+node-zip-folder). Possible follow-ups,
 after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
 joins older holes.
 
@@ -3476,6 +3476,38 @@ strokes at most 170 ms. Update the Model matched the preview (2,055 points moved
 retextured, 854,797 triangles) in about 8 s. One long task of about 2 s remains while the model loads (at 5 s on
 the page's clock, before it shows). The editor-check skill now prints when each step and long task happened, and
 takes `VIEWPORT`.
+
+**Bug (reported 2026-11-23, R7d's live check on a roof, task HomerunObliqueII9): the brush's Fill left most of the
+black specks.** The specks are holes (none textured black), but most are long and thin: chains of specks joined by
+slits, 1 to 12 m round their rim yet 0.02 to 0.13 m2 in area, wider than the brush. Wider than the speck limit
+(PAINT_SPECK or the brush's radius), a loop was filled only if it turned as a hole does, and these crumpled rims
+turn as an outer rim does. Fixed (branch `fill-long-holes`): under the paint, a loop is a hole whichever way it
+turns when the surface beside it goes on past the paint (a piece's outer rim encloses the piece, so one whose rim is
+all painted lies under the paint too, and keeps the winding test). Replayed on the user's saved strokes (the
+surface rasterised along the strokes' view, 1 cm pixels): the first Fill edit's see-through area 3.19% before, 1.09%
+after with the old rule, 0.41% with the new; the specks in the others nearly all gone, what stays is where a hole
+runs on past the paint. No measurable cost (a Fill edit 0.5 to 0.9 s in Node either way). Test: `thinhole.json`, a
+real 15-edge hole from that roof, seen failing before the fix.
+Reviewed after (branch `fill-flaps`): "the surface beside it" was a piece as `components` joins them, at a vertex
+too, so a flap touching the surface at one vertex, painted over, was capped (which the winding test had stopped).
+Pieces there are now joined across shared edges only. On the user's current Fill edit (6 strokes, radius 0.39 m)
+that leaves 402 holes filled of the 403: the one left is a 41-triangle island 0.42 m across, attached at a vertex.
+Test: a flap on a grid, seen failing before.
+
+**Bug (reported 2026-11-23, R7d): a hole well inside the brush that neither Fill nor Clone fills.** The one shown
+(edit 6's dabs on HomerunObliqueII9, 0.3 m across) has no loop of its own: its rim goes on down a wall 0.64 m deep
+and away as a seam under the surface, one loop of 912 edges and 75 m. Only seen along the stroke's view does the rim
+come back to itself (two of its vertices 2.7 cm apart across the view, 18 edges apart along it). Fixed (branch
+`fill-necks`, `neckHoles` in meshEdits.js): after the holes as before, Fill and Clone follow the rims from the painted
+vertices along the open edges while they stay under a stroke seen along its view (within its radius across, within
+1 m or two radii along); where a rim comes within PAINT_NECK (5 cm) of itself across the view, the stretch between
+is a hole if what it encloses is mostly not covered by a triangle facing the view; it is filled laid out across the
+view (`fillHole`'s normal). On the user's 8 edits: 62 such holes more, the reported one among them; each Fill edit
+3 to 170 ms longer in Node (170 for the one with a 345-point stroke); in the browser the first preview of all 8 took
+1.07 s, no errors. Test: `neckhole.json`, the real hole's surroundings, seen failing before.
+
+R7d done (2026-11-23): the user checked the brush on that roof ("That hole is filled now. The tool is much more
+effective now as well.") and called the check finished; R7 merged into main.
 
 ### 15. Trainings of 2 to 4.29 GB datasets (found and planned 2026-11-23, branch node-zip-folder)
 

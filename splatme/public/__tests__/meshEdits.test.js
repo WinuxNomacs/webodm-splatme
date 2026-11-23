@@ -1,6 +1,8 @@
 import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 import speck from "./speck.json";
+import thinHole from "./thinhole.json";
+import neckHole from "./neckhole.json";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
 // model by texture: the pieces repeat the corners they share
@@ -653,6 +655,56 @@ describe("the surface brush", () => {
         // Fill Holes, which goes by the winding alone, leaves it
         const whole = applyEdits(surface, [{type: "holes", size: 50}], applyShape);
         expect(whole.fills.some(f => f.ring.length === ring.size && f.ring.every(v => ring.has(v)))).toBe(false);
+    });
+
+    test("a long thin hole under the paint is filled though its rim turns as an outer rim does (a real one, from a roof)", () => {
+        // thinhole.json: a model's triangles within 25 cm of a 15-edge hole 34 cm long (wider than the brush), whose
+        // crumpled rim turns as a piece's outer rim does; in metres from its middle, with a stroke along its rim and
+        // the view it was painted from. The surface beside it goes on past the paint, so it is no piece's outer rim
+        const { positions, indices, loop, points, view } = thinHole;
+        const surface = weld([{positions: Float32Array.from(positions), indices: Uint32Array.from(indices)}]);
+        const ring = new Set(loop.map(c => surface.vertexOf[0][c]));
+        const same = f => f.ring.length === ring.size && f.ring.every(v => ring.has(v));
+        expect(applyEdits(surface, [paint("fill", [stroke(points, 0.1, view)])], applyShape).fills.some(same)).toBe(true);
+        // Fill Holes, which goes by the winding alone, leaves it
+        expect(applyEdits(surface, [{type: "holes", size: 50}], applyShape).fills.some(same)).toBe(false);
+        // A piece wholly under the paint keeps its outer rim open (the grid painted all over: only its hole is filled)
+        const piece = weld(grid(4, (i, j) => i === 1 && j === 1));
+        const all = applyEdits(piece, [paint("fill", [stroke([[2, 2, 0]], 10)])], applyShape);
+        expect(all.fills.map(f => f.ring.length)).toEqual([4]);
+    });
+
+    test("a hole whose rim runs on past the paint is filled where it closes as seen from the stroke (a real one, from a roof)", () => {
+        // neckhole.json: a model's triangles within 90 cm of a dab over a hole 30 cm across, in metres from the dab,
+        // with the dab and the view it was painted from. The hole's rim goes on down a wall 64 cm deep and away as a
+        // seam under the surface, closing no loop; seen along the view it comes back to within 3 cm of itself
+        const { positions, indices, loop, points, radius, view } = neckHole;
+        const surface = weld([{positions: Float32Array.from(positions), indices: Uint32Array.from(indices)}]);
+        const ring = new Set(loop.map(c => surface.vertexOf[0][c]));
+        const over = fills => fills.filter(f => f.ring.filter(v => ring.has(v)).length >= ring.size - 2);
+        const painted = applyEdits(surface, [paint("fill", [stroke(points, radius, view)])], applyShape);
+        expect(over(painted.fills).length).toBe(1);
+        // laid out across the view, as it is seen
+        const normal = over(painted.fills)[0].plane.normal, length = Math.hypot(...view);
+        expect(Math.abs(normal[0] * view[0] + normal[1] * view[1] + normal[2] * view[2]) / length).toBeCloseTo(1, 6);
+        // Clone fills it too
+        const cloned = applyEdits(surface, [paint("clone", [stroke(points, radius, view)], {source: [0.3, 0, 0], target: [0, 0, 0], normal: view})], applyShape);
+        expect(over(cloned.fills).length).toBe(1);
+    });
+
+    test("a rim running straight on past the paint closes nothing (no neck)", () => {
+        // The grid's outer edge along y = 0 under a stroke: no two of its vertices come close across the view
+        const surface = weld(grid(6));
+        expect(applyEdits(surface, [paint("fill", [stroke([[1, 0.1, 0], [4, 0.1, 0]], 0.6)])], applyShape).fills).toEqual([]);
+    });
+
+    test("a flap touching the surface at one vertex is not capped when painted over, though the surface goes on past the paint", () => {
+        // A square flap lifted off a 10-m grid, sharing one of its corners: its outer rim turns as a piece's does
+        const flap = {positions: Float32Array.from([5, 5, 0, 5.8, 5.2, 0.3, 5.8, 5.8, 0.4, 5.2, 5.8, 0.3]), indices: Uint32Array.from([0, 1, 2, 0, 2, 3])};
+        const surface = weld([...grid(10), flap]);
+        expect(surface.count).toBe(121 + 3);
+        const result = applyEdits(surface, [paint("fill", [stroke([[5.5, 5.5, 0]], 1)])], applyShape);
+        expect(result.fills).toEqual([]);
     });
 
     test("painting over every hole fills those Fill Holes fills (holes found from the painted edges only)", () => {

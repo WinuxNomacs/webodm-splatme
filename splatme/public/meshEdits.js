@@ -339,11 +339,38 @@ export function earClip(xs, ys){
     return out;
 }
 
+// The pieces of the kept triangles joined across the edges they share (not at a vertex only, as components joins
+// them): a function from a triangle to its piece's first triangle
+function edgePieces(faces, count, kept){
+    const parent = new Int32Array(kept.length);
+    for (let f = 0; f < parent.length; f++) parent[f] = f;
+    const find = f => {
+        while (parent[f] !== f){
+            parent[f] = parent[parent[f]];
+            f = parent[f];
+        }
+        return f;
+    };
+    const first = new Map();
+    for (let f = 0; f < kept.length; f++){
+        if (!kept[f]) continue;
+        for (let k = 0; k < 3; k++){
+            const a = faces[3 * f + k], b = faces[3 * f + (k + 1) % 3];
+            if (a === b) continue;
+            const key = a < b ? a * count + b : b * count + a;
+            const g = first.get(key);
+            if (g === undefined) first.set(key, f);
+            else parent[find(f)] = find(g);
+        }
+    }
+    return find;
+}
+
 // A hole's fill: its rim (surface vertices, in the direction its open edges go) the other way round, as the
 // triangles beside it go, and triangles between them, made on the rim's plane. null for a rim along a line.
-export function fillHole(positions, rim){
+export function fillHole(positions, rim, normal = null){
     const ring = Int32Array.from(rim).reverse();
-    const plane = fitPlane(positions, ring);
+    const plane = normal ? viewPlane(positions, ring, normal) : fitPlane(positions, ring);
     if (!plane) return null;
     const [nx, ny, nz] = plane.normal;
     // Two directions across the plane
@@ -370,13 +397,24 @@ export function fillHole(positions, rim){
     return {ring, triangles: Int32Array.from(earClip(xs, ys)), xs, ys, radius, plane};
 }
 
+// The plane through a ring's vertices across a view (normal: the view, a unit vector): a hole seen closed only from
+// that view is laid out as it is seen
+function viewPlane(positions, ring, normal){
+    const point = [0, 0, 0];
+    for (const v of ring) for (let i = 0; i < 3; i++) point[i] += positions[3 * v + i] / ring.length;
+    return {point, normal};
+}
+
 // The holes of the kept surface and the fills so far: [{rim: surface vertices}]. A loop of open edges is a hole when
 // it turns clockwise around the surface beside it (seen from the side its triangles face), as a hole's edges go; a
 // piece's outer rim turns the other way.
 // near (optional, a Uint8Array per vertex): only the holes whose rim is all near vertices, found from the edges
-// between them (the same holes there as without it, without going over every edge of the model). small (metres):
-// a loop no wider is a hole whichever way it turns (where a rim pinches at a vertex, the loops it is cut into do
-// not always turn as a hole's do)
+// between them (the same holes there as without it, without going over every edge of the model); and a loop there
+// is a hole whichever way it turns when the surface beside it goes on past the near vertices (a piece's outer rim
+// encloses the piece: one whose rim is all near lies there too). Real holes are often long and thin, chains of
+// specks joined by slits, their rims so crumpled that they turn as an outer rim does. small (metres): a loop no
+// wider is a hole whichever way it turns (where a rim pinches at a vertex, the loops it is cut into do not always
+// turn as a hole's do)
 function holes(surface, kept, fills, positions, near = null, small = 0){
     const { faces, count } = surface;
     let all = faces, keep = kept;
@@ -396,6 +434,17 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
     }
     let edges = openEdges(all, count, keep);
     if (near) edges = edges.filter(([a, b]) => near[a] && near[b]);
+    // With near: which pieces of the surface there go on past it (have a triangle with a corner not near). Pieces
+    // here are joined across shared edges: a flap touching the surface at a vertex only is a piece of its own, and
+    // its outer rim keeps the winding test
+    let piece = null, beyond = null;
+    if (near){
+        piece = edgePieces(all, count, keep);
+        beyond = new Uint8Array(keep.length);
+        for (let f = 0; f < keep.length; f++){
+            if (keep[f] && !(near[all[3 * f]] && near[all[3 * f + 1]] && near[all[3 * f + 2]])) beyond[piece(f)] = 1;
+        }
+    }
     const faceOf = new Map();
     for (const [a, b, f] of edges){
         faceOf.set(a * count + b, f);
@@ -414,6 +463,7 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
     };
     return loops(edges).filter(rim => {
         if (within(rim)) return true;
+        if (beyond && beyond[piece(faceOf.get(rim[0] * count + rim[1]))]) return true;
         // The loop's vector area, and the normals of the triangles along it (by their area)
         let ax = 0, ay = 0, az = 0, nx = 0, ny = 0, nz = 0;
         const o = 3 * rim[0];
@@ -435,6 +485,200 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
         }
         return ax * nx + ay * ny + az * nz < 0;
     }).map(rim => ({rim}));
+}
+
+// The triangles at each vertex of a surface: {start, list}, vertex v's in list[start[v]] to list[start[v + 1]]. Made
+// once a surface
+const vertexFacesMade = new WeakMap();
+function vertexFaces(surface){
+    if (!vertexFacesMade.has(surface)){
+        const { faces, count } = surface, start = new Int32Array(count + 1);
+        for (let i = 0; i < faces.length; i++) start[faces[i] + 1]++;
+        for (let v = 0; v < count; v++) start[v + 1] += start[v];
+        const at = start.slice(0, count), list = new Int32Array(faces.length);
+        for (let i = 0; i < faces.length; i++) list[at[faces[i]]++] = (i / 3) | 0;
+        vertexFacesMade.set(surface, {start, list});
+    }
+    return vertexFacesMade.get(surface);
+}
+
+// Whether a point is under a stroke seen along its view (z, a unit vector): within its radius of its path across
+// the view, and within depth of it along the view
+function underStroke(stroke, z, depth, q){
+    const r = stroke.radius;
+    for (const [a, b] of strokeSegments(stroke)){
+        const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [q[0] - a[0], q[1] - a[1], q[2] - a[2]];
+        if (Math.abs(w[0]) > r + depth + Math.abs(d[0]) || Math.abs(w[1]) > r + depth + Math.abs(d[1]) || Math.abs(w[2]) > r + depth + Math.abs(d[2])) continue;
+        const dz = d[0] * z[0] + d[1] * z[1] + d[2] * z[2], wz = w[0] * z[0] + w[1] * z[1] + w[2] * z[2];
+        const dd = [d[0] - dz * z[0], d[1] - dz * z[1], d[2] - dz * z[2]], ww = [w[0] - wz * z[0], w[1] - wz * z[1], w[2] - wz * z[2]];
+        const l2 = dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2];
+        const t = l2 ? Math.min(1, Math.max(0, (ww[0] * dd[0] + ww[1] * dd[1] + ww[2] * dd[2]) / l2)) : 0;
+        if (Math.hypot(ww[0] - t * dd[0], ww[1] - t * dd[1], ww[2] - t * dd[2]) <= r && Math.abs(wz - t * dz) <= depth) return true;
+    }
+    return false;
+}
+
+// The holes under the strokes closed only as seen from them: [{rim, normal}]. Where a hole's rim runs on past the
+// paint (down a wall, or on as a seam under other surface) it closes no loop there, yet seen along a stroke's view it
+// comes back to itself: two of its vertices PAINT_NECK or less apart across the view, farther apart along it. The
+// stretch between them, closed across that neck, is a hole when what it encloses is mostly not covered by a triangle
+// facing the view. The rims are followed from the painted vertices along the open edges while they stay under a
+// stroke seen along its view (within PAINT_DEPTH, or two radii, along it). covered: the triangles the strokes cover
+function neckHoles(surface, state, painted, strokes, covered){
+    const { faces, count } = surface, { kept, positions: p, fills } = state;
+    const { start, list } = vertexFaces(surface);
+    // The fills' triangles at each of their vertices
+    const fillAt = new Map();
+    for (const fill of fills){
+        for (let t = 0; t < fill.triangles.length; t += 3){
+            const tri = [fill.ring[fill.triangles[t]], fill.ring[fill.triangles[t + 1]], fill.ring[fill.triangles[t + 2]]];
+            for (const v of tri){
+                if (!fillAt.has(v)) fillAt.set(v, []);
+                fillAt.get(v).push(tri);
+            }
+        }
+    }
+    // The triangles at a vertex (corners in order), and its open edges [a, b] (as their one triangle goes)
+    const trianglesAt = v => {
+        const out = [];
+        for (let i = start[v]; i < start[v + 1]; i++){
+            const f = list[i];
+            if (kept[f]) out.push([faces[3 * f], faces[3 * f + 1], faces[3 * f + 2]]);
+        }
+        return out.concat(fillAt.get(v) || []);
+    };
+    const openAt = v => {
+        const uses = new Map(), dir = new Map();
+        for (const t of trianglesAt(v)){
+            const k = t.indexOf(v), next = t[(k + 1) % 3], prev = t[(k + 2) % 3];
+            if (next === v || prev === v) continue;
+            uses.set(next, (uses.get(next) || 0) + 1);
+            uses.set(prev, (uses.get(prev) || 0) + 1);
+            dir.set(next, [v, next]);
+            dir.set(prev, [prev, v]);
+        }
+        const out = [];
+        for (const [w, n] of uses) if (n === 1) out.push(dir.get(w));
+        return out;
+    };
+    const views = strokes.map(stroke => {
+        const length = Math.hypot(...stroke.view);
+        return length ? stroke.view.map(t => t / length) : null;
+    });
+    const under = v => painted[v] || strokes.some((stroke, i) => views[i] &&
+        underStroke(stroke, views[i], Math.max(PAINT_DEPTH, 2 * stroke.radius), [p[3 * v], p[3 * v + 1], p[3 * v + 2]]));
+    // The rims followed out from the painted vertices
+    const underOf = new Map();  // vertex: true if under
+    const isUnder = v => {
+        if (!underOf.has(v)) underOf.set(v, under(v));
+        return underOf.get(v);
+    };
+    const edges = [], seenEdge = new Set(), queue = [];
+    for (let v = 0; v < count; v++) if (painted[v]) queue.push(v);
+    const visited = new Uint8Array(count);
+    while (queue.length){
+        const v = queue.pop();
+        if (visited[v]) continue;
+        visited[v] = 1;
+        for (const [a, b] of openAt(v)){
+            const w = a === v ? b : a;
+            if (!isUnder(w)) continue;
+            const key = a < b ? a * count + b : b * count + a;
+            if (!seenEdge.has(key)){
+                seenEdge.add(key);
+                edges.push([a, b]);
+            }
+            if (!visited[w]) queue.push(w);
+        }
+    }
+    if (!edges.length) return [];
+    // The open edges as chains of vertices: from the ends first, then round what is left
+    const next = new Map();
+    edges.forEach(([a, b], i) => {
+        for (const v of [a, b]){
+            if (!next.has(v)) next.set(v, []);
+            next.get(v).push(i);
+        }
+    });
+    const used = new Uint8Array(edges.length), chains = [];
+    const walk = from => {
+        const chain = [from];
+        for (let v = from;;){
+            const e = next.get(v).find(i => !used[i]);
+            if (e === undefined) break;
+            used[e] = 1;
+            v = edges[e][0] === v ? edges[e][1] : edges[e][0];
+            chain.push(v);
+        }
+        if (chain.length >= 4) chains.push(chain);
+    };
+    for (const [v, at] of next) if (at.length === 1) walk(v);
+    for (const [v, at] of next) if (at.some(i => !used[i])) walk(v);
+    if (!chains.length) return [];
+    // The triangles that may cover what a stretch encloses: those the strokes cover, those at the rims, the fills'
+    const near = new Set(covered);
+    const extra = [];
+    for (const chain of chains) for (const v of chain){
+        for (let i = start[v]; i < start[v + 1]; i++) if (kept[list[i]]) near.add(list[i]);
+        for (const t of fillAt.get(v) || []) extra.push(t);
+    }
+    const triangles = [...near].map(f => [faces[3 * f], faces[3 * f + 1], faces[3 * f + 2]]).concat(extra);
+    const out = [], taken = new Uint8Array(count), done = [];
+    views.forEach(z => {
+        if (!z || done.some(w => w[0] * z[0] + w[1] * z[1] + w[2] * z[2] > 0.99)) return;
+        done.push(z);
+        const { u: ax, v: ay } = planeFrame(z);
+        const x = v => p[3 * v] * ax[0] + p[3 * v + 1] * ax[1] + p[3 * v + 2] * ax[2];
+        const y = v => p[3 * v] * ay[0] + p[3 * v + 1] * ay[1] + p[3 * v + 2] * ay[2];
+        // The triangles facing the view, across it: corners and box
+        const seen = [];
+        for (const [a, b, c] of triangles){
+            const t = [x(a), y(a), x(b), y(b), x(c), y(c)];
+            if ((t[2] - t[0]) * (t[5] - t[1]) - (t[4] - t[0]) * (t[3] - t[1]) <= 0) continue;  // faces away
+            seen.push([t, Math.min(t[0], t[2], t[4]), Math.max(t[0], t[2], t[4]), Math.min(t[1], t[3], t[5]), Math.max(t[1], t[3], t[5])]);
+        }
+        for (const chain of chains){
+            const m = chain.length, xs = chain.map(x), ys = chain.map(y);
+            // The necks: for each vertex, the farthest one along the chain within PAINT_NECK across the view
+            const necks = [];
+            for (let i = 0; i < m; i++){
+                for (let j = m - 1; j >= i + 3; j--){
+                    if (Math.hypot(xs[j] - xs[i], ys[j] - ys[i]) <= PAINT_NECK){
+                        necks.push([i, j]);
+                        break;
+                    }
+                }
+            }
+            // The longest stretches first, each a hole if it encloses mostly nothing seen; none overlaps one taken
+            necks.sort((s, t) => (t[1] - t[0]) - (s[1] - s[0]));
+            let tried = 0;
+            for (const [i, j] of necks){
+                if (tried >= NECK_TRIES) break;
+                const rim = chain.slice(i, j + 1);
+                if (rim.some(v => taken[v])) continue;
+                tried++;
+                const rx = xs.slice(i, j + 1), ry = ys.slice(i, j + 1);
+                const lo = [Math.min(...rx), Math.min(...ry)], hi = [Math.max(...rx), Math.max(...ry)];
+                const here = seen.filter(([, x0, x1, y0, y1]) => x1 >= lo[0] && x0 <= hi[0] && y1 >= lo[1] && y0 <= hi[1]).map(s => s[0]);
+                const inside = (px, py) => here.some(t =>
+                    (t[2] - t[0]) * (py - t[1]) - (t[3] - t[1]) * (px - t[0]) >= 0 &&
+                    (t[4] - t[2]) * (py - t[3]) - (t[5] - t[3]) * (px - t[2]) >= 0 &&
+                    (t[0] - t[4]) * (py - t[5]) - (t[1] - t[5]) * (px - t[4]) >= 0);
+                const ears = earClip(rx, ry);
+                let area = 0, open = 0;
+                for (let k = 0; k < ears.length; k += 3){
+                    const [a, b, c] = [ears[k], ears[k + 1], ears[k + 2]];
+                    const piece = Math.abs((rx[b] - rx[a]) * (ry[c] - ry[a]) - (rx[c] - rx[a]) * (ry[b] - ry[a])) / 2;
+                    area += piece;
+                    if (!inside((rx[a] + rx[b] + rx[c]) / 3, (ry[a] + ry[b] + ry[c]) / 3)) open += piece;
+                }
+                if (!area || open < area / 2) continue;
+                for (const v of rim) taken[v] = 1;
+                out.push({rim, normal: z});
+            }
+        }
+    });
+    return out;
 }
 
 // The vertices of the kept triangles selected (a Uint8Array per vertex), and of the kept ones not selected
@@ -764,6 +1008,9 @@ function raise(surface, state, stroke, covered, amount){
 export const PAINT_PASSES = 3;  // Smooth's passes a stroke, unless the edit gives its own
 export const CLONE_FEATHER = 0.02;  // metres: the clone brush's blend at its edge, unless the edit gives its own
 const PAINT_SPECK = 0.5;  // metres: a loop under the paint this wide or less is filled whichever way it turns (holes)
+const PAINT_NECK = 0.05;  // metres: a rim this close to itself across the view closes a hole seen from there (neckHoles)
+const PAINT_DEPTH = 1;  // metres: how far along the view a rim may go and still be under the paint (neckHoles)
+const NECK_TRIES = 20;  // necks looked at per chain of open edges and view, the longest stretches first
 const CLONE_PIECE = 3;  // brush radii: the side of the cubes a Clone stroke is cut into, each a clone of its own
 const CLONE_PIECES = [0.5, 4];  // metres: those cubes' side, at least and at most
 
@@ -794,12 +1041,15 @@ function paint(surface, state, edit, fill){
     // The holes whose whole rim is within the strokes' radius and that a triangle the strokes cover (one facing them)
     // borders: around a hole the surface is often crumpled, its far side's triangles facing away, yet the hole is
     // under the paint (and one with no triangle facing the strokes is behind the surface, not under the paint).
-    // Small loops are holes whichever way they turn (holes's small): a speck under the brush is filled
+    // Small loops are holes whichever way they turn (holes's small): a speck under the brush is filled; so is a long
+    // thin hole in surface that goes on past the paint (holes's near)
     const touched = new Uint8Array(surface.count);
     for (let f = 0; f < n; f++) if (union[f]) for (let k = 0; k < 3; k++) touched[surface.faces[3 * f + k]] = 1;
     const small = Math.min(PAINT_SPECK, ...edit.strokes.map(stroke => stroke.radius));
     const before = state.fills.length;
     fill(holes(surface, kept, state.fills, positions, painted, small).filter(hole => hole.rim.every(v => painted[v]) && hole.rim.some(v => touched[v])));
+    // And those closed only as seen from the strokes (a rim that runs on past the paint)
+    fill(neckHoles(surface, state, painted, edit.strokes, strokeFaceLists.flatMap(list => Array.from(list))).filter(hole => hole.rim.some(v => touched[v])));
     for (let i = before; i < state.fills.length; i++) state.fillDetail[i] = true;
     if (op === "fill") return;
     // Clone: clones of the surface at the offset from target to source, each over a piece of a stroke (a cube of
@@ -886,7 +1136,7 @@ export function applyEdit(surface, state, edit, applyShape){
     const fill = chosen => {
         for (const hole of chosen){
             if (hole.rim.length > MAX_HOLE) continue;
-            const made = fillHole(positions, hole.rim);
+            const made = fillHole(positions, hole.rim, hole.normal);
             if (made){
                 fills.push(made);
                 state.fillClone.push(null);
