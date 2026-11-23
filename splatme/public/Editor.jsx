@@ -26,7 +26,7 @@ const OPS_SHOWN = ["object", "move"];  // the model's shape edits beside Keep an
 // shown as (a factor to show it in the unit)]
 const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, straighten: {strength: 0.5, reach: 0.25}};
 const OP_PARAMS = ["offset", "scale", "soft"];
-// The model's Repair buttons: the surface brush's modes, a box doing Move or Remove Object, and Straighten's line
+// The model's Repair buttons: the surface brush's modes (Remove Object's too), a box doing Move, and Straighten's line
 const REPAIRS = [
     ["fill", "Fill", "fill-drip", "Paint over holes: those under the paint are filled with the texture beside them"],
     ["clone", "Clone Texture", "clone", "Click a good area on the model, then paint where its texture is needed"],
@@ -34,7 +34,7 @@ const REPAIRS = [
     ["flatten", "Flatten", "grip-lines", "Paint over a surface to make it flat"],
     ["move", "Move", "arrows-alt", "A box that raises, shifts or stretches what it covers, a step at a time"],
     ["straighten", "Straighten", "ruler-horizontal", "Click a line's two ends on the model: the surface near it is pulled toward it"],
-    ["object", "Remove Object", "eraser", "A box that removes what it covers and fills the hole it leaves"],
+    ["object", "Remove Object", "eraser", "Paint over an object to remove it down to the surface it stands on, or outline it with Lasso or Polygon"],
 ];
 // The surface brush's modes (the 3D model's Brush): [mode, label, its edit's op, what it does]
 const PAINT_MODES = [
@@ -46,15 +46,16 @@ const PAINT_MODES = [
     ["lower", "Lower", "raise", "Each stroke lowers the surface under it by the step, the most at the middle."],
     ["remove", "Remove", "delete", "Paint over what to remove: only the surface under the circle, never what is behind it."],
     ["restore", "Restore", "restore", "Paint over what to bring back of what the edits before this one removed."],
+    ["object", "Remove Object", "object", "Paint over the whole object, its foot too: what stands above the surface round it goes, and the surface under it is laid again with the texture round it."],
 ];
 const PAINT_RADIUS = 0.25;  // metres: the surface brush at first
 const PAINT_RADII = [0.02, 5];  // as viewer.js's
 const RAISE_STEP = 0.02;  // metres: Raise's and Lower's step at first
-const PAINT_REPAIRS = ["fill", "clone", "smooth", "flatten"];  // the Repair buttons that start the surface brush
+const PAINT_REPAIRS = ["fill", "clone", "smooth", "flatten", "object"];  // the Repair buttons that start the surface brush
 const paintOp = mode => PAINT_MODES.find(([m]) => m === mode)[2];
 const PAINT_NOTES = {fill: "Fills the holes it painted over", clone: "Copies the texture picked where it painted", smooth: "Smooths what it painted over",
     flatten: "Flattens what it painted over", raise: "Raises what it painted over", lower: "Lowers what it painted over",
-    delete: "Removes what it painted over", restore: "Brings back what it painted over"};
+    delete: "Removes what it painted over", restore: "Brings back what it painted over", object: "Removes the object it painted over and fills where it stood"};
 const OP_STEPS = {
     move: [
         ["offset", 2, "Up", "m", 0.05, -100, 100, 1], ["offset", 0, "East", "m", 0.05, -100, 100, 1],
@@ -276,13 +277,16 @@ class EditorPanel extends React.Component {
         const clean = cleanRing(ring);
         this.setState({drawing: null});
         if (clean.length < 3) return;
-        // A polygon keeps its inside for splats; on the model it removes it (keeping would take nearly all)
-        this.change([...this.state.edits, {type: "polygon", keep: !this.isModel(), ring: clean}], -1);
+        // A polygon keeps its inside for splats; on the model it removes it (keeping would take nearly all), or the
+        // object it outlines
+        const op = this.state.outlining ? {op: "object"} : {};
+        this.change([...this.state.edits, {type: "polygon", keep: !this.isModel(), ring: clean, ...op}], -1);
     };
 
     handleLasso = ({ring, view, camera}) => {
         this.setState({lassoing: false});
-        this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera}], -1);
+        const op = this.state.outlining ? {op: "object"} : {};
+        this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera, ...op}], -1);
     };
 
     // The tool in use: "lasso", "brush", "polygon" or null
@@ -339,9 +343,10 @@ class EditorPanel extends React.Component {
         return was !== tool && !!this.viewer && this.state.info.can_edit && this.state.edits.length < MAX_EDITS;
     }
 
-    lasso = () => {
+    // object (true): its outline for Remove Object, started from Remove Object's brush panel
+    lasso = object => {
         if (!this.canStart("lasso")) return;
-        this.setState({selected: -1, lassoing: true});
+        this.setState({selected: -1, lassoing: true, outlining: object === true});
         this.viewer.startLasso();
     };
 
@@ -549,9 +554,9 @@ class EditorPanel extends React.Component {
         this.change([...edits, {...newBox(loaded.frame), op}], edits.length);
     }
 
-    drawPolygon = () => {
+    drawPolygon = object => {
         if (!this.canStart("polygon")) return;
-        this.setState({selected: -1, drawing: 0});
+        this.setState({selected: -1, drawing: 0, outlining: object === true});
         this.viewer.startPolygon();
     };
 
@@ -771,6 +776,14 @@ class EditorPanel extends React.Component {
                 </table>
                 <div className="splatme-editor-drawing-actions">
                     <button type="button" className="btn btn-sm btn-primary" onClick={() => this.endTool()}>{_("Done")}</button>
+                    {mode === "object" ?
+                        <button type="button" className="btn btn-sm btn-default" title={_("Drag round the object instead")} onClick={() => this.lasso(true)}>
+                            <i className="fa fa-pencil-alt fa-fw"></i> {_("Lasso")}
+                        </button> : null}
+                    {mode === "object" ?
+                        <button type="button" className="btn btn-sm btn-default" title={_("Click a polygon round the object, from above, instead")} onClick={() => this.drawPolygon(true)}>
+                            <i className="fa fa-draw-polygon fa-fw"></i> {_("Polygon")}
+                        </button> : null}
                     {mode === "clone" && source ?
                         <button type="button" className="btn btn-sm btn-default" onClick={() => this.setPainting({mode: "clone", source: null})}>{_("Pick the Source Again")}</button> : null}
                 </div>
@@ -879,7 +892,7 @@ class EditorPanel extends React.Component {
                                         aria-label={_("What this edit does")} onChange={e => this.setAction(i, e.target.value)}>
                                     <option value="keep">{_("Keep Inside")}</option>
                                     <option value="remove">{_("Remove Inside")}</option>
-                                    {this.isModel() ? <option value="object">{_("Remove Object")}</option> : ""}
+                                    {this.isModel() && edit.type !== "box" ? <option value="object">{_("Remove Object")}</option> : ""}
                                     {this.isModel() ? <option value="move">{_("Move Inside")}</option> : ""}
                                 </select>}
                             {info.can_edit ?
@@ -1004,7 +1017,8 @@ class EditorPanel extends React.Component {
                     </div> : ""}
                 {lassoing ?
                     <div className="alert alert-info splatme-editor-drawing">
-                        {_("Drag around what to remove. Everything inside on screen goes, through to the back: turn the view first to see it apart.")}
+                        {this.state.outlining ? _("Drag around the object to remove: what stands above the surface round it goes, and the surface under it is laid again.") :
+                            _("Drag around what to remove. Everything inside on screen goes, through to the back: turn the view first to see it apart.")}
                         <div className="splatme-editor-drawing-actions">
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.viewer.cancelLasso()}>{_("Cancel")}</button>
                         </div>
@@ -1031,7 +1045,8 @@ class EditorPanel extends React.Component {
                     </div> : ""}
                 {drawing !== null ?
                     <div className="alert alert-info splatme-editor-drawing">
-                        {_("Click the polygon's corners in the view from above. Click the first corner, or double-click, to close it.")}
+                        {this.state.outlining ? _("Click the corners of a polygon round the object, in the view from above. Click the first corner, or double-click, to close it.") :
+                            _("Click the polygon's corners in the view from above. Click the first corner, or double-click, to close it.")}
                         <div className="splatme-editor-drawing-actions">
                             <button type="button" className="btn btn-sm btn-primary" disabled={drawing < 3} onClick={() => this.viewer.finishPolygon()}>{_("Finish")}</button>
                             <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>

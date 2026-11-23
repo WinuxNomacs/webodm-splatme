@@ -486,7 +486,7 @@ export function createViewer(container, handlers){
             points.push(centre.clone().add(u.clone().multiplyScalar(Math.cos(a) * radius)).add(v.clone().multiplyScalar(Math.sin(a) * radius)));
         }
         if (!filled){
-            const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), lineMaterial(paint.op === "delete" ? colors.remove : colors.keep));
+            const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), lineMaterial(paint.op === "delete" || paint.op === "object" ? colors.remove : colors.keep));
             ring.renderOrder = 10;
             return ring;
         }

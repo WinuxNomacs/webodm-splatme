@@ -305,7 +305,7 @@ export function editLabel(edit, count){
     if (edit.type === "colour") return "Colour Adjust";
     if (edit.type === "floating") return "Floating Pieces";
     if (edit.type === "paint"){
-        const name = {fill: "Fill", clone: "Clone", smooth: "Smooth", flatten: "Flatten", raise: edit.amount < 0 ? "Lower" : "Raise", delete: "Remove", restore: "Restore"}[edit.op] || "Brush";
+        const name = {fill: "Fill", clone: "Clone", smooth: "Smooth", flatten: "Flatten", raise: edit.amount < 0 ? "Lower" : "Raise", delete: "Remove", restore: "Restore", object: "Remove Object"}[edit.op] || "Brush";
         return name + " Brush, " + edit.strokes.length + (edit.strokes.length === 1 ? " stroke" : " strokes");
     }
     if (edit.type === "straighten"){

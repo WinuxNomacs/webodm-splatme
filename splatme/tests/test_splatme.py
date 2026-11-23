@@ -573,15 +573,35 @@ class TestSplatMe(BootTestCase):
         with open(os.path.join(meshes.model_dir(task), meshes.GLB), "rb") as f:
             self.assertIn(b"glTF", f.read(4))  # the original, bump and all, kept
 
-    def test_a_shape_set_to_a_repair_the_brush_does_now_and_clone_stamps_are_refused(self):
+    def test_a_shape_set_to_a_repair_the_brush_does_now_clone_stamps_and_a_remove_object_box_are_refused(self):
         task = make_task(self.user)
         make_textured_model(task)
         box = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1, 1, 1], "turn": 0}
-        for bad in ({"op": "flatten", **box}, {"op": "fill", **box}, {"op": "smooth", **box, "passes": 3},
+        for bad in ({"op": "flatten", **box}, {"op": "fill", **box}, {"op": "smooth", **box, "passes": 3}, {"op": "object", **box},
                     {"op": "clone", **box, "source": [0, 0, 0], "patch": 1, "feather": 0.25, "spin": 0},
                     {"op": "straighten", **box, "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1},
                     {"type": "stamps", "op": "clone", "source": [0.5, 1.5, 0], "feather": 0.1, "stamps": []}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
+
+    def test_remove_object_takes_what_the_brush_marks_down_to_the_surface_round_it_and_fills_it(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task, bump=0.5)
+        # Over the raised vertex: what rises above the flat grid round it goes, and the hole is filled flat
+        brush = {"type": "paint", "op": "object", "strokes": [{"points": [[1, 1, 0.5]], "radius": 0.9, "view": [0, 0, 1]}]}
+        polygon = {"op": "object", "type": "polygon", "keep": False, "ring": [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5]]}
+        self.assertEqual(self.model_edits(task, [polygon]).status_code, 200)
+        res = self.model_edits(task, [brush])
+        self.assertEqual(res.status_code, 200, res.data)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        self.assertGreater(res.data["apply"]["removed"], 0)
+        self.assertGreater(res.data["apply"]["filled"], 0)
+        # The heights of the corners the model's triangles use (the raised one is left unused)
+        with open(os.path.join(folder, meshes.OBJ)) as f:
+            lines = f.read().splitlines()
+        heights = [float(line.split()[3]) for line in lines if line.startswith("v ")]
+        used = {int(c.split("/")[0]) for line in lines if line.startswith("f ") for c in line.split()[1:]}
+        self.assertTrue(used and max(abs(heights[c - 1]) for c in used) < 1e-5)
 
     def test_fill_holes_adds_triangles_with_a_texture_of_their_own_which_goes_when_no_fill_needs_it(self):
         task = make_task(self.user)

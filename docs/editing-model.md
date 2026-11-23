@@ -21,17 +21,17 @@ A task can be edited once WebODM has made its textured model (its GLB, OBJ and M
 ## The Edits
 
 The repairs most work needs are on the **Brush** (B), which paints on the surface ([The Brush](#the-brush)). The
-**Repair** buttons under the tools start each repair: **Fill**, **Clone Texture**, **Smooth** and **Flatten** start
-the Brush in that mode; **Straighten** asks for a line ([Straighten](#straighten)); **Move** and **Remove Object**
-each add a box doing that in the middle of the view, to move and size like any box.
+**Repair** buttons under the tools start each repair: **Fill**, **Clone Texture**, **Smooth**, **Flatten** and
+**Remove Object** start the Brush in that mode ([Remove Object](#remove-object)); **Straighten** asks for a line
+([Straighten](#straighten)); **Move** adds a box that moves what it covers, in the middle of the view, to move and
+size like any box.
 
 **Add Box** (X), **Draw Polygon** (P) and **Lasso** (L) are for large areas, drawn as on Editing Splats (see
 [The Edits](editing.md#the-edits) there). A shape acts on the triangles whose centres it covers. What it does is
 chosen in the list:
 
 - **Remove Inside** (the start) and **Keep Inside**: remove the triangles inside it, or all the others.
-- **Remove Object**: removes what it covers, then fills the hole that leaves, so the ground under a car or a
-  person closes over. Draw it close around the object: the fill spans the hole's whole edge.
+- **Remove Object** (a polygon or lasso): removes the object it outlines ([Remove Object](#remove-object)).
 - **Move Inside**: raises, shifts or stretches what it covers: a roof that sits too low, an eave that should sit
   above the wall below it. The move fades to nothing over a **Soft Edge** around it, so the surface stretches
   instead of tearing.
@@ -54,11 +54,23 @@ is behind it. The buttons above its panel choose what it does:
 - **Raise** and **Lower**: lift or lower the surface by **Step** (2 cm at first) each stroke, the most at the
   middle of the circle.
 - **Remove** and **Restore**: remove what it paints, or bring back what the edits above it removed.
+- **Remove Object**: removes the object painted over ([Remove Object](#remove-object)).
 
 Each stroke is one **Undo**. A mode's strokes are one edit in the list (**Fill Brush, 3 strokes**) until the mode,
 the step or Clone's source changes, which starts another. The wheel, or **[** and **]**, make the brush larger or
 smaller (**Size** in the panel, 4 cm to 10 m across), and Shift+wheel zooms. While painting, a drag paints: Alt+drag
 or the middle button turns the view, and right-drag moves it. **Done** or Esc stops.
+
+### Remove Object
+
+**Remove Object** takes an object off the surface it stands on: a vent or a pipe on a roof, a car, a sign. Paint
+over the whole object with the Brush, its foot too, or outline it instead: **Lasso** (drag round it, on screen) or
+**Polygon** (click its corners in the view from above), beside **Done** in the Brush's panel. The surface round
+what you marked tells where the object stands: inside the mark, what rises above that surface goes, whatever its
+height, and what is below it (the house under a roof) stays. Where the object stood, the surface is laid again,
+flat, with the texture round it, which also takes away the object's colours that photo texturing often leaves on
+the surface at its foot. Mark a little round the object: the new surface's texture comes from just outside the
+mark. **Clone** can go over it after, for a pattern such as shingles.
 
 ### Straighten
 

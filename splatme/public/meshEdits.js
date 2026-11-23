@@ -182,8 +182,9 @@ export function components(faces, count, kept){
 // A model's edits, kept in the task's local frame as the splats' are (edits.py, meshes.py):
 //   {op: "delete", ...shape}   a Box, Polygon, Lasso or Brush shape of editShapes.js, with its keep (a Brush removes,
 //                              or with restore puts back what the edits before it removed): on the triangles' centres
-//   {op: "object", ...shape}   Remove Object: the triangles whose centres the shape covers removed, then the holes
-//                              that leaves filled
+//   {op: "object", ...shape}   Remove Object, a Polygon or a Lasso: the object marked (the triangles whose centres the
+//                              shape covers, nearest the view: removeObject) removed down to the surface it stands
+//                              on, and the holes that leaves filled
 //   {op: "move", ...shape, offset: [x, y, z], scale: [x, y, z], soft: metres}
 //                              the vertices of the triangles the shape covers scaled about their middle and moved;
 //                              those within soft metres of them moved part of the way (less the farther), so the
@@ -201,7 +202,9 @@ export function components(faces, count, kept){
 //                              radius; less than 0 lowers), "fill" (the holes whose whole rim the strokes cover,
 //                              textured from beside them) and "clone" (source and target [x, y, z], normal at the
 //                              target, feather: what the strokes cover textured from the surface at the offset from
-//                              target to source, the holes under them filled with it; after all the edits)
+//                              target to source, the holes under them filled with it; after all the edits) and
+//                              "object" (Remove Object: what the strokes paint over and what stands on it there,
+//                              removed down to the surface it stands on: paintedObject, removeObject)
 //   {type: "floating", size}   the pieces of surface of fewer than size triangles, all but the largest
 //   {type: "holes", size}      Fill Holes: every hole of at most size edges filled
 // A hole is a loop of open edges that goes round as a hole's do, not as a piece's outer rim (holes); a fill is triangles
@@ -681,6 +684,154 @@ function neckHoles(surface, state, painted, strokes, covered){
     return out;
 }
 
+function unit(v){
+    const length = Math.hypot(...v);
+    return length ? v.map(t => t / length) : [0, 0, 1];
+}
+
+// Remove Object's mark for a brush: the kept triangles under its strokes seen along their views (their centres
+// within the radius across, within OBJECT_DEPTH along), reached across shared corners from those the strokes
+// cover: what the strokes paint over and what stands on it or holds it there, not something apart in front or behind
+function paintedObject(surface, state, strokes){
+    const { faces } = surface, { kept, positions: p, n } = state;
+    const { start, list } = vertexFaces(surface);
+    const views = strokes.map(stroke => unit(stroke.view));
+    const under = f => {
+        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        const centre = [0, 1, 2].map(i => (p[a + i] + p[b + i] + p[c + i]) / 3);
+        return strokes.some((stroke, i) => underStroke(stroke, views[i], OBJECT_DEPTH, centre));
+    };
+    const marked = new Uint8Array(n), looked = new Uint8Array(n), queue = [];
+    for (const stroke of strokes){
+        for (const f of strokeFaces(surface, state, stroke)){
+            if (!kept[f] || marked[f]) continue;
+            marked[f] = looked[f] = 1;
+            queue.push(f);
+        }
+    }
+    while (queue.length){
+        const f = queue.pop();
+        for (let k = 0; k < 3; k++){
+            const v = faces[3 * f + k];
+            for (let i = start[v]; i < start[v + 1]; i++){
+                const g = list[i];
+                if (looked[g] || !kept[g]) continue;
+                looked[g] = 1;
+                if (under(g)){
+                    marked[g] = 1;
+                    queue.push(g);
+                }
+            }
+        }
+    }
+    return marked;
+}
+
+// Remove Object on the marked triangles: for each piece of them (joined at corners), the surface it stands on is
+// fitted to a band of the triangles round it (OBJECT_BAND rings, more while too few; the farthest from it dropped
+// and fitted again, as the object's own triangles left out of the mark are), facing toward (a unit vector toward
+// the view). What the piece has above that surface, or on it within OBJECT_ABOVE (or three times the band's spread),
+// is removed: the object and the surface under its foot, where its colours often are too. What is below is kept.
+// Then the holes that leaves are filled, laid out across the fitted surface, textured from around them
+function removeObject(surface, state, marked, toward, fill){
+    const { faces, count } = surface, { kept, positions: p, n } = state;
+    const { start, list } = vertexFaces(surface);
+    const parts = components(faces, count, marked);
+    const members = parts.sizes.map(() => []);
+    for (let f = 0; f < n; f++) if (parts.label[f] >= 0) members[parts.label[f]].push(f);
+    const before = state.fills.length;
+    for (const piece of members){
+        // The band: rings of kept unmarked triangles out from the piece's corners
+        const inBand = new Set(), seenFace = new Set();
+        let frontier = [...new Set(piece.flatMap(f => [faces[3 * f], faces[3 * f + 1], faces[3 * f + 2]]))];
+        for (let ring = 0; frontier.length && (ring < OBJECT_BAND || (inBand.size < OBJECT_BAND_LEAST && ring < 4 * OBJECT_BAND)); ring++){
+            const next = [];
+            for (const v of frontier){
+                for (let i = start[v]; i < start[v + 1]; i++){
+                    const g = list[i];
+                    if (!kept[g] || marked[g] || seenFace.has(g)) continue;
+                    seenFace.add(g);
+                    for (let k = 0; k < 3; k++){
+                        const w = faces[3 * g + k];
+                        if (!inBand.has(w)){
+                            inBand.add(w);
+                            next.push(w);
+                        }
+                    }
+                }
+            }
+            frontier = next;
+        }
+        let points = [...inBand], plane = fitPlane(p, points), spread = 0;
+        for (let pass = 0; pass < 3 && plane; pass++){
+            const off = points.map(v => Math.abs((p[3 * v] - plane.point[0]) * plane.normal[0] + (p[3 * v + 1] - plane.point[1]) * plane.normal[1] + (p[3 * v + 2] - plane.point[2]) * plane.normal[2]));
+            spread = off.slice().sort((a, b) => a - b)[Math.floor(off.length / 2)];
+            const near = points.filter((v, i) => off[i] <= Math.max(2.5 * spread, OBJECT_ABOVE / 2));
+            if (near.length < 3 || near.length === points.length) break;
+            points = near;
+            plane = fitPlane(p, points) || plane;
+        }
+        let normal = null, above = () => true;
+        if (plane){
+            normal = plane.normal;
+            if (normal[0] * toward[0] + normal[1] * toward[1] + normal[2] * toward[2] < 0) normal = normal.map(t => -t);
+            const tolerance = Math.max(OBJECT_ABOVE, 3 * spread), o = plane.point;
+            above = f => {
+                const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+                let h = 0;
+                for (let i = 0; i < 3; i++) h += ((p[a + i] + p[b + i] + p[c + i]) / 3 - o[i]) * normal[i];
+                return h > -tolerance;
+            };
+        }
+        const touched = new Uint8Array(count);
+        let removed = 0;
+        for (const f of piece){
+            if (!above(f)) continue;
+            kept[f] = 0;
+            removed++;
+            for (let k = 0; k < 3; k++) touched[faces[3 * f + k]] = 1;
+        }
+        if (removed) fill(objectHoles(surface, state, touched, normal || unit(toward)));
+    }
+    for (let i = before; i < state.fills.length; i++) state.fillDetail[i] = true;
+}
+
+// The holes Remove Object leaves where it removed (touched: the removed triangles' corners), each {rim, normal}: the
+// loops of open edges there when they close all the open edges it made; otherwise (its rim runs on into the
+// model's other open edges, as a crumpled surface's seams do) one hole round the whole footprint, through the
+// outermost corners left round it in each direction from its middle, across the fitted surface (normal)
+function objectHoles(surface, state, touched, normal){
+    const { faces, count } = surface, { kept, positions: p, fills } = state;
+    const found = holes(surface, kept, fills, p, touched);
+    const onLoop = new Set(found.flatMap(hole => hole.rim));
+    // The open edges made there that no loop closes
+    const near = new Uint8Array(kept.length);
+    for (let f = 0; f < near.length; f++) near[f] = kept[f] && (touched[faces[3 * f]] || touched[faces[3 * f + 1]] || touched[faces[3 * f + 2]]) ? 1 : 0;
+    const loose = openEdges(faces, count, near).filter(([a, b]) => touched[a] && touched[b] && !(onLoop.has(a) && onLoop.has(b)));
+    if (loose.length <= OBJECT_LOOSE) return found.map(hole => ({...hole, normal}));
+    // The corners left round the footprint (of a kept triangle), across the fitted surface from their middle
+    const rim = [];
+    for (let f = 0; f < near.length; f++) if (near[f]) for (let k = 0; k < 3; k++) if (touched[faces[3 * f + k]]) rim.push(faces[3 * f + k]);
+    const corners = [...new Set(rim)];
+    if (corners.length < 3) return [];
+    const { u, v } = planeFrame(normal);
+    const xs = corners.map(c => p[3 * c] * u[0] + p[3 * c + 1] * u[1] + p[3 * c + 2] * u[2]);
+    const ys = corners.map(c => p[3 * c] * v[0] + p[3 * c + 1] * v[1] + p[3 * c + 2] * v[2]);
+    const mx = xs.reduce((a, b) => a + b) / xs.length, my = ys.reduce((a, b) => a + b) / ys.length;
+    // The farthest in each of the sectors round the middle, clockwise seen from the surface's front (as a hole's rim goes)
+    const sectors = Math.max(8, Math.min(OBJECT_SECTORS, corners.length)), far = new Array(sectors).fill(-1), reach = new Array(sectors).fill(-1);
+    corners.forEach((c, i) => {
+        const angle = Math.atan2(ys[i] - my, xs[i] - mx), d = Math.hypot(xs[i] - mx, ys[i] - my);
+        const k = Math.min(sectors - 1, Math.floor((angle + Math.PI) / (2 * Math.PI) * sectors));
+        if (d > reach[k]){
+            reach[k] = d;
+            far[k] = i;
+        }
+    });
+    const ring = far.filter(i => i >= 0).reverse().map(i => corners[i]);
+    return ring.length >= 3 ? [{rim: ring, normal}] : [];
+}
+
 // The vertices of the kept triangles selected (a Uint8Array per vertex), and of the kept ones not selected
 function sides(surface, kept, selected){
     const { faces, count } = surface;
@@ -866,7 +1017,7 @@ export function applyEdits(surface, edits, applyShape){
 }
 
 // The surface brush (paint edits)
-export const PAINT_OPS = ["delete", "restore", "fill", "clone", "smooth", "flatten", "raise"];
+export const PAINT_OPS = ["delete", "restore", "fill", "clone", "smooth", "flatten", "raise", "object"];
 const PAINT_CELL = 0.25;  // metres: the cells the triangles are found through, by where their centres were
 const PAINT_FAR = 2;  // metres: past this, the vertices moved too far for the grid; the triangles are all looked at
 
@@ -1008,6 +1159,13 @@ function raise(surface, state, stroke, covered, amount){
 export const PAINT_PASSES = 3;  // Smooth's passes a stroke, unless the edit gives its own
 export const CLONE_FEATHER = 0.02;  // metres: the clone brush's blend at its edge, unless the edit gives its own
 const PAINT_SPECK = 0.5;  // metres: a loop under the paint this wide or less is filled whichever way it turns (holes)
+const OBJECT_DEPTH = 5;  // metres: how far along the view Remove Object reaches past what is nearest (the object's height)
+const OBJECT_LAYER = 1;  // metres: a piece a shape marks whose top is farther below the nearest is not the object
+const OBJECT_BAND = 3;  // rings of triangles round a marked object that the surface it stands on is fitted to
+const OBJECT_BAND_LEAST = 12;  // corners: fewer in the band, and it grows (up to four times OBJECT_BAND rings)
+const OBJECT_ABOVE = 0.05;  // metres: what lies above the fitted surface, or less than this below it, is removed
+const OBJECT_LOOSE = 2;  // open edges Remove Object made that no loop closes: more, and one hole round its footprint
+const OBJECT_SECTORS = 64;  // directions round a footprint its hole's rim takes a corner in (at most)
 const PAINT_NECK = 0.05;  // metres: a rim this close to itself across the view closes a hole seen from there (neckHoles)
 const PAINT_DEPTH = 1;  // metres: how far along the view a rim may go and still be under the paint (neckHoles)
 const NECK_TRIES = 20;  // necks looked at per chain of open edges and view, the longest stretches first
@@ -1018,6 +1176,15 @@ const CLONE_PIECES = [0.5, 4];  // metres: those cubes' side, at least and at mo
 // fill and clone, all the strokes' triangles and the holes they cover. fill(holes): applyEdit's.
 function paint(surface, state, edit, fill){
     const { kept, positions, n } = state;
+    if (edit.op === "object"){
+        const toward = [0, 0, 0];
+        for (const stroke of edit.strokes){
+            const length = Math.hypot(...stroke.view) || 1;
+            for (let i = 0; i < 3; i++) toward[i] += stroke.view[i] / length;
+        }
+        removeObject(surface, state, paintedObject(surface, state, edit.strokes), unit(toward), fill);
+        return;
+    }
     const op = edit.op, union = new Uint8Array(n), strokeFaceLists = [];
     const painted = op === "fill" || op === "clone" ? new Uint8Array(surface.count) : null;  // within the radius
     for (const stroke of edit.strokes){
@@ -1147,14 +1314,21 @@ export function applyEdit(surface, state, edit, applyShape){
     if (edit.type === "paint"){
         paint(surface, state, edit, fill);
     } else if (edit.op === "object"){
-        const at = centresNow();
-        const before = kept.slice();
-        applyShape(at.xs, at.ys, at.zs, {...edit, keep: false, restore: false}, kept, null);
-        const touched = new Uint8Array(surface.count);
-        for (let f = 0; f < n; f++){
-            if (before[f] && !kept[f]) touched[surface.faces[3 * f]] = touched[surface.faces[3 * f + 1]] = touched[surface.faces[3 * f + 2]] = 1;
-        }
-        fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.some(v => touched[v])));
+        // The object toward the view: up for a polygon (seen from above), toward the camera for a lasso; of what the
+        // shape covers (through to the back), the triangles within OBJECT_DEPTH of what is nearest the view
+        const covered = coveredBy(edit), at = centresNow();
+        const camera = edit.camera;
+        const toward = edit.type === "lasso" && camera ? unit(camera.position.map((x, i) => x - camera.target[i])) : [0, 0, 1];
+        const height = f => at.xs[f] * toward[0] + at.ys[f] * toward[1] + at.zs[f] * toward[2];
+        let front = -Infinity;
+        for (let f = 0; f < n; f++) if (kept[f] && covered[f]) front = Math.max(front, height(f));
+        const marked = new Uint8Array(n);
+        for (let f = 0; f < n; f++) if (kept[f] && covered[f] && height(f) >= front - OBJECT_DEPTH) marked[f] = 1;
+        // Only the pieces of it whose top is within OBJECT_LAYER of the nearest: not a surface under it apart from it
+        const parts = components(surface.faces, surface.count, marked), tops = parts.sizes.map(() => -Infinity);
+        for (let f = 0; f < n; f++) if (parts.label[f] >= 0) tops[parts.label[f]] = Math.max(tops[parts.label[f]], height(f));
+        for (let f = 0; f < n; f++) if (parts.label[f] >= 0 && tops[parts.label[f]] < front - OBJECT_LAYER) marked[f] = 0;
+        removeObject(surface, state, marked, toward, fill);
     } else if (edit.type === "holes"){
         fill(holes(surface, kept, fills, positions).filter(hole => hole.rim.length <= edit.size));
     } else if (edit.op === "delete"){
