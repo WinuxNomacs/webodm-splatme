@@ -1,6 +1,7 @@
 import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 import speck from "./speck.json";
+import thinHole from "./thinhole.json";
 
 // A 3 by 3 grid of squares (two triangles each) in the z = 0 plane, split into two pieces as WebODM's GLB splits a
 // model by texture: the pieces repeat the corners they share
@@ -653,6 +654,23 @@ describe("the surface brush", () => {
         // Fill Holes, which goes by the winding alone, leaves it
         const whole = applyEdits(surface, [{type: "holes", size: 50}], applyShape);
         expect(whole.fills.some(f => f.ring.length === ring.size && f.ring.every(v => ring.has(v)))).toBe(false);
+    });
+
+    test("a long thin hole under the paint is filled though its rim turns as an outer rim does (a real one, from a roof)", () => {
+        // thinhole.json: a model's triangles within 25 cm of a 15-edge hole 34 cm long (wider than the brush), whose
+        // crumpled rim turns as a piece's outer rim does; in metres from its middle, with a stroke along its rim and
+        // the view it was painted from. The surface beside it goes on past the paint, so it is no piece's outer rim
+        const { positions, indices, loop, points, view } = thinHole;
+        const surface = weld([{positions: Float32Array.from(positions), indices: Uint32Array.from(indices)}]);
+        const ring = new Set(loop.map(c => surface.vertexOf[0][c]));
+        const same = f => f.ring.length === ring.size && f.ring.every(v => ring.has(v));
+        expect(applyEdits(surface, [paint("fill", [stroke(points, 0.1, view)])], applyShape).fills.some(same)).toBe(true);
+        // Fill Holes, which goes by the winding alone, leaves it
+        expect(applyEdits(surface, [{type: "holes", size: 50}], applyShape).fills.some(same)).toBe(false);
+        // A piece wholly under the paint keeps its outer rim open (the grid painted all over: only its hole is filled)
+        const piece = weld(grid(4, (i, j) => i === 1 && j === 1));
+        const all = applyEdits(piece, [paint("fill", [stroke([[2, 2, 0]], 10)])], applyShape);
+        expect(all.fills.map(f => f.ring.length)).toEqual([4]);
     });
 
     test("painting over every hole fills those Fill Holes fills (holes found from the painted edges only)", () => {

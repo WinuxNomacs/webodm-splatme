@@ -10,7 +10,8 @@ other software. The plugin does that step.
 **Up next**
 
 1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
-   14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user. The release waits for it.
+   14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user (under way: Fill's long thin holes fixed,
+   section 14's end). The release waits for it.
 2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
@@ -3474,3 +3475,15 @@ strokes at most 170 ms. Update the Model matched the preview (2,055 points moved
 retextured, 854,797 triangles) in about 8 s. One long task of about 2 s remains while the model loads (at 5 s on
 the page's clock, before it shows). The editor-check skill now prints when each step and long task happened, and
 takes `VIEWPORT`.
+
+**Bug (reported 2026-11-23, R7d's live check on a roof, task HomerunObliqueII9): the brush's Fill left most of the
+black specks.** The specks are holes (none textured black), but most are long and thin: chains of specks joined by
+slits, 1 to 12 m round their rim yet 0.02 to 0.13 m2 in area, wider than the brush. Wider than the speck limit
+(PAINT_SPECK or the brush's radius), a loop was filled only if it turned as a hole does, and these crumpled rims
+turn as an outer rim does. Fixed (branch `fill-long-holes`): under the paint, a loop is a hole whichever way it
+turns when the surface beside it goes on past the paint (a piece's outer rim encloses the piece, so one whose rim is
+all painted lies under the paint too, and keeps the winding test). Replayed on the user's saved strokes (the
+surface rasterised along the strokes' view, 1 cm pixels): the first Fill edit's see-through area 3.19% before, 1.09%
+after with the old rule, 0.41% with the new; the specks in the others nearly all gone, what stays is where a hole
+runs on past the paint. No measurable cost (a Fill edit 0.5 to 0.9 s in Node either way). Test: `thinhole.json`, a
+real 15-edge hole from that roof, seen failing before the fix.
