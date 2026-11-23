@@ -1530,8 +1530,11 @@ export function finishEdits(surface, state){
     clones.forEach(([, faces], k) => { for (const f of faces) if (kept[f]) cloneOf[f] = k; });
     const cloned = clones.map(([edit, faces], k) => ({edit, faces: faces.filter(f => cloneOf[f] === k)})).filter(c => c.faces.length);
     const clonedCount = cloned.reduce((sum, c) => sum + c.faces.length, 0);
+    // The triangles near a point (for the texture cache's keys: cloneParts), through the grid as it is now
+    const now = gridOf(surface, state), shift = state.shift;
+    const near = state.shift > PAINT_FAR ? null : (point, reach, visit) => nearSegment(now, point, point, reach + shift, visit);
     return {kept, positions, removed, floating: state.floating, flattened: state.flattened, fills, added, moved: state.moved,
-        clones: cloned, cloneOf, cloned: clonedCount};
+        clones: cloned, cloneOf, cloned: clonedCount, near};
 }
 
 // The edits' result kept between calls, for a view that shows them as they change: preview(edits) answers
@@ -2089,21 +2092,25 @@ export function cloneParts(surface, pieces, result, sample, cache = null){
         const triangles = Array.from(clone.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]);
         const samplers = [];
         const own = (t, wa, wb, wc) => (samplers[t] = samplers[t] || faceSampler(surface, pieces, clone.faces[t], sample))(wa, wb, wc);
-        const key = "c" + JSON.stringify(clone.edit) + partKey(clone.faces, triangles, result.positions);
+        // Its source is part of what makes it: an edit before it can remove or move the surface there
+        const source = cache ? sourceOf(clone.edit) : null;
+        const key = "c" + JSON.stringify(clone.edit) + partKey(clone.faces, triangles, result.positions) +
+            (source ? partKey(source.faces, Array.from(source.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]), result.positions) : "");
         const part = cached(key, () => {
-            const source = sourceOf(clone.edit);
-            return source && renderPart(surface, pieces, result.positions, triangles, own, source, clone.edit, sample, patches);
+            const found = source || sourceOf(clone.edit);
+            return found && renderPart(surface, pieces, result.positions, triangles, own, found, clone.edit, sample, patches);
         });
         if (part) parts.push({...part, key, centre: partCentre(part.triangles, result.positions)});
     }
     // The fills wide enough: textured from beside them, blended from their rim's colours at the edge. With a cache, a
-    // fill's part is kept while its rim is where it was (its source beside it is not looked for again)
+    // fill's part is kept while its rim, and the surface its source is looked for in, are as they were
     const detailed = splitFills(result.fills).detailed;
     let grid = null;
     const fillParts = detailed.map(fill => {
         const triangles = [];
         for (let t = 0; t < fill.triangles.length; t += 3) triangles.push([fill.ring[fill.triangles[t]], fill.ring[fill.triangles[t + 1]], fill.ring[fill.triangles[t + 2]]]);
-        return {fill, triangles, key: "f" + JSON.stringify(fill.clone || null) + partKey(fill.ring, triangles, result.positions)};
+        const beside = cache && !fill.clone ? surroundKey(surface, result, fill) : "";
+        return {fill, triangles, key: "f" + JSON.stringify(fill.clone || null) + partKey(fill.ring, triangles, result.positions) + beside};
     });
     // The rims' colours of the fills whose parts are to be made, read together (each read goes over the whole model)
     const making = fillParts.filter(({key}) => !cache || !cache.has(key));
@@ -2206,6 +2213,27 @@ function partCentre(triangles, positions){
         count++;
     }
     return c.map(x => x / Math.max(1, count));
+}
+
+// The kept surface a fill's source is looked for in (fillSource: patches a width across, two widths from its
+// middle), as partKey's text; all of it when the result cannot find what is near
+function surroundKey(surface, result, fill){
+    const p = result.positions, ring = fill.ring, middle = [0, 0, 0];
+    for (const v of ring) for (let i = 0; i < 3; i++) middle[i] += p[3 * v + i] / ring.length;
+    let far = 0;
+    for (const v of ring) far = Math.max(far, Math.hypot(p[3 * v] - middle[0], p[3 * v + 1] - middle[1], p[3 * v + 2] - middle[2]));
+    const reach = Math.max(far, 2 * fill.radius + fill.radius * Math.SQRT2) + 0.01, found = [];
+    const { faces } = surface;
+    const take = f => {
+        if (!result.kept[f]) return;
+        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        const d = Math.hypot((p[a] + p[b] + p[c]) / 3 - middle[0], (p[a + 1] + p[b + 1] + p[c + 1]) / 3 - middle[1], (p[a + 2] + p[b + 2] + p[c + 2]) / 3 - middle[2]);
+        if (d <= reach) found.push(f);
+    };
+    if (result.near) result.near(middle, reach, take);
+    else for (let f = 0; f < faces.length / 3; f++) take(f);
+    const ids = Int32Array.from(new Set(found)).sort();
+    return partKey(ids, Array.from(ids, f => [faces[3 * f], faces[3 * f + 1], faces[3 * f + 2]]), p);
 }
 
 // What a part is made from, as text: its triangles' numbers and where their corners are

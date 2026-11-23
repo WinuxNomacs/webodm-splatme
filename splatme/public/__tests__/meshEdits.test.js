@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneParts, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 import speck from "./speck.json";
 import thinHole from "./thinhole.json";
@@ -683,6 +683,25 @@ describe("the surface brush", () => {
             expect(colour[0]).toBeCloseTo((x - 3) / 6 * 255, -0.7);
             expect(colour[1]).toBeCloseTo((y - 3) / 6 * 255, -0.7);
         }
+    });
+
+    test("a clone's or a wide fill's kept texture is made again when an edit before it changes the surface its source is on", () => {
+        const model = textured((i, j) => i === 4 && j === 1);
+        const surface = weld(model);
+        const clone = paint("clone", [stroke([[4.5, 4.5, 0]], 0.45)], {source: [1.5, 1.5, 0], target: [4.5, 4.5, 0], normal: up, feather: 0});
+        const fill = {type: "holes", size: 10};
+        // Raised round the clone's source, near the hole but not at its rim
+        const lift = paint("raise", [stroke([[1.5, 1.5, 0]], 1.0)], {amount: 0.3});
+        const keys = edits => {
+            const cache = new Map();
+            cloneParts(surface, model, applyEdits(surface, edits, applyShape), sample, cache);
+            return [...cache.keys()];
+        };
+        const before = keys([clone, fill]), after = keys([lift, clone, fill]);
+        expect(before.length).toBe(2);  // the clone's part and the fill's
+        expect(after.filter(k => before.includes(k))).toEqual([]);
+        // The same edits give the same keys: a part is kept while nothing it is made from changed
+        expect(keys([lift, clone, fill])).toEqual(after);
     });
 
     test("a later clone over the same triangles wins, and none is textured without a surface near its source", () => {
