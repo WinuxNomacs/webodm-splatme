@@ -374,9 +374,12 @@ export function fillHole(positions, rim){
 // it turns clockwise around the surface beside it (seen from the side its triangles face), as a hole's edges go; a
 // piece's outer rim turns the other way.
 // near (optional, a Uint8Array per vertex): only the holes whose rim is all near vertices, found from the edges
-// between them (the same holes there as without it, without going over every edge of the model). small (metres):
-// a loop no wider is a hole whichever way it turns (where a rim pinches at a vertex, the loops it is cut into do
-// not always turn as a hole's do)
+// between them (the same holes there as without it, without going over every edge of the model); and a loop there
+// is a hole whichever way it turns when the surface beside it goes on past the near vertices (a piece's outer rim
+// encloses the piece: one whose rim is all near lies there too). Real holes are often long and thin, chains of
+// specks joined by slits, their rims so crumpled that they turn as an outer rim does. small (metres): a loop no
+// wider is a hole whichever way it turns (where a rim pinches at a vertex, the loops it is cut into do not always
+// turn as a hole's do)
 function holes(surface, kept, fills, positions, near = null, small = 0){
     const { faces, count } = surface;
     let all = faces, keep = kept;
@@ -396,6 +399,15 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
     }
     let edges = openEdges(all, count, keep);
     if (near) edges = edges.filter(([a, b]) => near[a] && near[b]);
+    // With near: which pieces of the surface there go on past it (have a triangle with a corner not near)
+    let pieces = null, beyond = null;
+    if (near){
+        pieces = components(all, count, keep);
+        beyond = new Uint8Array(pieces.sizes.length);
+        for (let f = 0; f < keep.length; f++){
+            if (keep[f] && !(near[all[3 * f]] && near[all[3 * f + 1]] && near[all[3 * f + 2]])) beyond[pieces.label[f]] = 1;
+        }
+    }
     const faceOf = new Map();
     for (const [a, b, f] of edges){
         faceOf.set(a * count + b, f);
@@ -414,6 +426,7 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
     };
     return loops(edges).filter(rim => {
         if (within(rim)) return true;
+        if (beyond && beyond[pieces.label[faceOf.get(rim[0] * count + rim[1])]]) return true;
         // The loop's vector area, and the normals of the triangles along it (by their area)
         let ax = 0, ay = 0, az = 0, nx = 0, ny = 0, nz = 0;
         const o = 3 * rim[0];
@@ -794,7 +807,8 @@ function paint(surface, state, edit, fill){
     // The holes whose whole rim is within the strokes' radius and that a triangle the strokes cover (one facing them)
     // borders: around a hole the surface is often crumpled, its far side's triangles facing away, yet the hole is
     // under the paint (and one with no triangle facing the strokes is behind the surface, not under the paint).
-    // Small loops are holes whichever way they turn (holes's small): a speck under the brush is filled
+    // Small loops are holes whichever way they turn (holes's small): a speck under the brush is filled; so is a long
+    // thin hole in surface that goes on past the paint (holes's near)
     const touched = new Uint8Array(surface.count);
     for (let f = 0; f < n; f++) if (union[f]) for (let k = 0; k < 3; k++) touched[surface.faces[3 * f + k]] = 1;
     const small = Math.min(PAINT_SPECK, ...edit.strokes.map(stroke => stroke.radius));
