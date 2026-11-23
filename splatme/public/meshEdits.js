@@ -419,12 +419,24 @@ function viewPlane(positions, ring, normal){
 // encloses the piece: one whose rim is all near lies there too). Real holes are often long and thin, chains of
 // specks joined by slits, their rims so crumpled that they turn as an outer rim does. small (metres): a loop no
 // wider is a hole whichever way it turns (where a rim pinches at a vertex, the loops it is cut into do not always
-// turn as a hole's do)
-function holes(surface, kept, fills, positions, near = null, small = 0){
+// turn as a hole's do). nearList (optional): the near vertices, so that only the triangles at them are looked at,
+// in the same order, rather than every triangle of the model
+function holes(surface, kept, fills, positions, near = null, small = 0, nearList = null){
     const { faces, count } = surface;
     let all = faces, keep = kept;
     const extra = fills.reduce((sum, fill) => sum + fill.triangles.length, 0);
-    if (extra){
+    if (near && nearList){
+        // The kept triangles with a near corner, then the fills' triangles with one, as below but no others
+        const at = facesAt(surface, nearList).filter(f => kept[f]), taken = [];
+        for (const fill of fills) for (let t = 0; t < fill.triangles.length; t += 3){
+            const a = fill.ring[fill.triangles[t]], b = fill.ring[fill.triangles[t + 1]], c = fill.ring[fill.triangles[t + 2]];
+            if (near[a] || near[b] || near[c]) taken.push(a, b, c);
+        }
+        all = new Int32Array(3 * at.length + taken.length);
+        at.forEach((f, i) => all.set(faces.subarray(3 * f, 3 * f + 3), 3 * i));
+        all.set(taken, 3 * at.length);
+        keep = new Uint8Array(all.length / 3).fill(1);
+    } else if (extra){
         all = new Int32Array(faces.length + extra);
         all.set(faces);
         keep = new Uint8Array(all.length / 3).fill(1);
@@ -432,7 +444,7 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
         let at = faces.length;
         for (const fill of fills) for (const t of fill.triangles) all[at++] = fill.ring[t];
     }
-    if (near){
+    if (near && !nearList){
         const touching = new Uint8Array(all.length / 3);
         for (let f = 0; f < touching.length; f++) touching[f] = keep[f] && (near[all[3 * f]] || near[all[3 * f + 1]] || near[all[3 * f + 2]]) ? 1 : 0;
         keep = touching;
@@ -490,6 +502,13 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
         }
         return ax * nx + ay * ny + az * nz < 0;
     }).map(rim => ({rim}));
+}
+
+// The triangles with a corner among the vertices given, in order
+function facesAt(surface, vertices){
+    const { start, list } = vertexFaces(surface), found = new Set();
+    for (const v of vertices) for (let i = start[v]; i < start[v + 1]; i++) found.add(list[i]);
+    return Int32Array.from(found).sort();
 }
 
 // The triangles at each vertex of a surface: {start, list}, vertex v's in list[start[v]] to list[start[v + 1]]. Made
@@ -792,15 +811,19 @@ function removeObject(surface, state, marked, toward, fill){
             const tolerance = Math.max(OBJECT_ABOVE, Math.min(OBJECT_BELOW, 3 * spread));
             above = f => height(f) > -tolerance;
         }
-        const touched = new Uint8Array(count);
+        const touched = new Uint8Array(count), corners = [];
         let removed = 0;
         for (const f of piece){
             if (!above(f)) continue;
             kept[f] = 0;
             removed++;
-            for (let k = 0; k < 3; k++) touched[faces[3 * f + k]] = 1;
+            for (let k = 0; k < 3; k++){
+                const v = faces[3 * f + k];
+                if (!touched[v]) corners.push(v);
+                touched[v] = 1;
+            }
         }
-        if (removed) fill(objectHoles(surface, state, touched, normal || unit(toward)));
+        if (removed) fill(objectHoles(surface, state, touched, corners, normal || unit(toward)));
     }
     for (let i = before; i < state.fills.length; i++) state.fillDetail[i] = true;
 }
@@ -809,18 +832,20 @@ function removeObject(surface, state, marked, toward, fill){
 // loops of open edges there when they close all the open edges it made; otherwise (its rim runs on into the
 // model's other open edges, as a crumpled surface's seams do) one hole round the whole footprint, through the
 // outermost corners left round it in each direction from its middle, across the fitted surface (normal)
-function objectHoles(surface, state, touched, normal){
+function objectHoles(surface, state, touched, touchedList, normal){
     const { faces, count } = surface, { kept, positions: p, fills } = state;
-    const found = holes(surface, kept, fills, p, touched);
+    const found = holes(surface, kept, fills, p, touched, 0, touchedList);
     const onLoop = new Set(found.flatMap(hole => hole.rim));
-    // The open edges made there that no loop closes
-    const near = new Uint8Array(kept.length);
-    for (let f = 0; f < near.length; f++) near[f] = kept[f] && (touched[faces[3 * f]] || touched[faces[3 * f + 1]] || touched[faces[3 * f + 2]]) ? 1 : 0;
-    const loose = openEdges(faces, count, near).filter(([a, b]) => touched[a] && touched[b] && !(onLoop.has(a) && onLoop.has(b)));
+    // The open edges made there that no loop closes: of the kept triangles with a corner there (only those looked at,
+    // in order)
+    const at = facesAt(surface, touchedList).filter(f => kept[f]);
+    const near = new Int32Array(3 * at.length);
+    at.forEach((f, i) => near.set(faces.subarray(3 * f, 3 * f + 3), 3 * i));
+    const loose = openEdges(near, count, null).filter(([a, b]) => touched[a] && touched[b] && !(onLoop.has(a) && onLoop.has(b)));
     if (loose.length <= OBJECT_LOOSE) return found.map(hole => ({...hole, normal}));
     // The corners left round the footprint (of a kept triangle), across the fitted surface from their middle
     const rim = [];
-    for (let f = 0; f < near.length; f++) if (near[f]) for (let k = 0; k < 3; k++) if (touched[faces[3 * f + k]]) rim.push(faces[3 * f + k]);
+    for (let i = 0; i < near.length; i++) if (touched[near[i]]) rim.push(near[i]);
     const corners = [...new Set(rim)];
     if (corners.length < 3) return [];
     const { u, v } = planeFrame(normal);
@@ -876,32 +901,71 @@ function move(surface, kept, selected, positions, edit){
     // The soft edge: each vertex outside within soft of one inside, weighted by how near; the inside's as they were
     const weights = new Map();
     if (soft > 0){
-        const key = (x, y, z) => x + "," + y + "," + z;
-        const cells = new Map();
-        for (const v of list){
-            const k = key(Math.floor(p[3 * v] / soft), Math.floor(p[3 * v + 1] / soft), Math.floor(p[3 * v + 2] / soft));
-            if (!cells.has(k)) cells.set(k, []);
-            cells.get(k).push(v);
-        }
         // Only the vertices within soft of the selection's bounds can be within soft of it
         const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
         for (const v of list) for (let i = 0; i < 3; i++){
             lo[i] = Math.min(lo[i], p[3 * v + i] - soft);
             hi[i] = Math.max(hi[i], p[3 * v + i] + soft);
         }
+        // The selection's vertices in columns along its thinnest axis. Each vertex outside looks at them nearest
+        // first, passing over those that cannot hold a vertex nearer than the nearest found, so the distance is
+        // exact: either the rings of columns round it (one k away is at least k - 1 cells away), or, when there are
+        // fewer columns than the rings would look at, each column by the least distance it can be (its square
+        // across, its vertices' span along)
+        const axis = [0, 1, 2].reduce((a, b) => hi[b] - lo[b] < hi[a] - lo[a] ? b : a, 2);
+        const [a, b] = [0, 1, 2].filter(i => i !== axis);
+        const cell = Math.max(soft / 16, 0.25);
+        const byKey = new Map();
+        for (const v of list){
+            const i = Math.floor(p[3 * v + a] / cell), j = Math.floor(p[3 * v + b] / cell), k = columnKey(i, j);
+            let column = byKey.get(k);
+            if (!column) byKey.set(k, column = {i, j, low: Infinity, high: -Infinity, members: []});
+            column.members.push(v);
+            column.low = Math.min(column.low, p[3 * v + axis]);
+            column.high = Math.max(column.high, p[3 * v + axis]);
+        }
+        const columns = [...byKey.values()], bounds = new Float64Array(columns.length);
+        const rings = Math.ceil(soft / cell) + 1, byRings = columns.length > (2 * rings + 1) ** 2;
+        const gap = (t, from, to) => t < from ? from - t : t > to ? t - to : 0;
         for (let v = 0; v < count; v++){
             if (inside[v] || !outside[v]) continue;
             const x = p[3 * v], y = p[3 * v + 1], z = p[3 * v + 2];
             if (x < lo[0] || x > hi[0] || y < lo[1] || y > hi[1] || z < lo[2] || z > hi[2]) continue;
-            const gx = Math.floor(x / soft), gy = Math.floor(y / soft), gz = Math.floor(z / soft);
-            let best = soft * soft;
-            for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++){
-                const near = cells.get(key(gx + i, gy + j, gz + k));
-                if (!near) continue;
-                for (const u of near){
+            const ta = p[3 * v + a], tb = p[3 * v + b], tz = p[3 * v + axis];
+            let best = soft * soft, first = -1;
+            const lookAt = column => {
+                for (const u of column.members){
                     const d = (p[3 * u] - x) ** 2 + (p[3 * u + 1] - y) ** 2 + (p[3 * u + 2] - z) ** 2;
                     if (d < best) best = d;
                 }
+            };
+            if (byRings){
+                const ga = Math.floor(ta / cell), gb = Math.floor(tb / cell);
+                const ring = (i, j) => {
+                    const column = byKey.get(columnKey(ga + i, gb + j));
+                    if (column) lookAt(column);
+                };
+                ring(0, 0);
+                for (let k = 1; k <= rings && ((k - 1) * cell) ** 2 < best; k++){
+                    for (let i = -k; i <= k; i++){
+                        ring(i, -k);
+                        ring(i, k);
+                    }
+                    for (let j = -k + 1; j < k; j++){
+                        ring(-k, j);
+                        ring(k, j);
+                    }
+                }
+            } else for (let c = 0; c < columns.length; c++){
+                const column = columns[c];
+                const bound = gap(ta, column.i * cell, (column.i + 1) * cell) ** 2 + gap(tb, column.j * cell, (column.j + 1) * cell) ** 2 +
+                    gap(tz, column.low, column.high) ** 2;
+                bounds[c] = bound;
+                if (bound < best && (first < 0 || bound < bounds[first])) first = c;
+            }
+            if (first >= 0){
+                lookAt(columns[first]);
+                for (let c = 0; c < columns.length; c++) if (c !== first && bounds[c] < best) lookAt(columns[c]);
             }
             if (best < soft * soft){
                 const t = 1 - Math.sqrt(best) / soft;
@@ -1049,24 +1113,82 @@ export function applyEdits(surface, edits, applyShape){
 // The surface brush (paint edits)
 export const PAINT_OPS = ["delete", "restore", "fill", "clone", "smooth", "flatten", "raise", "object"];
 const PAINT_CELL = 0.25;  // metres: the cells the triangles are found through, by where their centres were
-const PAINT_FAR = 2;  // metres: past this, the vertices moved too far for the grid; the triangles are all looked at
+const PAINT_FAR = 2;  // metres: past this, the vertices moved too far for the grid, which is made again where they are
 
-// The triangles by where their centres are before any edit, in PAINT_CELL cells: made once a surface
+// The triangles by where their centres are, in columns PAINT_CELL wide along the axis the model is thinnest along
+// (its up, for a scene): a stroke looks only at the columns it crosses, not at empty cells above and below the
+// surface. {cells, axis, u, v (the other two axes), lo, hi (the centres' bounds)}
+function cellsOf(at){
+    const all = [at.xs, at.ys, at.zs], n = at.xs.length;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < 3; i++) for (let f = 0; f < n; f++){
+        if (all[i][f] < lo[i]) lo[i] = all[i][f];
+        if (all[i][f] > hi[i]) hi[i] = all[i][f];
+    }
+    const axis = [0, 1, 2].reduce((a, b) => hi[b] - lo[b] < hi[a] - lo[a] ? b : a, 2);
+    const [u, v] = [0, 1, 2].filter(i => i !== axis);
+    const lists = new Map();
+    for (let f = 0; f < n; f++){
+        const key = columnKey(Math.floor(all[u][f] / PAINT_CELL), Math.floor(all[v][f] / PAINT_CELL));
+        let list = lists.get(key);
+        if (!list) lists.set(key, list = []);
+        list.push(f);
+    }
+    const cells = new Map();
+    for (const [key, list] of lists) cells.set(key, Int32Array.from(list));
+    return {cells, axis, u, v, lo, hi};
+}
+function columnKey(i, j){
+    return i > -GRID_SPAN && i < GRID_SPAN && j > -GRID_SPAN && j < GRID_SPAN ? (i + GRID_SPAN) * 2 * GRID_SPAN + j + GRID_SPAN : i + "," + j;
+}
+// The grid of the surface's triangles before any edit: made once a surface
 const paintGrids = new WeakMap();
 function paintGrid(surface){
-    if (!paintGrids.has(surface)){
-        const at = centres(surface.faces, surface.positions), lists = new Map();
-        for (let f = 0; f < at.xs.length; f++){
-            const key = Math.floor(at.xs[f] / PAINT_CELL) + "," + Math.floor(at.ys[f] / PAINT_CELL) + "," + Math.floor(at.zs[f] / PAINT_CELL);
-            let list = lists.get(key);
-            if (!list) lists.set(key, list = []);
-            list.push(f);
-        }
-        const cells = new Map();
-        for (const [key, list] of lists) cells.set(key, Int32Array.from(list));
-        paintGrids.set(surface, cells);
-    }
+    if (!paintGrids.has(surface)) paintGrids.set(surface, cellsOf(centres(surface.faces, surface.positions)));
     return paintGrids.get(surface);
+}
+// The grid the state's triangles are found through: made again where they are once they moved more than PAINT_FAR
+function gridOf(surface, state){
+    return state.grid ? state.grid.cells : paintGrid(surface);
+}
+// The part of segment a-b within the box lo-hi (widened by reach), or null (Liang-Barsky)
+function clipSegment(a, b, lo, hi, reach){
+    let t0 = 0, t1 = 1;
+    for (let i = 0; i < 3; i++){
+        const d = b[i] - a[i], low = lo[i] - reach, high = hi[i] + reach;
+        if (d === 0){
+            if (a[i] < low || a[i] > high) return null;
+            continue;
+        }
+        let ta = (low - a[i]) / d, tb = (high - a[i]) / d;
+        if (ta > tb) [ta, tb] = [tb, ta];
+        t0 = Math.max(t0, ta);
+        t1 = Math.min(t1, tb);
+        if (t0 > t1) return null;
+    }
+    const at = t => [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])];
+    return [at(t0), at(t1)];
+}
+// The triangles in the columns within reach of segment a-b (and maybe a few more), each given to visit, perhaps more
+// than once. The segment is cut to the grid's bounds first, then walked in pieces no longer than reach, so a long
+// one looks at the columns along it rather than at its whole box.
+function nearSegment(grid, a, b, reach, visit){
+    const part = clipSegment(a, b, grid.lo, grid.hi, reach);
+    if (!part) return;
+    const [p, q] = part, { u, v, cells } = grid;
+    const length = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]);
+    const pieces = Math.max(1, Math.ceil(length / Math.max(reach, 4 * PAINT_CELL)));
+    for (let k = 0; k < pieces; k++){
+        const s = k / pieces, t = (k + 1) / pieces;
+        const su = p[u] + s * (q[u] - p[u]), tu = p[u] + t * (q[u] - p[u]);
+        const sv = p[v] + s * (q[v] - p[v]), tv = p[v] + t * (q[v] - p[v]);
+        const i0 = Math.floor((Math.min(su, tu) - reach) / PAINT_CELL), i1 = Math.floor((Math.max(su, tu) + reach) / PAINT_CELL);
+        const j0 = Math.floor((Math.min(sv, tv) - reach) / PAINT_CELL), j1 = Math.floor((Math.max(sv, tv) + reach) / PAINT_CELL);
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
+            const list = cells.get(columnKey(i, j));
+            if (list) for (const f of list) visit(f);
+        }
+    }
 }
 
 // The squared distance from a point to a segment
@@ -1097,48 +1219,42 @@ function stroke2(stroke, x, y, z){
 // their triangles face
 export function strokeFaces(surface, state, stroke, near = null){
     const { faces } = surface, p = state.positions, r = stroke.radius, n = faces.length / 3;
-    const seen = new Uint8Array(n), out = [];
+    const done = new Uint8Array(n), out = [];
     const [vx, vy, vz] = stroke.view;
-    const consider = f => {
-        if (seen[f]) return;
-        seen[f] = 1;
-        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
-        if (near) for (const v of [a, b, c]) if (!near[v / 3] && stroke2(stroke, p[v], p[v + 1], p[v + 2]) <= r * r) near[v / 3] = 1;
-        const cx = (p[a] + p[b] + p[c]) / 3, cy = (p[a + 1] + p[b + 1] + p[c + 1]) / 3, cz = (p[a + 2] + p[b + 2] + p[c + 2]) / 3;
-        if (stroke2(stroke, cx, cy, cz) > r * r) return;
-        const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
-        const wx = p[c] - p[a], wy = p[c + 1] - p[a + 1], wz = p[c + 2] - p[a + 2];
+    // A triangle within the radius of the segment a-b (of the whole path when null) and facing the view is taken; one
+    // farther may yet be within the radius of another segment, which looks at it again
+    const consider = (f, a, b) => {
+        if (done[f]) return;
+        const t = 3 * faces[3 * f], u = 3 * faces[3 * f + 1], w = 3 * faces[3 * f + 2];
+        const far2 = (x, y, z) => a ? segment2(x, y, z, a, b) : stroke2(stroke, x, y, z);
+        if (near) for (const k of [t, u, w]) if (!near[k / 3] && far2(p[k], p[k + 1], p[k + 2]) <= r * r) near[k / 3] = 1;
+        const cx = (p[t] + p[u] + p[w]) / 3, cy = (p[t + 1] + p[u + 1] + p[w + 1]) / 3, cz = (p[t + 2] + p[u + 2] + p[w + 2]) / 3;
+        if (far2(cx, cy, cz) > r * r) return;
+        done[f] = 1;
+        // Not looked at again: its corners within the radius of any other segment are marked now
+        if (near && a) for (const k of [t, u, w]) if (!near[k / 3] && stroke2(stroke, p[k], p[k + 1], p[k + 2]) <= r * r) near[k / 3] = 1;
+        const ux = p[u] - p[t], uy = p[u + 1] - p[t + 1], uz = p[u + 2] - p[t + 2];
+        const wx = p[w] - p[t], wy = p[w + 1] - p[t + 1], wz = p[w + 2] - p[t + 2];
         if ((uy * wz - uz * wy) * vx + (uz * wx - ux * wz) * vy + (ux * wy - uy * wx) * vz <= 0) return;  // faces away
         out.push(f);
     };
     if (state.shift > PAINT_FAR){
-        for (let f = 0; f < n; f++) consider(f);
+        for (let f = 0; f < n; f++) consider(f, null, null);
     } else {
-        const cells = paintGrid(surface), reach = r + state.shift + (near ? PAINT_CELL : 0);
-        for (const [a, b] of strokeSegments(stroke)){
-            const lo = [0, 1, 2].map(i => Math.floor((Math.min(a[i], b[i]) - reach) / PAINT_CELL));
-            const hi = [0, 1, 2].map(i => Math.floor((Math.max(a[i], b[i]) + reach) / PAINT_CELL));
-            for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++){
-                const list = cells.get(x + "," + y + "," + z);
-                if (list) for (const f of list) consider(f);
-            }
-        }
+        const grid = gridOf(surface, state), reach = r + state.shift + (near ? PAINT_CELL : 0);
+        for (const [a, b] of strokeSegments(stroke)) nearSegment(grid, a, b, reach, f => consider(f, a, b));
     }
-    return Int32Array.from(out);
+    return Int32Array.from(out).sort();
 }
 
 // The paint grid as faceGrid's near(point, reach, visit), its cells widened by how far the vertices moved; null (all
 // the triangles looked at) once they moved too far for it
 function sourceGrid(surface, state){
     if (state.shift > PAINT_FAR) return null;
-    const cells = paintGrid(surface);
+    const grid = gridOf(surface, state);
     return {
         near(point, reach, visit){
-            const lo = point.map(t => Math.floor((t - reach - state.shift) / PAINT_CELL)), hi = point.map(t => Math.floor((t + reach + state.shift) / PAINT_CELL));
-            for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++){
-                const list = cells.get(x + "," + y + "," + z);
-                if (list) for (const f of list) visit(f);
-            }
+            nearSegment(grid, point, point, reach + state.shift, visit);
         }
     };
 }
@@ -1146,10 +1262,16 @@ function sourceGrid(surface, state){
 // After vertices moved: the centres are made again when next needed, and how far any vertex now is from where it was
 function movedNow(surface, state){
     state.at = null;
-    const p = state.positions, q = surface.positions;
+    const p = state.positions, q = state.grid ? state.grid.base : surface.positions;
     let most = 0;
     for (let i = 0; i < p.length; i += 3) most = Math.max(most, (p[i] - q[i]) ** 2 + (p[i + 1] - q[i + 1]) ** 2 + (p[i + 2] - q[i + 2]) ** 2);
     state.shift = Math.sqrt(most);
+    if (state.shift > PAINT_FAR){
+        // Too far for the grid: one made where the triangles are now (never changed after, so copies may share it)
+        state.at = centres(surface.faces, p);
+        state.grid = {cells: cellsOf(state.at), base: p.slice()};
+        state.shift = 0;
+    }
 }
 
 // Raise (or lower): the stroke's triangles' vertices moved amount along their mean normal (facing the view), the
@@ -1313,8 +1435,10 @@ export function startEdits(surface){
         floating: 0, flattened: 0, moved: 0,
         fills: [], fillClone: [],  // the holes filled, and the Clone brush's clone each one takes its texture from (or none)
         fillDetail: [],  // whether a fill is textured from beside it whatever its size (the brush's)
-        shift: 0,  // metres: the most any vertex has moved from where it was (how far a triangle's centre can be from
-                   // where the paint grid has it)
+        shift: 0,  // metres: the most any vertex has moved from where the grid has it (how far a triangle's centre can
+                   // be from where the grid has it)
+        grid: null,  // the grid made again after the vertices moved far ({cells, base: the positions it was made from}),
+                     // or the surface's own (paintGrid)
         clones: [],  // [edit, the triangles it covered (Int32Array)]
     };
 }
@@ -1384,7 +1508,43 @@ export function applyEdit(surface, state, edit, applyShape){
             }
         }
     }
+    if (fills.length && edit.op !== "move" && edit.type !== "straighten") dropLooseFills(surface, state);
 }
+
+// The fills an edit took the surface round from: one with a rim corner that has neither a kept triangle nor
+// another fill left goes too (so a fill does not stay behind as a patch in the air, and the hole can be filled
+// again), until none is left so. By corners, not edges: a fill's rim can cut across the surface (Remove Object's
+// round a footprint, the brush's closed as seen from the stroke)
+function dropLooseFills(surface, state){
+    const { kept } = state, { start, list } = vertexFaces(surface);
+    const onSurface = v => {
+        for (let i = start[v]; i < start[v + 1]; i++) if (kept[list[i]]) return true;
+        return false;
+    };
+    // How many fills have each corner, so that a fill against another is held by it
+    const users = new Map();
+    const use = (fill, step) => { for (const v of fill.ring) users.set(v, (users.get(v) || 0) + step); };
+    for (const fill of state.fills) use(fill, 1);
+    const alive = state.fills.map(() => true);
+    let changed = true;
+    while (changed){
+        changed = false;
+        state.fills.forEach((fill, i) => {
+            if (!alive[i]) return;
+            if (fill.ring.every(v => users.get(v) > 1 || onSurface(v))) return;
+            alive[i] = false;
+            use(fill, -1);
+            changed = true;
+        });
+    }
+    if (alive.every(Boolean)) return;
+    for (const name of ["fills", "fillClone", "fillDetail"]){
+        const left = state[name].filter((_x, i) => alive[i]);
+        state[name].length = 0;
+        state[name].push(...left);
+    }
+}
+
 export function finishEdits(surface, state){
     const { n, kept, positions } = state;
     let removed = 0;
@@ -1406,8 +1566,11 @@ export function finishEdits(surface, state){
     clones.forEach(([, faces], k) => { for (const f of faces) if (kept[f]) cloneOf[f] = k; });
     const cloned = clones.map(([edit, faces], k) => ({edit, faces: faces.filter(f => cloneOf[f] === k)})).filter(c => c.faces.length);
     const clonedCount = cloned.reduce((sum, c) => sum + c.faces.length, 0);
+    // The triangles near a point (for the texture cache's keys: cloneParts), through the grid as it is now
+    const now = gridOf(surface, state), shift = state.shift;
+    const near = state.shift > PAINT_FAR ? null : (point, reach, visit) => nearSegment(now, point, point, reach + shift, visit);
     return {kept, positions, removed, floating: state.floating, flattened: state.flattened, fills, added, moved: state.moved,
-        clones: cloned, cloneOf, cloned: clonedCount};
+        clones: cloned, cloneOf, cloned: clonedCount, near};
 }
 
 // The edits' result kept between calls, for a view that shows them as they change: preview(edits) answers
@@ -1734,7 +1897,8 @@ export function splitFills(fills){
 export const CLONE_TEXEL = 0.01;  // metres a texel of a source patch covers
 const MAX_PATCH = 1024;  // texels across a source patch
 const MAX_CELL = 2048;  // texels across one clone's part of the texture
-export const CLONE_WIDTH = 4096;  // texels: the clones' texture's width
+export const CLONE_WIDTH = 4096;  // texels: the clones' texture's width, at least
+export const MAX_TEXTURE = 16384;  // texels a side: the most a texture made can have (what many GPUs show at most)
 
 // Where each piece's texture is read by the clones: {piece: [u0, v0, u1, v1]}, for the caller to load those parts
 // Grows regions ({piece: [u0, v0, u1, v1]}) to take in triangle f's texture
@@ -1965,21 +2129,25 @@ export function cloneParts(surface, pieces, result, sample, cache = null){
         const triangles = Array.from(clone.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]);
         const samplers = [];
         const own = (t, wa, wb, wc) => (samplers[t] = samplers[t] || faceSampler(surface, pieces, clone.faces[t], sample))(wa, wb, wc);
-        const key = "c" + JSON.stringify(clone.edit) + partKey(clone.faces, triangles, result.positions);
+        // Its source is part of what makes it: an edit before it can remove or move the surface there
+        const source = cache ? sourceOf(clone.edit) : null;
+        const key = "c" + JSON.stringify(clone.edit) + partKey(clone.faces, triangles, result.positions) +
+            (source ? partKey(source.faces, Array.from(source.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]), result.positions) : "");
         const part = cached(key, () => {
-            const source = sourceOf(clone.edit);
-            return source && renderPart(surface, pieces, result.positions, triangles, own, source, clone.edit, sample, patches);
+            const found = source || sourceOf(clone.edit);
+            return found && renderPart(surface, pieces, result.positions, triangles, own, found, clone.edit, sample, patches);
         });
         if (part) parts.push({...part, key, centre: partCentre(part.triangles, result.positions)});
     }
     // The fills wide enough: textured from beside them, blended from their rim's colours at the edge. With a cache, a
-    // fill's part is kept while its rim is where it was (its source beside it is not looked for again)
+    // fill's part is kept while its rim, and the surface its source is looked for in, are as they were
     const detailed = splitFills(result.fills).detailed;
     let grid = null;
     const fillParts = detailed.map(fill => {
         const triangles = [];
         for (let t = 0; t < fill.triangles.length; t += 3) triangles.push([fill.ring[fill.triangles[t]], fill.ring[fill.triangles[t + 1]], fill.ring[fill.triangles[t + 2]]]);
-        return {fill, triangles, key: "f" + JSON.stringify(fill.clone || null) + partKey(fill.ring, triangles, result.positions)};
+        const beside = cache && !fill.clone ? surroundKey(surface, result, fill) : "";
+        return {fill, triangles, key: "f" + JSON.stringify(fill.clone || null) + partKey(fill.ring, triangles, result.positions) + beside};
     });
     // The rims' colours of the fills whose parts are to be made, read together (each read goes over the whole model)
     const making = fillParts.filter(({key}) => !cache || !cache.has(key));
@@ -2028,16 +2196,22 @@ export function cloneParts(surface, pieces, result, sample, cache = null){
     return parts;
 }
 
-// Parts packed on shelves in one texture (CLONE_WIDTH texels wide): {piece: their triangles with uvs into it, width,
+// Parts packed on shelves in one texture (about square, MAX_TEXTURE a side at most): {piece: their triangles with uvs into it, width,
 // height, rgba}, or null with none
 export function packParts(parts, resultPositions){
     if (!parts.length) return null;
-    // Shelves, the tallest first
+    // Shelves, the tallest first, in a texture about as tall as it is wide (CLONE_WIDTH wide at least)
     const order = parts.map((_p, i) => i).sort((a, b) => parts[b].h - parts[a].h);
-    let x = 0, y = 0, shelf = 0;
+    let area = 0, widest = 0;
+    for (const part of parts){
+        area += part.w * part.h;
+        widest = Math.max(widest, part.w);
+    }
+    const across = Math.min(MAX_TEXTURE, Math.max(CLONE_WIDTH, widest, Math.ceil(Math.sqrt(area * 1.2))));
+    let x = 0, y = 0, shelf = 0, right = 0;
     for (const i of order){
         const part = parts[i];
-        if (x + part.w > CLONE_WIDTH){
+        if (x + part.w > across){
             x = 0;
             y += shelf;
             shelf = 0;
@@ -2045,9 +2219,14 @@ export function packParts(parts, resultPositions){
         part.left = x;
         part.top = y;
         x += part.w;
+        right = Math.max(right, x);
         shelf = Math.max(shelf, part.h);
     }
-    const width = Math.min(CLONE_WIDTH, Math.max(...parts.map(part => part.left + part.w))), height = y + shelf;
+    const width = right, height = y + shelf;
+    if (height > MAX_TEXTURE){
+        throw new Error("The Clone brush and the wide fills cover too much of the model for one texture (" + MAX_TEXTURE.toLocaleString("en-US") +
+            " texels a side): clone less of it, or fill fewer wide holes.");
+    }
     const rgba = new Uint8ClampedArray(width * height * 4);
     let count = 0;
     for (const part of parts){
@@ -2082,6 +2261,27 @@ function partCentre(triangles, positions){
         count++;
     }
     return c.map(x => x / Math.max(1, count));
+}
+
+// The kept surface a fill's source is looked for in (fillSource: patches a width across, two widths from its
+// middle), as partKey's text; all of it when the result cannot find what is near
+function surroundKey(surface, result, fill){
+    const p = result.positions, ring = fill.ring, middle = [0, 0, 0];
+    for (const v of ring) for (let i = 0; i < 3; i++) middle[i] += p[3 * v + i] / ring.length;
+    let far = 0;
+    for (const v of ring) far = Math.max(far, Math.hypot(p[3 * v] - middle[0], p[3 * v + 1] - middle[1], p[3 * v + 2] - middle[2]));
+    const reach = Math.max(far, 2 * fill.radius + fill.radius * Math.SQRT2) + 0.01, found = [];
+    const { faces } = surface;
+    const take = f => {
+        if (!result.kept[f]) return;
+        const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
+        const d = Math.hypot((p[a] + p[b] + p[c]) / 3 - middle[0], (p[a + 1] + p[b + 1] + p[c + 1]) / 3 - middle[1], (p[a + 2] + p[b + 2] + p[c + 2]) / 3 - middle[2]);
+        if (d <= reach) found.push(f);
+    };
+    if (result.near) result.near(middle, reach, take);
+    else for (let f = 0; f < faces.length / 3; f++) take(f);
+    const ids = Int32Array.from(new Set(found)).sort();
+    return partKey(ids, Array.from(ids, f => [faces[3 * f], faces[3 * f + 1], faces[3 * f + 2]]), p);
 }
 
 // What a part is made from, as text: its triangles' numbers and where their corners are

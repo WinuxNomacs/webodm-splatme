@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneParts, packParts, MAX_TEXTURE, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 import speck from "./speck.json";
 import thinHole from "./thinhole.json";
@@ -205,6 +205,19 @@ test("Flatten on a whole piece, with no rim, uses the plane of its own vertices"
 });
 
 describe("filling holes", () => {
+    test("a fill goes when a later edit takes the surface round its rim, not when the surface stays at every corner", () => {
+        const surface = weld(grid(6, (i, j) => i === 2 && j === 2));
+        const fill = {type: "holes", size: 10};
+        const remove = (points, radius) => ({type: "paint", op: "delete", strokes: [{points, radius, view: [0, 0, 1]}]});
+        expect(applyEdits(surface, [fill], applyShape).fills.length).toBe(1);
+        // Everything round the hole removed: the fill does not stay as a patch in the air
+        const gone = applyEdits(surface, [fill, remove([[2.5, 2.5, 0]], 1.6), {type: "floating", size: 100000}], applyShape);
+        expect(gone.fills.length).toBe(0);
+        expect(gone.added).toBe(0);
+        // One square beside it removed: each rim corner still has the surface, and the fill stays
+        expect(applyEdits(surface, [fill, remove([[3.5, 2.5, 0]], 0.3)], applyShape).fills.length).toBe(1);
+    });
+
     const area = (xs, ys, tris) => {
         let sum = 0;
         for (let t = 0; t < tris.length; t += 3){
@@ -683,6 +696,35 @@ describe("the surface brush", () => {
             expect(colour[0]).toBeCloseTo((x - 3) / 6 * 255, -0.7);
             expect(colour[1]).toBeCloseTo((y - 3) / 6 * 255, -0.7);
         }
+    });
+
+    test("a clone's or a wide fill's kept texture is made again when an edit before it changes the surface its source is on", () => {
+        const model = textured((i, j) => i === 4 && j === 1);
+        const surface = weld(model);
+        const clone = paint("clone", [stroke([[4.5, 4.5, 0]], 0.45)], {source: [1.5, 1.5, 0], target: [4.5, 4.5, 0], normal: up, feather: 0});
+        const fill = {type: "holes", size: 10};
+        // Raised round the clone's source, near the hole but not at its rim
+        const lift = paint("raise", [stroke([[1.5, 1.5, 0]], 1.0)], {amount: 0.3});
+        const keys = edits => {
+            const cache = new Map();
+            cloneParts(surface, model, applyEdits(surface, edits, applyShape), sample, cache);
+            return [...cache.keys()];
+        };
+        const before = keys([clone, fill]), after = keys([lift, clone, fill]);
+        expect(before.length).toBe(2);  // the clone's part and the fill's
+        expect(after.filter(k => before.includes(k))).toEqual([]);
+        // The same edits give the same keys: a part is kept while nothing it is made from changed
+        expect(keys([lift, clone, fill])).toEqual(after);
+    });
+
+    test("parts are packed in a texture about as tall as it is wide, and too many for the largest one fail with why", () => {
+        const rgba = new Uint8ClampedArray(600 * 600 * 4);
+        const part = () => ({w: 600, h: 600, rgba, triangles: [], at: new Map(), tx: () => 0, ty: () => 0});
+        const packed = packParts(Array.from({length: 64}, part), new Float64Array(0));
+        expect(packed.width).toBeLessThan(6000);
+        expect(packed.height).toBeLessThan(6000);
+        const huge = () => ({...part(), w: MAX_TEXTURE, h: MAX_TEXTURE / 2 + 1});
+        expect(() => packParts([huge(), huge()], new Float64Array(0))).toThrow("too much of the model for one texture");
     });
 
     test("a later clone over the same triangles wins, and none is textured without a surface near its source", () => {
