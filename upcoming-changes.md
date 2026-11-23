@@ -3487,3 +3487,8 @@ surface rasterised along the strokes' view, 1 cm pixels): the first Fill edit's 
 after with the old rule, 0.41% with the new; the specks in the others nearly all gone, what stays is where a hole
 runs on past the paint. No measurable cost (a Fill edit 0.5 to 0.9 s in Node either way). Test: `thinhole.json`, a
 real 15-edge hole from that roof, seen failing before the fix.
+Reviewed after (branch `fill-flaps`): "the surface beside it" was a piece as `components` joins them, at a vertex
+too, so a flap touching the surface at one vertex, painted over, was capped (which the winding test had stopped).
+Pieces there are now joined across shared edges only. On the user's current Fill edit (6 strokes, radius 0.39 m)
+that leaves 402 holes filled of the 403: the one left is a 41-triangle island 0.42 m across, attached at a vertex.
+Test: a flap on a grid, seen failing before.

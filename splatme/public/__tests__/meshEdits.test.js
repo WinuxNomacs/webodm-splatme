@@ -673,6 +673,15 @@ describe("the surface brush", () => {
         expect(all.fills.map(f => f.ring.length)).toEqual([4]);
     });
 
+    test("a flap touching the surface at one vertex is not capped when painted over, though the surface goes on past the paint", () => {
+        // A square flap lifted off a 10-m grid, sharing one of its corners: its outer rim turns as a piece's does
+        const flap = {positions: Float32Array.from([5, 5, 0, 5.8, 5.2, 0.3, 5.8, 5.8, 0.4, 5.2, 5.8, 0.3]), indices: Uint32Array.from([0, 1, 2, 0, 2, 3])};
+        const surface = weld([...grid(10), flap]);
+        expect(surface.count).toBe(121 + 3);
+        const result = applyEdits(surface, [paint("fill", [stroke([[5.5, 5.5, 0]], 1)])], applyShape);
+        expect(result.fills).toEqual([]);
+    });
+
     test("painting over every hole fills those Fill Holes fills (holes found from the painted edges only)", () => {
         const surface = weld(grid(6, (i, j) => (i === 1 && j === 1) || (i === 4 && j === 3) || (i === 3 && j === 4)));
         const painted = applyEdits(surface, [paint("fill", [stroke([[3, 3, 0]], 10)])], applyShape);

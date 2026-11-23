@@ -339,6 +339,33 @@ export function earClip(xs, ys){
     return out;
 }
 
+// The pieces of the kept triangles joined across the edges they share (not at a vertex only, as components joins
+// them): a function from a triangle to its piece's first triangle
+function edgePieces(faces, count, kept){
+    const parent = new Int32Array(kept.length);
+    for (let f = 0; f < parent.length; f++) parent[f] = f;
+    const find = f => {
+        while (parent[f] !== f){
+            parent[f] = parent[parent[f]];
+            f = parent[f];
+        }
+        return f;
+    };
+    const first = new Map();
+    for (let f = 0; f < kept.length; f++){
+        if (!kept[f]) continue;
+        for (let k = 0; k < 3; k++){
+            const a = faces[3 * f + k], b = faces[3 * f + (k + 1) % 3];
+            if (a === b) continue;
+            const key = a < b ? a * count + b : b * count + a;
+            const g = first.get(key);
+            if (g === undefined) first.set(key, f);
+            else parent[find(f)] = find(g);
+        }
+    }
+    return find;
+}
+
 // A hole's fill: its rim (surface vertices, in the direction its open edges go) the other way round, as the
 // triangles beside it go, and triangles between them, made on the rim's plane. null for a rim along a line.
 export function fillHole(positions, rim){
@@ -399,13 +426,15 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
     }
     let edges = openEdges(all, count, keep);
     if (near) edges = edges.filter(([a, b]) => near[a] && near[b]);
-    // With near: which pieces of the surface there go on past it (have a triangle with a corner not near)
-    let pieces = null, beyond = null;
+    // With near: which pieces of the surface there go on past it (have a triangle with a corner not near). Pieces
+    // here are joined across shared edges: a flap touching the surface at a vertex only is a piece of its own, and
+    // its outer rim keeps the winding test
+    let piece = null, beyond = null;
     if (near){
-        pieces = components(all, count, keep);
-        beyond = new Uint8Array(pieces.sizes.length);
+        piece = edgePieces(all, count, keep);
+        beyond = new Uint8Array(keep.length);
         for (let f = 0; f < keep.length; f++){
-            if (keep[f] && !(near[all[3 * f]] && near[all[3 * f + 1]] && near[all[3 * f + 2]])) beyond[pieces.label[f]] = 1;
+            if (keep[f] && !(near[all[3 * f]] && near[all[3 * f + 1]] && near[all[3 * f + 2]])) beyond[piece(f)] = 1;
         }
     }
     const faceOf = new Map();
@@ -426,7 +455,7 @@ function holes(surface, kept, fills, positions, near = null, small = 0){
     };
     return loops(edges).filter(rim => {
         if (within(rim)) return true;
-        if (beyond && beyond[pieces.label[faceOf.get(rim[0] * count + rim[1])]]) return true;
+        if (beyond && beyond[piece(faceOf.get(rim[0] * count + rim[1]))]) return true;
         // The loop's vector area, and the normals of the triangles along it (by their area)
         let ax = 0, ay = 0, az = 0, nx = 0, ny = 0, nz = 0;
         const o = 3 * rim[0];
