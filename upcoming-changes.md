@@ -9,7 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. Straighten reworked: a line traced along a broken edge snapped straight between its ends (R9, asked
+   2026-11-23: see "17. Straighten reworked"). The release waits for it.
+2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
@@ -3612,3 +3614,25 @@ dot product about 0.001): the normal pointed down, and what was "above" it was b
 are about even, OBJECT_SIDE 1 cm), and what lies below it is removed down to at most OBJECT_BELOW (20 cm) however
 rough the band. On the user's lasso: all 238 marked triangles removed (89 before). Test: a stack on a chimney 2 m
 across, by polygon and painted from a little below its top, seen failing before.
+
+### 17. Straighten reworked (asked and planned 2026-11-23)
+
+**The request (the user, HomerunObliqueII9's warped roof corner):** Straighten is not effective enough. The broken
+gutter should be straight and connected: draw a line as a series of points along the whole broken length until the
+straighter part, then snap the highlighted area straight between the two farthest points, with a +/- control to
+adjust it in steps. Found: today's Straighten pulls every vertex within Reach of a two-point line onto the line, so
+a gutter's width is squashed onto it, and where the broken gutter lies farther than Reach from the line nothing moves.
+
+**Design (agreed 2026-11-23):**
+
+- Straighten traces the edge: clicks on the model add points along it as it is (a line follows the pointer from the
+  last); a double-click or **Finish** ends it (at least 3 points), Backspace takes back the last point, Esc cancels.
+  Picked in the list, its points can be dragged, or **Draw the Line Again**.
+- The straight line runs between the first and last points. Each place on the traced line moves to the place as far
+  along the straight line (by length along each), and the surface near it moves with it, by the same amount: the
+  gutter keeps its shape and moves whole, and the roof behind stretches. Fully within **Reach** of the traced line
+  (30 cm at first), fading to nothing over a **Soft Edge** past it (50 cm at first): the user's choice of the two
+  settings over one fading Reach. **Strength** starts at 100% (fully straight; the user's choice), each with - and +
+  (Strength 10% a step). The view shows the traced line and the straight one.
+- The edit is `{"type": "straighten", "points": [[x, y, z], ...], "strength", "reach", "soft"}`; the two-point `line`
+  goes (never released; no task has one saved).
