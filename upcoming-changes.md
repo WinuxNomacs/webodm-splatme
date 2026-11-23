@@ -3603,3 +3603,12 @@ was cleared, as they chose. On the pipe (Node): a stroke from its top to its foo
 one hole in 82 ms, a polygon round it 1,134 in 196 ms; live on a copy, the stroke previewed in 274 ms, no errors.
 Tests: Jest (a cube on a grid with a floor below: brush, polygon, at the grid's edge; seen failing before) and
 Django (a Remove Object brush applied, the box refused).
+
+**Bug (reported 2026-11-23, after R8): a lasso round a chimney's stack took only a rim at the chimney's top.** The
+lasso was drawn from nearly level (its camera 0.18 up). The surface was fitted right (the chimney's top, its normal
+0.98 up), but was turned to face the camera, and with both nearly across each other the sign came out wrong (their
+dot product about 0.001): the normal pointed down, and what was "above" it was below. Fixed (branch
+`object-on-walls`): the surface faces the side the marked triangles are on, on the whole (the camera only when they
+are about even, OBJECT_SIDE 1 cm), and what lies below it is removed down to at most OBJECT_BELOW (20 cm) however
+rough the band. On the user's lasso: all 238 marked triangles removed (89 before). Test: a stack on a chimney 2 m
+across, by polygon and painted from a little below its top, seen failing before.

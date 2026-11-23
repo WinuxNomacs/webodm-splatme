@@ -293,6 +293,41 @@ describe("filling holes", () => {
         expect(Array.from(result.kept).filter((k, f) => k && Math.abs(centreZ(surface, f)) < 0.01).length).toBeGreaterThan(190);
     });
 
+    // A chimney 2 m across and 1 m tall on the 10-m grid, its top a grid of 20-cm squares, and in its middle a stack
+    // 40 cm across and 50 cm tall standing on the top's corners
+    function chimney(){
+        const quad = (a, b, c, d) => [...a, ...b, ...c, ...d];
+        const box = (x0, y0, z0, x1, y1, z1, top = true) => {
+            const faces = [
+                quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]), quad([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]),
+                quad([x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]), quad([x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1])];
+            if (top) faces.push(quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]));
+            return {positions: Float32Array.from(faces.flat()), indices: Uint32Array.from(faces.flatMap((q, k) => [4 * k, 4 * k + 1, 4 * k + 2, 4 * k, 4 * k + 2, 4 * k + 3]))};
+        };
+        const top = {positions: [], indices: []};
+        for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++){
+            const base = top.positions.length / 3, x = 4 + 0.2 * i, y = 4 + 0.2 * j;
+            top.positions.push(x, y, 1, x + 0.2, y, 1, x + 0.2, y + 0.2, 1, x, y + 0.2, 1);
+            top.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        }
+        return weld([...grid(10), box(4, 4, 0, 6, 6, 1, false), {positions: Float32Array.from(top.positions), indices: Uint32Array.from(top.indices)},
+            box(4.8, 4.8, 1, 5.2, 5.2, 1.5)]);
+    }
+    const keptStack = (surface, result) => Array.from(result.kept).filter((k, f) => k && centreZ(surface, f) > 1.01).length;
+    const keptWalls = (surface, result) => Array.from(result.kept).filter((k, f) => k && centreZ(surface, f) > 0.01 && centreZ(surface, f) < 0.99).length;
+
+    test("Remove Object takes a stack off a chimney's top, seen from the side as well as from above", () => {
+        const surface = chimney();
+        const polygon = applyEdits(surface, [{op: "object", type: "polygon", keep: false, ring: [[4.6, 4.6], [5.4, 4.6], [5.4, 5.4], [4.6, 5.4]]}], applyShape);
+        expect(keptStack(surface, polygon)).toBe(0);
+        expect(keptWalls(surface, polygon)).toBe(8);
+        expect(Math.abs(polygon.fills[0].plane.normal[2])).toBeCloseTo(1, 6);  // laid on the chimney's top
+        // Painted from the side, the view a little below the stack's top (as a lasso from the side): the same
+        const side = applyEdits(surface, [{type: "paint", op: "object", strokes: [{points: [[5, 4.8, 1.25]], radius: 0.35, view: [0, -1, -0.1]}]}], applyShape);
+        expect(keptStack(surface, side)).toBe(0);
+        expect(keptWalls(surface, side)).toBe(8);
+    });
+
     test("Remove Object fills the footprint though its rim runs on into the model's outer rim", () => {
         // The cube at the grid's edge: the hole it leaves joins the outer rim, closing no loop of its own
         const surface = standing(0, 4);
