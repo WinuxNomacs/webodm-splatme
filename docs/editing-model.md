@@ -98,8 +98,10 @@ Two tools act on the whole model, once each:
 - **Remove Floating Pieces**: removes the pieces of surface apart from the rest, smaller than **Small** (100
   triangles), **Medium** (1,000, the start) or **Large** (10,000). The largest piece is never removed. The list
   says how many triangles it takes.
-- **Fill Holes**: fills every hole up to **Small** (10 edges around, the start), **Medium** (50) or **Large** (200).
-  The list says how many it fills.
+- **Fill Holes**: fills every hole up to **Small** (10 edges around, the start), **Medium** (50), **Large** (200)
+  or **Very Large** (1,000). The list says how many it fills. The larger sizes take the few wide holes too, which
+  take the longest to texture: on an 850,000-triangle model, Very Large adds a few seconds each time the editor
+  opens it.
 
 The edits apply in the list's order: a fill closes its hole for the edits below it, and a restore brings back
 only what the edits above it removed. The model's outer edge is never filled, nor a hole of more than 5,000 edges.

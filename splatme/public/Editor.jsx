@@ -15,7 +15,10 @@ const SHAPES = ["box", "polygon", "lasso", "brush"];
 // Remove Floating Pieces: the pieces of surface under this many triangles go
 const FLOATING_SIZES = [[100, "Small"], [1000, "Medium"], [10000, "Large"]];
 // Fill Holes: the holes of up to this many edges are filled
-const HOLE_SIZES = [[10, "Small"], [50, "Medium"], [200, "Large"]];
+const HOLE_SIZES = [[10, "Small"], [50, "Medium"], [200, "Large"], [1000, "Very Large"]];
+// A size list's choices: its own, and the edit's size among them as Other when it is none of them (saved through the API)
+const sizeChoices = (sizes, size) => sizes.some(([s]) => s === size) ? sizes :
+    [...sizes, [size, "Other"]].sort((a, b) => a[0] - b[0]);
 // What the splats' Brush does: its mode, its button and what its panel says
 const BRUSH_MODES = [
     ["remove", "Remove", "Paint over what to remove. Everything under the brush on screen goes, through to the back."],
@@ -877,7 +880,7 @@ class EditorPanel extends React.Component {
                             edit.type === "holes" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
                                         aria-label={_("Which holes to fill")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
-                                    {HOLE_SIZES.map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("up to")} {size} {_("edges")})</option>)}
+                                    {sizeChoices(HOLE_SIZES, edit.size).map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("up to")} {size.toLocaleString("en-US")} {_("edges")})</option>)}
                                 </select> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
                             edit.type === "straighten" ? <span className="splatme-editor-item-note">{_("Makes its traced line straight between its ends")}</span> :
@@ -885,7 +888,7 @@ class EditorPanel extends React.Component {
                             edit.type === "floating" ?
                                 <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
                                         aria-label={_("Which pieces to remove")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
-                                    {FLOATING_SIZES.map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("under")} {size.toLocaleString("en-US")} {_("triangles")})</option>)}
+                                    {sizeChoices(FLOATING_SIZES, edit.size).map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("under")} {size.toLocaleString("en-US")} {_("triangles")})</option>)}
                                 </select> :
                             edit.type === "floaters" ?
                                 <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}

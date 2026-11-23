@@ -9,20 +9,17 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The model matched to its splats: Claude matches HomerunObliqueII9's model to its splats with the tools there are,
-   reports what is missing or ineffective, then measures how well the splats' points fit the surface (R10, asked
-   2026-11-23: see "18. The model matched to its splats"). Before the release (the user's decision).
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
-tests) are built: see sections 13 and 14, Remove Object reworked (R8, section 16) and Straighten reworked (R9, section 17). Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
+tests) are built: see sections 13 and 14, Remove Object reworked (R8, section 16), Straighten reworked (R9, section 17), and the model compared with its splats (R10, section 18: the comparison harness in the editor-check skill, Fill Holes' Very Large and faster fill textures in meshEdits.js and Editor.jsx; done 2026-11-23, branches splat-compare and fill-holes-larger). Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
 which failed with "Invalid zip archive" (the node now unpacks the dataset itself; section 15, branch
 node-zip-folder). Possible follow-ups,
-after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
+after the release: the splats rendered onto the model's texture (R10's finding: texture is what still sets the model apart from its splats), photo projection for fills and clones, and fills that stay inside the removed area when it
 joins older holes.
 
 **Then**
@@ -3704,3 +3701,16 @@ editor-check skill, on viewer.js's `window.__splatmeCamera` hook):**
   add bumps, not take them away. A Match the
   Splats tool for geometry is not worth building on this data; the visual gap is texture, which needs the splats
   rendered onto the model's texture on a GPU (the browser or the splat node), a larger step for after the release.
+
+**Built after the report (the user's choice, 2026-11-23: the list fix and a larger Fill Holes):**
+
+- Fill Holes gets **Very Large** (1,000 edges). Between 200 and 2,000 edges the model's fills grow by only 18, its
+  widest holes, which take most of the texturing time.
+- The Holes and Pieces lists show a saved size that is none of theirs as **Other** (up to or under its number).
+- The wide fills' and clones' textures (meshEdits.js `cloneParts`) made faster, texel for texel the same (a
+  checksum of every part's texels compared on the check task at 200, 500, 1,000, 2,000 and 5,000 edges): the source
+  patch's gaps filled layer by layer instead of passes over the whole patch, a face's corner uvs read once, not at
+  every texel, the part's own colour worked out only where the feather shows it, a fill's source found once, the
+  face grid's cells keyed by number. In Node (Update the Model's path), `cloneParts` went from 3.9 s to 2.7 s at 200
+  edges, 7.6 to 5.1 s at 1,000 and 8.5 to 5.6 s at 5,000; in the editor's worker at 5,000, 10.4 to 8.1 s (its
+  texture reads, through canvas tiles, are now most of what is left).

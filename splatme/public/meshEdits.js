@@ -1660,11 +1660,15 @@ export function cloneSource(surface, positions, kept, edit, grid = null){
     return {faces: near, point: edit.source, normal, ...planeFrame(normal), half};
 }
 
+const GRID_SPAN = 65536;  // cells: a grid's cells this far from the origin a side are keyed by number
+
 // The kept triangles' centres in cells, to find those near a point quickly: near(point, reach, visit) visits each
 // triangle whose centre may be within reach
 export function faceGrid(surface, positions, kept, cell, bounds = null){
     const cells = new Map(), { faces } = surface;
-    const key = (x, y, z) => x + "," + y + "," + z;
+    // A cell's key: a number while its place fits in 17 bits a side (cells within 65,536 of the origin), else text
+    const key = (x, y, z) => x > -GRID_SPAN && x < GRID_SPAN && y > -GRID_SPAN && y < GRID_SPAN && z > -GRID_SPAN && z < GRID_SPAN ?
+        ((x + GRID_SPAN) * 2 * GRID_SPAN + y + GRID_SPAN) * 2 * GRID_SPAN + z + GRID_SPAN : x + "," + y + "," + z;
     for (let f = 0; f < faces.length / 3; f++){
         if (!kept[f]) continue;
         const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
@@ -1690,7 +1694,8 @@ export function faceGrid(surface, positions, kept, cell, bounds = null){
 export const FILL_DETAIL = 0.1;  // metres: a fill this wide or wider (from its middle) is textured from beside it
 
 // A fill's source beside it: of four patches as wide as the fill, one fill-width away along its plane's
-// directions, the one with the most surface facing as the fill does; null when none has any
+// directions, the one with the most surface facing as the fill does ({edit, source}: cloneSource's); null when none
+// has any
 function fillSource(surface, positions, kept, fill, grid){
     const n = fill.plane.normal, { u, v } = planeFrame(n), r = fill.radius;
     let mx = 0, my = 0, mz = 0;
@@ -1709,7 +1714,7 @@ function fillSource(surface, positions, kept, fill, grid){
         const score = source.faces.length * facing * facing;
         if (score > bestScore){
             bestScore = score;
-            best = edit;
+            best = {edit, source};
         }
     }
     return best;
@@ -1762,8 +1767,7 @@ export function cloneRegions(surface, pieces, result){
         const faceOf = firstFaces(surface);
         for (const fill of detailed){
             for (const vtx of fill.ring) take(faceOf[vtx]);
-            const edit = fill.clone ? null : fillSource(surface, result.positions, result.kept, fill, grid);
-            const source = fill.clone ? sourceOf(fill.clone) : edit && cloneSource(surface, result.positions, result.kept, edit, grid);
+            const source = fill.clone ? sourceOf(fill.clone) : fillSource(surface, result.positions, result.kept, fill, grid)?.source;
             if (source) for (const f of source.faces) take(f);
         }
     }
@@ -1812,10 +1816,10 @@ function cornerUv(surface, pieces, f, c){
     return uvs ? [uvs[2 * corner], uvs[2 * corner + 1]] : [0, 0];
 }
 
-// A face's texture colour at weights of its corners
-function faceColour(surface, pieces, f, wa, wb, wc, sample){
-    const a = cornerUv(surface, pieces, f, 0), b = cornerUv(surface, pieces, f, 1), c = cornerUv(surface, pieces, f, 2);
-    return sample(surface.pieceOf[f], a[0] * wa + b[0] * wb + c[0] * wc, a[1] * wa + b[1] * wb + c[1] * wc);
+// A face's texture colour at weights of its corners, its corners' uvs read once: (wa, wb, wc) => colour
+function faceSampler(surface, pieces, f, sample){
+    const a = cornerUv(surface, pieces, f, 0), b = cornerUv(surface, pieces, f, 1), c = cornerUv(surface, pieces, f, 2), k = surface.pieceOf[f];
+    return (wa, wb, wc) => sample(k, a[0] * wa + b[0] * wb + c[0] * wc, a[1] * wa + b[1] * wb + c[1] * wc);
 }
 
 // A source patch: the source triangles drawn flat on its plane, size texels square; texels no triangle covers
@@ -1830,9 +1834,9 @@ function sourcePatch(surface, pieces, positions, source, sample){
         return [(dx * u[0] + dy * u[1] + dz * u[2]) / texel + size / 2, size / 2 - (dx * v[0] + dy * v[1] + dz * v[2]) / texel];
     };
     for (const f of source.faces){
-        const { faces } = surface;
+        const { faces } = surface, colourAt = faceSampler(surface, pieces, f, sample);
         rasterise(at(faces[3 * f]), at(faces[3 * f + 1]), at(faces[3 * f + 2]), size, size, (x, y, wa, wb, wc) => {
-            const colour = faceColour(surface, pieces, f, wa, wb, wc, sample);
+            const colour = colourAt(wa, wb, wc);
             const i = y * size + x;
             rgb[3 * i] = colour[0];
             rgb[3 * i + 1] = colour[1];
@@ -1854,32 +1858,40 @@ function fillGaps(rgb, have, width, height){
         } else missing++;
     }
     mean = had ? mean.map(x => x / had) : [128, 128, 128];
-    for (let pass = 0; pass < 64 && missing; pass++){
-        const next = have.slice();
-        for (let y = 0; y < height; y++){
-            for (let x = 0; x < width; x++){
-                const i = y * width + x;
-                if (have[i]) continue;
-                let r = 0, g = 0, b = 0, m = 0;
-                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]){
-                    const nx = x + dx, ny = y + dy;
-                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-                    const j = ny * width + nx;
-                    if (!have[j]) continue;
-                    r += rgb[3 * j];
-                    g += rgb[3 * j + 1];
-                    b += rgb[3 * j + 2];
-                    m++;
-                }
-                if (!m) continue;
-                rgb[3 * i] = r / m;
-                rgb[3 * i + 1] = g / m;
-                rgb[3 * i + 2] = b / m;
-                next[i] = 1;
-                missing--;
-            }
+    // Each pass takes the texels beside those had before it (a layer), each the mean of those had neighbours
+    const beside = (i, visit) => {
+        const x = i % width, y = (i - x) / width;
+        if (x + 1 < width) visit(i + 1);
+        if (x > 0) visit(i - 1);
+        if (y + 1 < height) visit(i + width);
+        if (y > 0) visit(i - width);
+    };
+    const queued = new Uint8Array(width * height);
+    let layer = [];
+    if (missing && had){
+        for (let i = 0; i < width * height; i++){
+            if (have[i]) continue;
+            beside(i, j => { if (have[j] && !queued[i]){ queued[i] = 1; layer.push(i); } });
         }
-        have.set(next);
+    }
+    for (let pass = 0; pass < 64 && layer.length; pass++){
+        for (const i of layer){
+            let r = 0, g = 0, b = 0, m = 0;
+            beside(i, j => {
+                if (!have[j]) return;
+                r += rgb[3 * j];
+                g += rgb[3 * j + 1];
+                b += rgb[3 * j + 2];
+                m++;
+            });
+            rgb[3 * i] = r / m;
+            rgb[3 * i + 1] = g / m;
+            rgb[3 * i + 2] = b / m;
+        }
+        for (const i of layer) have[i] = 1;
+        const next = [];
+        for (const i of layer) beside(i, j => { if (!have[j] && !queued[j]){ queued[j] = 1; next.push(j); } });
+        layer = next;
     }
     for (let i = 0; i < width * height; i++){
         if (have[i]) continue;
@@ -1889,22 +1901,20 @@ function fillGaps(rgb, have, width, height){
     }
 }
 
+// A texel's place in a patch of size repeated mirrored
+function mirrored(t, size){
+    const m = ((t % (2 * size)) + 2 * size) % (2 * size);
+    return m < size ? m : 2 * size - 1 - m;
+}
+
 // The patch's colour at a texel position, repeated mirrored (no seam where copies meet), bilinear
 function patchColour(patch, x, y){
     const { size, rgb } = patch;
-    const mirror = t => {
-        const m = ((t % (2 * size)) + 2 * size) % (2 * size);
-        return m < size ? m : 2 * size - 1 - m;
-    };
     const fx = x - 0.5, fy = y - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
-    const out = [0, 0, 0];
-    for (const [dx, dy, w] of [[0, 0, (1 - tx) * (1 - ty)], [1, 0, tx * (1 - ty)], [0, 1, (1 - tx) * ty], [1, 1, tx * ty]]){
-        const i = 3 * (mirror(y0 + dy) * size + mirror(x0 + dx));
-        out[0] += rgb[i] * w;
-        out[1] += rgb[i + 1] * w;
-        out[2] += rgb[i + 2] * w;
-    }
-    return out;
+    const xa = mirrored(x0, size), xb = mirrored(x0 + 1, size), ya = mirrored(y0, size) * size, yb = mirrored(y0 + 1, size) * size;
+    const i00 = 3 * (ya + xa), i10 = 3 * (ya + xb), i01 = 3 * (yb + xa), i11 = 3 * (yb + xb);
+    const w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
+    return [0, 1, 2].map(c => 0 + rgb[i00 + c] * w00 + rgb[i10 + c] * w10 + rgb[i01 + c] * w01 + rgb[i11 + c] * w11);
 }
 
 // Each texel's distance (in texels) to the nearest texel outside the mask (chamfer, 3-4)
@@ -1953,7 +1963,8 @@ export function cloneParts(surface, pieces, result, sample, cache = null){
     const sourceOf = clonesSources(surface, result), patches = new Map();
     for (const clone of result.clones){
         const triangles = Array.from(clone.faces, f => [surface.faces[3 * f], surface.faces[3 * f + 1], surface.faces[3 * f + 2]]);
-        const own = (t, wa, wb, wc) => faceColour(surface, pieces, clone.faces[t], wa, wb, wc, sample);
+        const samplers = [];
+        const own = (t, wa, wb, wc) => (samplers[t] = samplers[t] || faceSampler(surface, pieces, clone.faces[t], sample))(wa, wb, wc);
         const key = "c" + JSON.stringify(clone.edit) + partKey(clone.faces, triangles, result.positions);
         const part = cached(key, () => {
             const source = sourceOf(clone.edit);
@@ -1984,9 +1995,8 @@ export function cloneParts(surface, pieces, result, sample, cache = null){
     for (const { fill, triangles, key } of fillParts){
         const part = cached(key, () => {
             grid = grid || faceGrid(surface, result.positions, result.kept, 0.5, near);
-            const edit = fill.clone ? null : fillSource(surface, result.positions, result.kept, fill, grid);
             // With no surface to copy beside it, its rim's colours alone (as a narrower fill's), never left undrawn
-            const source = fill.clone ? sourceOf(fill.clone) : edit && cloneSource(surface, result.positions, result.kept, edit, grid);
+            const source = fill.clone ? sourceOf(fill.clone) : fillSource(surface, result.positions, result.kept, fill, grid)?.source;
             const colours = rimColours.get(fill);
             // Its own colour: the rim's colours blended by distance, as fillAtlas's
             const step = Math.max(1, Math.floor(fill.ring.length / FILL_SAMPLES));
@@ -2121,19 +2131,25 @@ function renderPart(surface, pieces, p, triangles, own, source, settings, sample
     const w = Math.max(1, Math.ceil((x1 - x0) / texel)) + 4, h = Math.max(1, Math.ceil((y1 - y0) / texel)) + 4;
     // Texel position of a plane point: 2 texels of margin, rows downward (v up)
     const tx = q => (q[0] - x0) / texel + 2, ty = q => (y1 - q[1]) / texel + 2;
+    // Each texel's triangle (the last drawn there) and its weights; own's colour is worked out only where it shows
     const mine = new Float32Array(w * h * 3), mask = new Uint8Array(w * h);
+    const which = new Int32Array(w * h), weights = new Float64Array(w * h * 2);
     triangles.forEach((triangle, t) => {
         const corners = triangle.map(vtx => at.get(vtx)).map(q => [tx(q), ty(q)]);
-        rasterise(corners[0], corners[1], corners[2], w, h, (x, y, wa, wb, wc) => {
+        rasterise(corners[0], corners[1], corners[2], w, h, (x, y, wa, wb) => {
             const i = y * w + x;
-            mine.set(own(t, wa, wb, wc), 3 * i);
+            which[i] = t;
+            weights[2 * i] = wa;
+            weights[2 * i + 1] = wb;
             mask[i] = 1;
         });
     });
+    const ownAt = i => mine.set(own(which[i], weights[2 * i], weights[2 * i + 1], 1 - weights[2 * i] - weights[2 * i + 1]), 3 * i);
     if (!source){
         // The patch of nothing: the mean of own's colours, for the texels around the triangles
         const mean = [0, 0, 0];
         let count = 0;
+        for (let i = 0; i < mask.length; i++) if (mask[i]) ownAt(i);
         for (let i = 0; i < mask.length; i++) if (mask[i]){
             for (let c = 0; c < 3; c++) mean[c] += mine[3 * i + c];
             count++;
@@ -2153,6 +2169,7 @@ function renderPart(surface, pieces, p, triangles, own, source, settings, sample
             const colour = patchColour(patch, cs * px - sn * py + patch.size / 2, sn * px + cs * py + patch.size / 2);
             const feather = settings.feather > 0 ? Math.min(1, near[i] * texel / settings.feather) : 1;
             const blend = mask[i] ? feather : 1;
+            if (blend < 1 && source) ownAt(i);
             for (let c = 0; c < 3; c++) rgba[4 * i + c] = colour[c] * blend + mine[3 * i + c] * (1 - blend);
             rgba[4 * i + 3] = 255;
         }
