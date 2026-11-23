@@ -9,16 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Remove Object reworked: the object marked with the brush, a lasso or a polygon, not a box (R8, reported
-   2026-11-23: see "16. Remove Object reworked"). The release waits for it.
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
-tests) are built: see sections 13 and 14. Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
+tests) are built: see sections 13 and 14, and Remove Object reworked (R8, section 16). Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
 which failed with "Invalid zip archive" (the node now unpacks the dataset itself; section 15, branch
 node-zip-folder). Possible follow-ups,
 after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
@@ -3591,3 +3589,17 @@ all heights and a lasso through to the back, so set to Remove Object they cut th
 - The box Remove Object goes (the user's decision): never released; the server refuses it, as R7c did the removed
   box kinds. Only the dev task has one saved.
 - Stays as it is: Remove Inside with a box, polygon or lasso, the Remove brush, Move, Straighten.
+
+**Built (2026-11-23, branch remove-object).** `meshEdits.js`: `paintedObject` (the brush's mark: the triangles under
+the strokes seen along their views, within OBJECT_DEPTH 5 m, reached across corners from those painted),
+`removeObject` (per piece: the surface fitted to OBJECT_BAND rings round it, the farthest dropped and fitted again;
+what is above it or within OBJECT_ABOVE 5 cm below removed) and `objectHoles` (the loops there when they close all
+it opened; else one hole through the footprint's outermost corners in up to 64 directions, since on that roof the
+hole's rim ran on into a 961-edge loop). A polygon or lasso takes the triangles it covers within OBJECT_DEPTH of the
+nearest, and of them the pieces whose top is within OBJECT_LAYER 1 m of it (not a surface below). Editor.jsx: the
+Remove Object button starts the brush in its mode, with Lasso and Polygon beside Done; the list offers Remove
+Object for polygons and lassos only. meshes.py refuses a box Remove Object; the user's one saved box on the dev task
+was cleared, as they chose. On the pipe (Node): a stroke from its top to its foot removes 549 triangles and fills
+one hole in 82 ms, a polygon round it 1,134 in 196 ms; live on a copy, the stroke previewed in 274 ms, no errors.
+Tests: Jest (a cube on a grid with a floor below: brush, polygon, at the grid's edge; seen failing before) and
+Django (a Remove Object brush applied, the box refused).

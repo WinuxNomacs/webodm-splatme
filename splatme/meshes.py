@@ -6,7 +6,8 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
 
     delete   {"op": "delete", <a box, polygon, lasso or brush of edits.py>}: the triangles whose centres the shape
              covers are removed (keep: true removes the rest; a brush with restore puts back what was removed)
-    object   {"op": "object", <a shape>}: Remove Object, what the shape covers removed and the hole it leaves filled
+    object   {"op": "object", <a polygon or lasso>}: Remove Object, the object the shape marks removed down to the
+             surface it stands on and the hole it leaves filled (also a paint edit's op: marked with the brush)
     move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
              scaled about its middle and moved, the move fading to nothing over soft metres around it
     straighten {"type": "straighten", "line": [[x, y, z], [x, y, z]], "strength": 0 to 1, "reach": metres}: the
@@ -50,11 +51,12 @@ MAX_SOFT = 20  # metres: a move's soft edge
 MAX_PASSES = 100  # the Smooth brush's passes
 REACHES = (0.01, 20)  # metres: Straighten's reach
 MAX_FEATHER = 5  # metres: the Clone brush's blend at the edge
-PAINT_OPS = ("delete", "restore", "fill", "clone", "smooth", "flatten", "raise")  # as meshEdits.PAINT_OPS
+PAINT_OPS = ("delete", "restore", "fill", "clone", "smooth", "flatten", "raise", "object")  # as meshEdits.PAINT_OPS
 PAINT_RADII = (0.01, 10)  # metres: a surface brush stroke's radius
 MAX_RAISE = 1  # metres a Raise or Lower stroke moves the surface, at most
 SHAPES = ("box", "polygon", "lasso", "brush")
 OPS = ("delete", "object", "move")  # the shapes' ops
+OBJECT_SHAPES = ("polygon", "lasso")  # the shapes Remove Object takes (and the brush, a paint edit)
 MODEL_DIR = "model"  # in the task's data/splatme: the textured model's original files
 FILES = ("odm_textured_model_geo.glb", "odm_textured_model_geo.obj", "odm_textured_model_geo.mtl")
 GLB, OBJ, MTL = FILES
@@ -105,6 +107,8 @@ def clean(given):
         op = edit.get("op")
         if op not in OPS or edit.get("type") not in SHAPES:
             raise edits.EditsError(f"Edit {i} is of an unknown kind.")
+        if op == "object" and edit["type"] not in OBJECT_SHAPES:
+            raise edits.EditsError(f"Edit {i}: Remove Object is marked with the brush, a lasso or a polygon.")
         params = clean_params(op, edit, i)
         shape = {k: v for k, v in edit.items() if k != "op" and k not in params}
         try:

@@ -252,16 +252,54 @@ describe("filling holes", () => {
         expect(applyEdits(weld(down), [{type: "holes", size: 4}], applyShape).added).toBe(2);
     });
 
-    test("Remove Object takes out what the shape covers and fills the hole it leaves", () => {
-        const surface = weld(grid());
-        const object = {op: "object", type: "box", keep: false, center: [1.5, 1.5, 0], size: [1, 1, 1], turn: 0};
+    // A 10-m grid with a 1-m cube standing on the square from (x, y), its walls on the grid's corners, and a floor
+    // 2 m below the grid, apart from it
+    function standing(x = 4, y = 4){
+        const quad = (a, b, c, d) => [...a, ...b, ...c, ...d];
+        const [x1, y1] = [x + 1, y + 1];
+        const cube = {positions: Float32Array.from([
+            ...quad([x, y, 1], [x1, y, 1], [x1, y1, 1], [x, y1, 1]),  // top
+            ...quad([x, y, 0], [x1, y, 0], [x1, y, 1], [x, y, 1]),  // south
+            ...quad([x1, y, 0], [x1, y1, 0], [x1, y1, 1], [x1, y, 1]),  // east
+            ...quad([x1, y1, 0], [x, y1, 0], [x, y1, 1], [x1, y1, 1]),  // north
+            ...quad([x, y1, 0], [x, y, 0], [x, y, 1], [x, y1, 1])]),  // west
+            indices: Uint32Array.from([0, 1, 2, 3, 4].flatMap(k => [4 * k, 4 * k + 1, 4 * k + 2, 4 * k, 4 * k + 2, 4 * k + 3]))};
+        const floor = grid(10).map(piece => ({...piece, positions: piece.positions.map((t, i) => i % 3 === 2 ? t - 2 : t)}));
+        return weld([...grid(10), cube, ...floor]);
+    }
+    const centreZ = (surface, f) => [0, 1, 2].reduce((sum, k) => sum + surface.positions[3 * surface.faces[3 * f + k] + 2], 0) / 3;
+    const keptAbove = (surface, result, z) => Array.from(result.kept).filter((k, f) => k && centreZ(surface, f) > z).length;
+    const floorKept = (surface, result) => Array.from(result.kept).filter((k, f) => k && centreZ(surface, f) < -1).length;
+
+    test("Remove Object with the brush takes out the object painted over and the surface under its foot, and fills the footprint", () => {
+        const surface = standing();
+        const result = applyEdits(surface, [{type: "paint", op: "object", strokes: [{points: [[4.5, 4.5, 1]], radius: 0.8, view: [0, 0, 1]}]}], applyShape);
+        expect(keptAbove(surface, result, 0.01)).toBe(0);  // the cube, whole
+        expect(result.removed).toBeGreaterThan(10);  // its 10 triangles and the grid's under and round its foot
+        expect(result.removed).toBeLessThan(10 + 2 * 9);
+        expect(result.fills.length).toBe(1);
+        expect(Math.abs(result.fills[0].plane.normal[2])).toBeCloseTo(1, 6);  // laid on the grid
+        expect(floorKept(surface, result)).toBe(200);  // the floor below, apart from it, stays
+    });
+
+    test("Remove Object with a polygon takes out the object at all heights but not a surface below apart from it", () => {
+        const surface = standing();
+        const object = {op: "object", type: "polygon", keep: false, ring: [[3.8, 3.8], [5.2, 3.8], [5.2, 5.2], [3.8, 5.2]]};
         const result = applyEdits(surface, [object], applyShape);
-        expect(result.removed).toBe(2);
-        expect(result.added).toBe(2);
-        expect(rimsAfter(surface, result)).toEqual([12]);
-        // At the model's edge, the hole joins the outer rim: nothing to fill
-        const edge = {...object, center: [0.5, 1.5, 0]};
-        expect(applyEdits(surface, [edge], applyShape)).toMatchObject({removed: 2, added: 0});
+        expect(keptAbove(surface, result, 0.01)).toBe(0);
+        expect(result.fills.length).toBe(1);
+        expect(floorKept(surface, result)).toBe(200);
+        // The grid's triangles outside the polygon stay
+        expect(Array.from(result.kept).filter((k, f) => k && Math.abs(centreZ(surface, f)) < 0.01).length).toBeGreaterThan(190);
+    });
+
+    test("Remove Object fills the footprint though its rim runs on into the model's outer rim", () => {
+        // The cube at the grid's edge: the hole it leaves joins the outer rim, closing no loop of its own
+        const surface = standing(0, 4);
+        const result = applyEdits(surface, [{type: "paint", op: "object", strokes: [{points: [[0.5, 4.5, 1]], radius: 0.8, view: [0, 0, 1]}]}], applyShape);
+        expect(keptAbove(surface, result, 0.01)).toBe(0);
+        expect(result.fills.length).toBe(1);
+        expect(result.added).toBeGreaterThan(0);
     });
 
     test("a later Fill Holes counts a hole already filled as closed", () => {

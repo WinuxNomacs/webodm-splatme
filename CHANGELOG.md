@@ -13,9 +13,10 @@ node refuses a training only when Grow Until is set) and for datasets of 2 to 4.
   Pieces** and **Fill Holes** act on the whole model. The **Brush** paints on the model's surface, sized in
   metres: **Fill** (the holes painted over, with the texture beside them), **Clone** (a good area's texture copied
   where it paints, filling the holes under it), **Smooth**, **Flatten**, **Raise**, **Lower**, **Remove** and
-  **Restore**; the wheel sizes it. **Straighten** pulls the surface near a line clicked on the model toward it. A
-  box, polygon or lasso can **Remove** or **Keep Inside**, **Remove Object** (remove it and fill the hole it
-  leaves) or **Move Inside** (raise, shift or stretch it, with a soft edge). A **Repair** row starts each repair.
+  **Restore**; the wheel sizes it. **Remove Object** takes off an object painted over, or outlined with a lasso or
+  a polygon, down to the surface it stands on, and lays that surface again with the texture round it. **Straighten**
+  pulls the surface near a line clicked on the model toward it. A box, polygon or lasso can **Remove** or **Keep
+  Inside**, or **Move Inside** (raise, shift or stretch it, with a soft edge). A **Repair** row starts each repair.
   Their settings change a step at a time with - and +.
   Filled holes take the texture of the surface beside them. The view shows the edits as
   they change; **Update the Model** writes them into the GLB (WebODM's 3D view and share links) and the OBJ (the
