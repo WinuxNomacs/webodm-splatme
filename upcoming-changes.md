@@ -3770,8 +3770,9 @@ Build (`node/splatnode.py`):
   zip OpenSplat refused) unpacked in 24 s and trained 100 steps on CUDA (224,288 points read); Brighton Beach (69 MB)
   trained 300 steps.
 - Upstream reports drafted, with a 728-byte reproducer (Python writes it, OpenSplat's vendored miniz refuses it, a
-  one-line change to the check opens it): `ignored/upstream-reports/` in the main checkout. Not posted: the user
-  approves the text first.
+  one-line change to the check opens it): `ignored/upstream-reports/` in the main checkout. The OpenSplat issue,
+  reworked with the production failure and the pinned binary's own error, was approved and posted on 2026-11-23:
+  https://github.com/WebODM/OpenSplat/issues/254. The miniz report is not posted.
 - CHANGELOG's Unreleased: the fix. Drafts of the two upstream reports kept in `ignored/` for the user.
 
 ### 16. Remove Object reworked (reported and planned 2026-11-23)
