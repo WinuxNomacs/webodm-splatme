@@ -25,6 +25,7 @@ The rule is public/meshEdits.js, the same code the page's preview runs; Update t
 worker through Node (meshApply.mjs), on the model's original files, kept in the task's data/splatme/model the
 first time, so edits never stack and Clear Edits then Update the Model makes the model whole again.
 """
+import errno
 import json
 import logging
 import os
@@ -37,6 +38,7 @@ import uuid
 from app.models import Task
 from django.conf import settings
 from django.db import transaction
+from nodeodm import status_codes
 
 from . import edits, training
 
@@ -291,6 +293,8 @@ def editable(task):
     """Why the task's textured model cannot be edited, or None."""
     if "textured_model.glb" not in task.available_assets:
         return "This task has no textured 3D model."
+    if kept(task):
+        drop_stale_originals(task)
     if not all(os.path.isfile(os.path.join(texturing_dir(task), name)) for name in FILES) and not kept(task):
         return "This task's textured model is missing its OBJ or MTL file."
     return None
@@ -299,6 +303,37 @@ def editable(task):
 def kept(task):
     """Whether the model's original files are kept (an update has replaced them)."""
     return all(os.path.isfile(os.path.join(model_dir(task), name)) for name in FILES)
+
+
+def stamp(path):
+    """A file's size and time, which tell the GLB an update wrote from one WebODM wrote since."""
+    try:
+        info = os.stat(path)
+    except OSError:
+        return None
+    return [info.st_size, info.st_mtime_ns]
+
+
+def drop_stale_originals(task):
+    """
+    The kept originals dropped when the task's GLB is no longer the one the last update wrote: the task was processed
+    again without SplatMe hearing of it (disabled, or a worker started before it was installed), so they are an
+    older model's. A GLB no update stamped is left as it is.
+    """
+    shown = edits.store().get_json(shown_key(task.id), None)
+    written = shown.get("glb") if isinstance(shown, dict) else None
+    if written is None or stamp(os.path.join(texturing_dir(task), GLB)) == written:
+        return
+    logger.info(f"SplatMe: task {task.id}'s textured model is a new one: its kept originals are dropped")
+    shutil.rmtree(model_dir(task), ignore_errors=True)
+    processed_again(task.id)
+
+
+def processing(task):
+    """Why the model cannot be updated now that WebODM may be writing the task's results, or None."""
+    if task.status != status_codes.COMPLETED:
+        return "WebODM is processing this task: update its model once the processing is done."
+    return None
 
 
 def original(task, name):
@@ -347,7 +382,7 @@ def drop_cached_models(task):
 
 def start_apply(task, username):
     """Makes the task's textured model again from its original files with its edits. Raises ModelError."""
-    reason = editable(task)
+    reason = editable(task) or processing(task)
     if reason:
         raise ModelError(reason)
     run = uuid.uuid4().hex
@@ -476,6 +511,32 @@ def remove_textures(task, keep=()):
             pass
 
 
+def still_the_model(task, before):
+    """Raises ModelError when WebODM started processing the task, or wrote its model, while the update ran."""
+    fresh = Task.objects.filter(pk=task.id).only("status").first()
+    if fresh is None:
+        raise Task.DoesNotExist
+    reason = processing(fresh)
+    if reason or stamp(os.path.join(texturing_dir(task), GLB)) != before:
+        raise ModelError(reason or "The task's textured model changed while it was being updated: update it again.")
+
+
+def save_size(task):
+    """
+    The task's size saved alone: the task was read before Node ran, and saving the whole row would put back a
+    rename, a share or a move to another project made meanwhile.
+    """
+    task.update_size()
+    Task.objects.filter(pk=task.id).update(size=task.size)
+
+
+def file_error(e):
+    """An OSError's reason for the page, without the paths in its text."""
+    if e.errno == errno.ENOSPC:
+        return "The model could not be updated: the server's disk is full."
+    return "The model could not be updated: one of its files could not be read or written (WebODM's log has the details)."
+
+
 def apply(task_id, run):
     record = edits.store().get_json(training.apply_key(task_id, KIND), None)
     if not record or record.get("run") != run:
@@ -490,14 +551,16 @@ def apply(task_id, run):
         with training.Heartbeat(task_id, run, lambda t, r: report(t, r)):
             os.makedirs(work, exist_ok=True)
             task = Task.objects.get(pk=task_id)
-            reason = editable(task)
+            reason = editable(task) or processing(task)
             if reason:
                 raise ModelError(reason)
+            before = stamp(os.path.join(texturing_dir(task), GLB))
             found, made_with = get_with_fingerprint(task)
             if found:
                 report(task_id, run, status="Making the model")
                 result, out = make_model(task_id, run, task, found, work)
                 check(task_id, run)  # canceled, or no longer this run's: the model stays
+                still_the_model(task, before)
                 keep_originals(task)
                 replace_model(task, out)
             else:
@@ -505,14 +568,18 @@ def apply(task_id, run):
                 if kept(task):
                     restore_model(task)
             drop_cached_models(task)
-            edits.store().set_json(shown_key(task_id), {"edits": made_with})
-            task.update_size(commit=True)
+            edits.store().set_json(shown_key(task_id), {"edits": made_with, "glb": stamp(os.path.join(texturing_dir(task), GLB))})
+            save_size(task)
         report(task_id, run, state="completed", status="", finished=time.time(), removed=result.get("removed"),
                flattened=result.get("flattened"), moved=result.get("moved"), cloned=result.get("cloned"), filled=result.get("filled"), added=result.get("added"),
                triangles=result.get("triangles"))  # fmt: skip
     except training.Superseded:
         pass
-    except (ModelError, training.TrainingError, edits.EditsError, ValueError, OSError, Task.DoesNotExist) as e:
+    except OSError as e:
+        # Its text has the server's paths, which the page shows to anyone who may see the task: kept to the log
+        logger.warning(f"SplatMe: updating task {task_id}'s model failed: {e}")
+        training.finish_apply(task_id, run, file_error(e), KIND)
+    except (ModelError, training.TrainingError, edits.EditsError, ValueError, Task.DoesNotExist) as e:
         logger.warning(f"SplatMe: updating task {task_id}'s model failed: {e}")
         training.finish_apply(task_id, run, str(e), KIND)
     except Exception as e:

@@ -7,7 +7,17 @@ import requests
 MIN_VERSION = (0, 2, 0)
 # The first node that keeps a job's ref (to find a job whose upload's answer was lost)
 REF_VERSION = (0, 2, 2)
+# The node this SplatMe was released with: an older one trains, without what came since
+CURRENT_VERSION = (0, 2, 3)
 CREATE_TIMEOUT = 600  # seconds the node may take to answer a new job, once its zip is sent
+
+
+def update_note(version):
+    """What a node older than this SplatMe's lacks, for the administrator, or None."""
+    if parse_version(version) >= CURRENT_VERSION:
+        return None
+    return (f"Node {version} trains, but has no Grow Until and cannot train datasets over 2 GB: update it to "
+            f"{'.'.join(str(n) for n in CURRENT_VERSION)} or later.")
 
 
 class NodeError(Exception):

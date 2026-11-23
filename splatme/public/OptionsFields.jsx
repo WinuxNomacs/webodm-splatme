@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST } from './trainingView';
 import StagesTable from './StagesTable';
 import ImageSizeTable from './ImageSizeTable';
 
@@ -36,7 +36,7 @@ export default class OptionsFields extends React.Component {
             <div className="form-group">
                 <label className="col-sm-4 control-label" htmlFor={this.uid + name}>{label}</label>
                 <div className="col-sm-8">
-                    <input type="number" min="0" className="form-control" id={this.uid + name} value={this.props.form[name]} placeholder={placeholder || ""}
+                    <input type="number" min={name === "densify_until" ? GROW_AT_LEAST : 0} className="form-control" id={this.uid + name} value={this.props.form[name]} placeholder={placeholder || ""}
                            onChange={e => this.props.onChange(name, e.target.value)} />
                     {more || ""}
                     <span className="help-block">{help}</span>
