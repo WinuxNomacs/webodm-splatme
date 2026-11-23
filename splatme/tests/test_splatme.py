@@ -683,11 +683,13 @@ class TestSplatMe(BootTestCase):
         # Traced over the bump (the vertex at 1, 1 raised 0.5 m), from one side of the grid to the other
         line = {"type": "straighten", "points": [[0, 1, 0], [1, 1, 0.5], [2, 1, 0]], "strength": 1, "reach": 0.2, "soft": 0}
         for bad in ({**line, "points": [[0, 1, 0]]}, {**line, "strength": 1.5}, {**line, "reach": 0}, {**line, "soft": -1},
+                    {**line, "lift": [0, 21]}, {**line, "lift": [0]},
                     {**line, "points": [[0, 1], [2, 1]]}, {"type": "straighten", "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
         res = self.model_edits(task, [line])
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data["edits"][0]["points"], [[0, 1, 0], [1, 1, 0.5], [2, 1, 0]])
+        self.assertEqual(res.data["edits"][0]["lift"], [0, 0])  # saved without heights: none
         stored = edits.store().get_json(meshes.edits_key(task.id))
         self.assertEqual(stored[0]["points"], [[1000, 2001, 0], [1001, 2001, 0.5], [1002, 2001, 0]])
         res = self.client.post(f"{API}/task/{task.id}/model-apply")

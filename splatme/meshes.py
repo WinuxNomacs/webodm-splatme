@@ -10,9 +10,9 @@ are (edits.py), shown to the page in the model's local frame (less get_rtc_offse
              surface it stands on and the hole it leaves filled (also a paint edit's op: marked with the brush)
     move     {"op": "move", <a shape>, "offset": [x, y, z], "scale": [x, y, z], "soft": metres}: what the shape covers
              scaled about its middle and moved, the move fading to nothing over soft metres around it
-    straighten {"type": "straighten", "points": [[x, y, z], ...], "strength": 0 to 1, "reach": metres, "soft": metres}:
-             a broken edge traced by points made straight between its first and last, the surface within reach of it
-             moving with it, fading to nothing over soft past reach
+    straighten {"type": "straighten", "points": [[x, y, z], ...], "strength": 0 to 1, "reach": metres, "soft": metres,
+             "lift": [start, end] metres}: a broken edge traced by points made straight between its first and last
+             (raised by lift), the surface within reach of it moving with it, fading to nothing over soft past reach
     paint    {"type": "paint", "op": one of PAINT_OPS, "strokes": [{"points", "radius", "view"}], ...}: the surface
              brush, on the triangles within radius of each stroke's path that face view
     floating {"type": "floating", "size": n}: the pieces of surface of fewer than n triangles, all but the largest
@@ -52,6 +52,7 @@ MAX_SOFT = 20  # metres: a move's soft edge
 MAX_PASSES = 100  # the Smooth brush's passes
 REACHES = (0.01, 20)  # metres: Straighten's reach
 MAX_LINE_POINTS = 200  # Straighten's traced line
+MAX_LIFT = 20  # metres: how far Straighten raises or lowers an end of its straight line
 MAX_FEATHER = 5  # metres: the Clone brush's blend at the edge
 PAINT_OPS = ("delete", "restore", "fill", "clone", "smooth", "flatten", "raise", "object")  # as meshEdits.PAINT_OPS
 PAINT_RADII = (0.01, 10)  # metres: a surface brush stroke's radius
@@ -156,7 +157,10 @@ def clean_straighten(edit, i):
     if not 0 <= soft <= MAX_SOFT:
         raise edits.EditsError(f"Edit {i}'s soft edge must be from 0 to {MAX_SOFT} m.")
     points = [edits.numbers(p, 3, f"Edit {i}'s line") for p in points]
-    return {"points": points, "strength": strength, "reach": reach, "soft": soft}
+    lift = edits.numbers(edit.get("lift", [0, 0]), 2, f"Edit {i}'s heights")
+    if not all(-MAX_LIFT <= v <= MAX_LIFT for v in lift):
+        raise edits.EditsError(f"Edit {i}'s heights must be from -{MAX_LIFT} to {MAX_LIFT} m.")
+    return {"points": points, "strength": strength, "reach": reach, "soft": soft, "lift": lift}
 
 
 def clean_paint(edit, i):

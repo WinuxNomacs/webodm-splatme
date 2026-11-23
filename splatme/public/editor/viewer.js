@@ -376,7 +376,7 @@ export function createViewer(container, handlers){
         });
         // The picked edit's Straighten line, apart from its shape (a box's object is scaled and turned)
         const picked = selected >= 0 ? edits[selected] : null;
-        if (picked && picked.points) shapes.add(lineObject(picked.points.map(p => new THREE.Vector3(...p))));
+        if (picked && picked.points) shapes.add(lineObject(picked.points.map(p => new THREE.Vector3(...p)), picked.lift));
         if (picked && picked.type === "paint" && picked.source){
             // The Clone brush's good area: a square as wide as its first stroke
             const square = sourceObject({source: picked.source, patch: 2 * picked.strokes[0].radius});
@@ -385,15 +385,19 @@ export function createViewer(container, handlers){
         if (selected >= 0 && edits[selected] && edits[selected].type === "box") transform.attach(handles[selected]);
     }
 
-    // Straighten's traced line through its points, each a dot, and dashed, the straight line it is moved onto
-    function lineObject(points){
+    // Straighten's traced line through its points, each a dot, and dashed, the straight line it is moved onto (its
+    // ends raised by lift: [start, end] metres)
+    function lineObject(points, lift = [0, 0]){
         const group = new THREE.Group();
         group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), lineMaterial(colors.keep)));
         const dots = new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),
             new THREE.PointsMaterial({color: colors.keep, size: 10, sizeAttenuation: false, depthTest: false, transparent: true}));
         group.add(dots);
         if (points.length >= 3){
-            const straight = new THREE.Line(new THREE.BufferGeometry().setFromPoints([points[0], points[points.length - 1]]),
+            const ends = [points[0].clone(), points[points.length - 1].clone()];
+            ends[0].z += lift[0];
+            ends[1].z += lift[1];
+            const straight = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ends),
                 new THREE.LineDashedMaterial({color: colors.remove, dashSize: 0.1, gapSize: 0.06, depthTest: false, transparent: true}));
             straight.computeLineDistances();
             group.add(straight);

@@ -24,7 +24,7 @@ const BRUSH_MODES = [
 const OPS_SHOWN = ["object", "move"];  // the model's shape edits beside Keep and Remove Inside
 // The settings Move and Straighten start with, and their steps: [name, axis or null, label, unit, step, low, high,
 // shown as (a factor to show it in the unit)]
-const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, straighten: {strength: 1, reach: 0.3, soft: 0.5}};
+const OP_DEFAULTS = {move: {offset: [0, 0, 0], scale: [1, 1, 1], soft: 0.5}, straighten: {strength: 1, reach: 0.3, soft: 0.5, lift: [0, 0]}};
 const OP_PARAMS = ["offset", "scale", "soft"];
 // The model's Repair buttons: the surface brush's modes (Remove Object's too), a box doing Move, and Straighten's line
 const REPAIRS = [
@@ -64,7 +64,7 @@ const OP_STEPS = {
         ["soft", null, "Soft Edge", "m", 0.25, 0, 20, 1],
     ],
     straighten: [["strength", null, "Strength", "%", 10, 0, 100, 100], ["reach", null, "Reach", "m", 0.05, 0.05, 20, 1],
-        ["soft", null, "Soft Edge", "m", 0.1, 0, 20, 1]],
+        ["soft", null, "Soft Edge", "m", 0.1, 0, 20, 1], ["lift", 0, "Start Height", "m", 0.05, -20, 20, 1], ["lift", 1, "End Height", "m", 0.05, -20, 20, 1]],
 };
 // The steps an edit's settings take: Straighten's own, else its op's
 const stepsOf = edit => edit.type === "straighten" ? "straighten" : edit.op;
@@ -794,7 +794,9 @@ class EditorPanel extends React.Component {
     }
 
     renderOpFields(index, edit){
-        const value = (name, axis) => axis === null ? edit[name] : edit[name][axis];
+        // A setting the edit was saved without (a line traced before its heights were): its start
+        const current = name => edit[name] !== undefined ? edit[name] : OP_DEFAULTS[stepsOf(edit)][name];
+        const value = (name, axis) => axis === null ? current(name) : current(name)[axis];
         const set = (name, axis, raw, low, high, factor) => {
             if (!Number.isFinite(raw)) return;
             const v = Math.min(high, Math.max(low, raw)) / factor;
@@ -802,7 +804,7 @@ class EditorPanel extends React.Component {
             const changed = {...edits[index]};
             if (axis === null) changed[name] = name === "passes" ? Math.round(v) : Math.round(v * 1000) / 1000;
             else {
-                changed[name] = changed[name].slice();
+                changed[name] = current(name).slice();
                 changed[name][axis] = Math.round(v * 1000) / 1000;
             }
             edits[index] = changed;
