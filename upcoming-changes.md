@@ -12,7 +12,8 @@ other software. The plugin does that step.
 1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
    14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user. The release waits for it.
 2. Trainings of 2 to 4.29 GB datasets fail ("Invalid zip archive"): the node unpacks the dataset itself and gives
-   OpenSplat the folder (found and planned 2026-11-23, section 15). Ships with the next release.
+   OpenSplat the folder (found 2026-11-22, built 2026-11-23 on branch node-zip-folder, section 15). Ships with the
+   next release.
 3. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
@@ -3510,17 +3511,22 @@ Decided with the user (2026-11-23):
 
 Build (`node/splatnode.py`):
 
-- `run_job`, before the trainer starts: extract `dataset.zip` into `dataset.partial/` (names were checked by
-  `check_dataset` at upload), rename it to `dataset/`, delete the zip; the trainer is given `dataset/`. A leftover
-  `dataset.partial/` (a stop or restart during extraction) is deleted and the extraction done again; an existing
-  `dataset/` with no zip (a restart after extraction) is used as it is. The job shows "Unpacking the dataset" meanwhile.
-- A failed extraction (disk full, a corrupt entry, a CRC error) fails the job with that reason; nothing partial is left.
-  A cancel during extraction is honoured before the trainer starts.
-- `resume.ply` keeps being extracted at upload, as now. `DISK_FACTOR` (2.5) still covers the zip and its extraction side
-  by side; the zip is deleted as soon as the folder is complete, so a job then uses less disk than when OpenSplat kept both.
-- Tests (`node/tests`): the fake trainer refuses a zip and reads the folder; extraction failing on a corrupt zip and on a
-  full disk (made to happen), a leftover `dataset.partial/`, a restart with `dataset/` already there, a cancel during
-  extraction.
+- `run_job`, before the trainer starts: `unpack` extracts `dataset.zip` into `dataset/` (every entry but `resume.ply`,
+  taken out at upload), names checked again against the folder, a chunk at a time with a heartbeat; between entries
+  a cancel, a delete or the node stopping ends the job before the trainer starts. Then the zip is deleted and the
+  trainer is given `dataset/`. The job's log starts with the node's own lines ("[splat node] Unpacking the dataset:
+  N files, X MB", "Unpacked in N s").
+- A failed extraction fails the job with its reason: a full disk ("Not enough disk space on the splat node to
+  unpack the dataset"), a damaged entry ("The dataset could not be unpacked: Bad CRC-32 ..."). The folder goes with
+  the job's other files when it finishes (`transition` keeps only `job.json`, `log.txt` and the model).
+- No staging folder: a restart fails a running job anyway (`load_jobs`), unpacking included, so a half-unpacked
+  folder is never used.
+- `DISK_FACTOR` (2.5) still covers the zip and its unpacked copy side by side; the zip is deleted as soon as the
+  folder is complete, so a job then uses less disk than when OpenSplat kept both.
+- Tests (`node/tests`, 54): the stand-in trainer refuses a zip, a folder without `sparse/0/cameras.bin`, and a folder
+  whose zip is still there; a zip with ZIP64 offsets (written with a lowered `zipfile.ZIP64_LIMIT`) trains; a damaged
+  entry and a full disk while unpacking fail their job and the next one trains; a cancel, a delete and a stop while
+  unpacking end the job before the trainer starts. Run against the old `splatnode.py`, every new test fails.
 - Checked for real: the locally built image trains a few steps on the Krotiak Road export (the dataset that fails
-  today) on the dev machine's throwaway stack, and Brighton Beach (a small zip) still trains.
+  today) in a throwaway container, and Brighton Beach (a small zip) still trains.
 - CHANGELOG's Unreleased: the fix. Drafts of the two upstream reports kept in `ignored/` for the user.

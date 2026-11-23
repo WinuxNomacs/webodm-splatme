@@ -118,6 +118,24 @@ class TestSplatNode(NodeTestCase):
         job = self.wait(self.create()["id"])
         self.assertEqual(self.files(job["id"]), ["job.json", "log.txt", "model.ply"])
 
+    def test_the_trainer_is_given_the_dataset_unpacked_by_the_node_and_its_zip_is_gone(self):
+        # The stand-in trainer refuses a zip, and a folder whose zip is still there
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["state"], "completed", job["error"])
+        log = self.request("GET", "/jobs/{}/log".format(job["id"]))[1].decode()
+        self.assertIn("[splat node] Unpacking the dataset: 4 files", log)
+        self.assertIn("[splat node] Unpacked in", log)
+
+    def test_a_zip_with_zip64_offsets_under_4_gib_trains(self):
+        # WebODM's export (zipstream-ng) gives every entry past 2 GiB a ZIP64 offset; OpenSplat's own reader refuses
+        # such a zip under about 4.29 GB. A lower limit while writing gives a small zip of the same shape.
+        with mock.patch.object(zipfile, "ZIP64_LIMIT", 100):
+            body = training_zip(splatnode.REQUIRED_FILES + tuple(f"images/{i}.jpg" for i in range(40)))
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            self.assertTrue(any(info.extra[:2] == b"\x01\x00" for info in z.infolist()))  # a ZIP64 extra field
+        job = self.wait(self.create(body=body)["id"])
+        self.assertEqual(job["state"], "completed", job["error"])
+
     def test_a_job_continues_the_model_its_zip_holds(self):
         first = self.wait(self.create("steps=20")["id"])
         model = self.request("GET", "/jobs/{}/result".format(first["id"]))[1]
@@ -355,6 +373,70 @@ class TestFailures(NodeTestCase):
         self.assertEqual(response.status, 507)
         self.assertIn("No space left on device", data["error"])
         self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+
+    def slow_unpacking(self):
+        original = splatnode.Node.unpack_file
+
+        def slow(node, *args):
+            time.sleep(0.3)
+            return original(node, *args)
+
+        self.patch(splatnode.Node, "unpack_file", slow)
+
+    def trainer_ran(self, job_id):
+        with open(os.path.join(self.data, "jobs", job_id, "log.txt"), "rb") as f:
+            return b"Using CUDA" in f.read()
+
+    def test_a_dataset_with_a_damaged_file_fails_before_the_trainer_and_the_next_one_trains(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as z:
+            for name in splatnode.REQUIRED_FILES:
+                z.writestr(name, b"x")
+            z.writestr("images/a.jpg", b"photo" * 100)
+        # The central directory still reads (the upload's check passes); the photo's bytes no longer match its CRC
+        body = data.getvalue().replace(b"photo" * 100, b"PHOTO" * 100)
+        job = self.wait(self.create(body=body)["id"])
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("The dataset could not be unpacked: Bad CRC-32", job["error"])
+        self.assertFalse(self.trainer_ran(job["id"]))
+        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt"])
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_a_full_disk_while_unpacking_fails_that_job_and_the_next_one_trains(self):
+        self.patch(splatnode.Node, "unpack_file", failing_once(splatnode.Node.unpack_file, lambda *_: True))
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["state"], "failed")
+        self.assertEqual(job["error"], "Not enough disk space on the splat node to unpack the dataset")
+        self.assertFalse(self.trainer_ran(job["id"]))
+        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt"])
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_a_job_canceled_while_unpacking_stops_before_the_trainer_starts(self):
+        self.slow_unpacking()
+        job = self.create()
+        self.wait(job["id"], ("running",))
+        self.request("POST", "/jobs/{}/cancel".format(job["id"]))
+        self.assertEqual(self.wait(job["id"])["state"], "canceled")
+        self.assertFalse(self.trainer_ran(job["id"]))
+        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt"])
+
+    def test_a_job_deleted_while_unpacking_leaves_nothing(self):
+        self.slow_unpacking()
+        job = self.create()
+        self.wait(job["id"], ("running",))
+        self.assertEqual(self.request("DELETE", "/jobs/" + job["id"])[0].status, 200)
+        self.wait_gone(job["id"])
+
+    def test_stopping_the_node_while_unpacking_ends_the_job_without_the_trainer(self):
+        self.slow_unpacking()
+        job = self.create()
+        self.wait(job["id"], ("running",))
+        self.stop()
+        self.assertFalse(self.server.node.worker.is_alive())
+        self.assertFalse(self.trainer_ran(job["id"]))
+        with open(os.path.join(self.data, "jobs", job["id"], "job.json")) as f:
+            saved = json.load(f)
+        self.assertEqual((saved["state"], saved["error"]), ("failed", "The splat node was stopped while this job was training"))
 
     def test_an_unexpected_error_is_answered_with_its_message(self):
         self.patch(type(self.server.node), "info", lambda self: 1 / 0)

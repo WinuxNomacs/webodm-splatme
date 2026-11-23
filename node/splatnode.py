@@ -37,6 +37,8 @@ How it stays up (each has a test in tests/test_splatnode.py that makes the failu
 - A job's saved file that doesn't read is moved to broken/ at start; the node starts all the same. A setting that
   is not a number, or is too small, is logged and its default used.
 - Every request is answered, an unexpected error included (500, or 507 for a full disk).
+- A job's zip is unpacked by the node, between entries checking for a cancel or a stop; a zip that can't be unpacked
+  (a damaged entry, a full disk) fails its job with the reason, and the trainer never sees it.
 """
 
 import errno
@@ -54,6 +56,7 @@ import time
 import traceback
 import uuid
 import zipfile
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
@@ -82,11 +85,14 @@ REQUIRED_FILES = ("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/point
 MODEL = "model.ply"
 # An earlier model in the training zip, to continue from
 RESUME = "resume.ply"
+# The training zip, as uploaded, and the folder the node unpacks it to for the trainer
+DATASET_ZIP = "dataset.zip"
+DATASET = "dataset"
 KEPT_FILES = ("job.json", "log.txt", MODEL)
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 REF = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 CHUNK = 1 << 20
-# The trainer extracts the zip beside it: an upload needs this many times its size free
+# The zip and its unpacked copy side by side, then the model: an upload needs this many times its size free
 DISK_FACTOR = 2.5
 
 # OpenSplat's output, as tests/opensplat-output.txt holds it from a real run of the pinned commit
@@ -172,6 +178,15 @@ def extract_resume(dataset, dest):
     with open(dest, "rb") as f:
         if f.read(4) != b"ply\n":
             raise Refused(400, "The model to continue from is not a .ply file")
+
+
+def note(log_file, text):
+    """A line of the node's own in a job's log, beside the trainer's output; a full disk does not stop the job."""
+    try:
+        log_file.write(f"[splat node] {text}\n".encode())
+        log_file.flush()
+    except OSError:
+        pass
 
 
 def step_of(line):
@@ -361,7 +376,7 @@ class Node:
         job_id = uuid.uuid4().hex
         try:
             os.makedirs(self.path(job_id))
-            dataset = self.path(job_id, "dataset.zip")
+            dataset = self.path(job_id, DATASET_ZIP)
             with open(dataset, "wb") as f:
                 left = length
                 while left > 0:
@@ -526,7 +541,7 @@ class Node:
             log(f"Job {job_id} could not be marked failed:\n" + traceback.format_exc())
 
     def command(self, job):
-        cmd = [self.trainer, self.path(job["id"], "dataset.zip"), "-o", self.path(job["id"], MODEL)]
+        cmd = [self.trainer, self.path(job["id"], DATASET), "-o", self.path(job["id"], MODEL)]
         if job.get("resume"):
             cmd += ["--resume", self.path(job["id"], RESUME)]
         for name, value in job["options"].items():
@@ -542,21 +557,27 @@ class Node:
             job = self.jobs[job_id]
         folder = self.path(job_id)
         output = {"tail": b"", "last": time.monotonic()}
+        code = None
         with open(os.path.join(folder, "log.txt"), "wb") as log_file:
-            # Its own process group: a stop reaches whatever the trainer started
-            process = subprocess.Popen(
-                self.command(job), cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-            with self.lock:
-                self.process = process
-            reader = threading.Thread(target=self.read_output, args=(job_id, process, log_file, output), daemon=True)
-            reader.start()
-            why = self.supervise(job_id, process, output)
-            reader.join(10)
+            why = self.unpack(job_id, log_file)
+            if why is None:
+                output["last"] = time.monotonic()
+                # Its own process group: a stop reaches whatever the trainer started
+                process = subprocess.Popen(
+                    self.command(job), cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                with self.lock:
+                    self.process = process
+                reader = threading.Thread(
+                    target=self.read_output, args=(job_id, process, log_file, output), daemon=True
+                )
+                reader.start()
+                why = self.supervise(job_id, process, output)
+                reader.join(10)
+                code = process.returncode
         with self.lock:
             self.process = None
-            code = process.returncode
             if why == CANCELED:
                 self.finish_job(job_id, CANCELED)
             elif why is not None:
@@ -565,6 +586,60 @@ class Node:
                 self.finish_job(job_id, COMPLETED)
             else:
                 self.finish_job(job_id, FAILED, explain(code, output["tail"].decode("utf-8", "replace")))
+
+    def unpack(self, job_id, log_file):
+        """The job's zip unpacked into dataset/ for the trainer, then the zip deleted (its space is needed for the
+        training). Answers why the job ends instead (canceled, the node stopping, the zip unusable), or None.
+
+        The trainer is given the folder, not the zip: OpenSplat's zip reader (miniz) refuses a zip between 2 GiB and
+        about 4.29 GB whose entries past 2 GiB have ZIP64 offsets, which is how WebODM's export writes them. Python's
+        zipfile reads them. The names were checked at upload (check_dataset); they are checked again here.
+        """
+        zip_path = self.path(job_id, DATASET_ZIP)
+        root = os.path.realpath(self.path(job_id, DATASET))
+        started = time.monotonic()
+        try:
+            with zipfile.ZipFile(zip_path) as z:
+                # resume.ply was taken out at upload; the trainer is given it as an argument
+                infos = [info for info in z.infolist() if not info.is_dir() and info.filename != RESUME]
+                size = sum(info.file_size for info in infos)
+                note(log_file, f"Unpacking the dataset: {len(infos)} files, {size / 1e6:.0f} MB")
+                for info in infos:
+                    why = self.interrupted(job_id)
+                    if why is not None:
+                        return why
+                    self.unpack_file(z, info, root)
+            os.remove(zip_path)
+        except OSError as e:
+            if e.errno == errno.ENOSPC:
+                return "Not enough disk space on the splat node to unpack the dataset"
+            return f"The dataset could not be unpacked: {e}"
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as e:
+            return f"The dataset could not be unpacked: {e}"
+        note(log_file, f"Unpacked in {time.monotonic() - started:.0f} s")
+        return None
+
+    def unpack_file(self, z, info, root):
+        target = os.path.realpath(os.path.join(root, info.filename))
+        if not target.startswith(root + os.sep):
+            raise zipfile.BadZipFile(f"unsafe file name: {info.filename}")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with z.open(info) as src, open(target, "wb") as dst:
+            while True:
+                data = src.read(CHUNK)
+                if not data:
+                    break
+                dst.write(data)
+                self.beat()
+
+    def interrupted(self, job_id):
+        """Why a running job must stop now (canceled, or the node stopping), or None."""
+        with self.lock:
+            if job_id in self.cancel_requested:
+                return CANCELED
+            if self.stopping:
+                return "The splat node was stopped while this job was training"
+        return None
 
     def finish_job(self, job_id, state, error=None):
         """The end of a job the worker ran (lock held): a deleted job's folder goes, the others are finished."""
@@ -587,11 +662,7 @@ class Node:
             self.beat()
             now = time.monotonic()
             if why is None:
-                with self.lock:
-                    if job_id in self.cancel_requested:
-                        why = CANCELED
-                    elif self.stopping:
-                        why = "The splat node was stopped while this job was training"
+                why = self.interrupted(job_id)
                 if why is None and now - output["last"] > self.stall_seconds:
                     minutes = max(1, round(self.stall_seconds / 60))
                     why = f"The trainer printed nothing for {minutes} minutes and was stopped"
