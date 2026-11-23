@@ -11,15 +11,14 @@ other software. The plugin does that step.
 
 1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
    14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user. The release waits for it.
-2. Trainings of 2 to 4.29 GB datasets fail ("Invalid zip archive"): the node unpacks the dataset itself and gives
-   OpenSplat the folder (found 2026-11-22, built 2026-11-23 on branch node-zip-folder, section 15). Ships with the
-   next release.
-3. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
-Model editing (M0 to M4) and the repair tools (R1 to R5) are built: see sections 13 and 14. Possible follow-ups,
+Model editing (M0 to M4) and the repair tools (R1 to R5) are built: see sections 13 and 14. Built 2026-11-23 and in
+the release: trainings of 2 to 4.29 GB datasets, which failed with "Invalid zip archive" (the node now unpacks the
+dataset itself; section 15, branch node-zip-folder). Possible follow-ups,
 after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
 joins older holes.
 
@@ -3527,6 +3526,11 @@ Build (`node/splatnode.py`):
   whose zip is still there; a zip with ZIP64 offsets (written with a lowered `zipfile.ZIP64_LIMIT`) trains; a damaged
   entry and a full disk while unpacking fail their job and the next one trains; a cancel, a delete and a stop while
   unpacking end the job before the trainer starts. Run against the old `splatnode.py`, every new test fails.
-- Checked for real: the locally built image trains a few steps on the Krotiak Road export (the dataset that fails
-  today) in a throwaway container, and Brighton Beach (a small zip) still trains.
+- Checked for real (2026-11-23), the image built from this branch in a throwaway container (its own volume and
+  port, removed after): the Krotiak Road export rebuilt by SplatMe's steps (3.4 GiB, 2,668 photos at 2600 px, the
+  zip OpenSplat refused) unpacked in 24 s and trained 100 steps on CUDA (224,288 points read); Brighton Beach (69 MB)
+  trained 300 steps.
+- Upstream reports drafted, with a 728-byte reproducer (Python writes it, OpenSplat's vendored miniz refuses it, a
+  one-line change to the check opens it): `ignored/upstream-reports/` in the main checkout. Not posted: the user
+  approves the text first.
 - CHANGELOG's Unreleased: the fix. Drafts of the two upstream reports kept in `ignored/` for the user.
