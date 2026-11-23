@@ -9,7 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The model matched to its splats: Claude matches HomerunObliqueII9's model to its splats with the tools there are,
+   reports what is missing or ineffective, then measures how well the splats' points fit the surface (R10, asked
+   2026-11-23: see "18. The model matched to its splats"). Before the release (the user's decision).
+2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
@@ -3652,3 +3655,29 @@ raises all it covers), so the edit got `lift: [start, end]` (metres, -20 to 20; 
 the straight line's first and last ends; the panel's **Start Height** and **End Height**, 5 cm a step. Live on a copy:
 two steps of End Height, each previewed in 0.2 to 0.7 s. Tests: Jest (an end raised, the other staying; seen failing
 before), Django (the heights checked).
+
+### 18. The model matched to its splats (asked and planned 2026-11-23)
+
+**The request (the user, HomerunObliqueII9):** the goal of editing the model is that it look like the finished
+splats. Could (1) a tool compare the model with the splats and adjust it until it resembles them (closing holes,
+correcting geometry), and (2) Claude try to match the model to its splats with the tools there are, to find which
+tools are missing and which need fixing or changing?
+
+**Found (2026-11-23):** the splats and the model share the task's local frame (the trained `.ply`'s and the GLB's
+extents agree within centimetres), and the trained model is kept as `data/splatme/splatme-model.ply` (216,865 splats,
+each with its centre, normal, colour (spherical harmonics), opacity, scales and rotation), readable in Node without
+a GPU. So geometry (moving the surface toward what nearby opaque, small splats describe) and holes (filled with
+surface shaped by the splats over them) can be worked out on the server; the texture (the splats' look painted onto
+the model) needs the splats rendered onto it, on a GPU (the editor's browser or the splat node): a later, larger step.
+
+**Plan (the user's choices: the exercise, then the measurement; before the release):**
+
+- R10a, the comparison: the splats and the model shown from the same viewpoints round the house in the headless
+  browser (a camera hook for checks, as `window.__splatmeTiming` is for timings), on a throwaway copy, and scored:
+  how different they look per view, where the model shows through (holes) where the splats do not, and how far the
+  splats' opaque points lie from the model's surface.
+- R10b, the exercise: the model edited with the tools there are toward the splats, scored after each step; each
+  tool's effect, cost and friction written down; the report (before and after images, what is missing or needs
+  changing, ranked) to the user, who decides what is built.
+- R10c, the measurement for a Match the Splats tool: how close and how noisy the splats' points are about the
+  surface (roof, walls, eaves), how many are floaters, and whether moving the surface toward them improves the score.
