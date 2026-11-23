@@ -3492,3 +3492,15 @@ too, so a flap touching the surface at one vertex, painted over, was capped (whi
 Pieces there are now joined across shared edges only. On the user's current Fill edit (6 strokes, radius 0.39 m)
 that leaves 402 holes filled of the 403: the one left is a 41-triangle island 0.42 m across, attached at a vertex.
 Test: a flap on a grid, seen failing before.
+
+**Bug (reported 2026-11-23, R7d): a hole well inside the brush that neither Fill nor Clone fills.** The one shown
+(edit 6's dabs on HomerunObliqueII9, 0.3 m across) has no loop of its own: its rim goes on down a wall 0.64 m deep
+and away as a seam under the surface, one loop of 912 edges and 75 m. Only seen along the stroke's view does the rim
+come back to itself (two of its vertices 2.7 cm apart across the view, 18 edges apart along it). Fixed (branch
+`fill-necks`, `neckHoles` in meshEdits.js): after the holes as before, Fill and Clone follow the rims from the painted
+vertices along the open edges while they stay under a stroke seen along its view (within its radius across, within
+1 m or two radii along); where a rim comes within PAINT_NECK (5 cm) of itself across the view, the stretch between
+is a hole if what it encloses is mostly not covered by a triangle facing the view; it is filled laid out across the
+view (`fillHole`'s normal). On the user's 8 edits: 62 such holes more, the reported one among them; each Fill edit
+3 to 170 ms longer in Node (170 for the one with a 345-point stroke); in the browser the first preview of all 8 took
+1.07 s, no errors. Test: `neckhole.json`, the real hole's surroundings, seen failing before.
