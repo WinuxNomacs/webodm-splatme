@@ -9,15 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
-   14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user (under way: Fill's long thin holes fixed,
-   section 14's end). The release waits for it.
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
-Model editing (M0 to M4) and the repair tools (R1 to R5) are built: see sections 13 and 14. Possible follow-ups,
+Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
+after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
+tests) are built: see sections 13 and 14. Possible follow-ups,
 after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
 joins older holes.
 
@@ -3504,3 +3503,6 @@ is a hole if what it encloses is mostly not covered by a triangle facing the vie
 view (`fillHole`'s normal). On the user's 8 edits: 62 such holes more, the reported one among them; each Fill edit
 3 to 170 ms longer in Node (170 for the one with a 345-point stroke); in the browser the first preview of all 8 took
 1.07 s, no errors. Test: `neckhole.json`, the real hole's surroundings, seen failing before.
+
+R7d done (2026-11-23): the user checked the brush on that roof ("That hole is filled now. The tool is much more
+effective now as well.") and called the check finished; R7 merged into main.
