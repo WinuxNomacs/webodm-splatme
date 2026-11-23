@@ -9,15 +9,15 @@ with the task and cut a copy of the model SplatMe trained, so nothing is lost. A
 
 On **SplatMe → Tasks**, a task whose splats SplatMe trained has **Edit** beside **View in 3D**, for those who may
 change the task's project. It opens **Edit Splats**: the trained model in a 3D view, with the edits' panel to its
-right, or below it on a phone. Anyone who may see the task has **Download .ply** instead.
+right, or below it on a phone. Anyone who may see the task has **Download .ply** there too.
 
 ![Edit Splats with a box picked: its handles in the view, its fields under the list](assets/screenshots/editing.png)
 
 The page loads the trained model whole into the browser. A model larger than 400 MB (about 1.7 million splats)
 asks first: it may be slow, or fail on a phone or a computer with little memory.
 
-There is no **Edit** for a task whose model came from WebODM's own **Splats** dialog, or whose model was
-replaced there since its training: only a model SplatMe trained can be edited.
+Only splats SplatMe trained can be edited: a task whose splats came from WebODM's own **Splats** dialog, or were
+replaced there since their training, has **Edit** only for its textured 3D model, when it has one.
 
 ## The Edits
 
@@ -94,9 +94,9 @@ To make the model whole again, **Clear Edits**, then **Update the Model**.
 that together remove every splat are not applied, and the model stays as it was. A training whose edits would
 remove every splat imports its model without them and says so.
 
-Edits saved by a newer SplatMe (or read by a WebODM not restarted since an upgrade) may not read: the page says
-so, **Update the Model** fails with that reason, a training goes on without them, and both leave them as they are; a change
-on the page replaces them.
+Edits saved by a newer SplatMe (or read by a WebODM not restarted since an upgrade) may not read, and the page
+says so. **Update the Model** then fails with that reason, and a training goes on without them; both leave them as
+they are. A change on the page replaces them.
 
 ## Downloading the Edited Model
 

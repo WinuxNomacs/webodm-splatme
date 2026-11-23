@@ -2,11 +2,6 @@
 
 ![SplatMe → Tasks with a trained thermal task](assets/screenshots/tasks.png)
 
-Every user sees on **SplatMe → Settings** in the side menu whether the node is ready, its address, its GPU and
-its queue (never the token, and what is wrong with the node only as "ask an administrator"). The node's address
-and token are on **Administration → SplatMe** (staff see it, superusers change it), also at
-`/plugins/splatme/admin/`.
-
 1. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks SplatMe can train in the projects
     the user can see (a **Project** filter narrows it), press **Train Splats** on a completed task. A task is
     listed when its photos are JPEG (or DJI Thermal Analyzer's TIFFs, below) and, once completed, it has what a
@@ -36,8 +31,8 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
       filled an 8 GB GPU before its model had finished growing.
     - **Max Gaussians**: the most gaussians the model may grow to, a limit for very large scenes.
     - **Grow Until** (blank by default: half the steps, at most 15,000): the step the model stops growing at,
-      from 1,000 to 3,000 less than **Steps**, so the training still has time to settle after the last growing
-      and to prune the model at least once. Later can give large scenes more detail, for more GPU memory and
+      from 1,000 to 3,000 less than **Steps**, so the training still has time to settle after the last growing.
+      Later can give large scenes more detail, for more GPU memory and
       time (**Max Gaussians** still caps the growth); the steps table follows it.
 
     **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the
@@ -62,14 +57,15 @@ and token are on **Administration → SplatMe** (staff see it, superusers change
 
     A task SplatMe has trained can be trained further instead of starting over: **Train Splats Again** then opens with
     **Start Over** and **Continue From Step** (the steps the model has), and continuing asks for **More
-    Steps** and, optionally, **Grow Until**. The other options stay as the model was trained. Continuing sharpens the model the task has: left
-    blank, Grow Until stays as the model was trained (by default the model grows only before half the new total
-    of steps, and before step 15,000), so continuing a model by as many steps again, or fewer, adds no gaussians
-    (the dialog says so in place of the steps table). To grow it again, set **Grow Until** from 1,000 steps after the model's to 3,000
-    before the new total (4,000 more steps at least). A model that lacks detail everywhere is still better
+    Steps** and, optionally, **Grow Until**. The other options stay as the model was trained. Continuing sharpens
+    the model the task has. Left blank, Grow Until stays as the model was trained; a model trained without one
+    grows only before half the new total of steps, and before step 15,000. So continuing a model by as many steps
+    again, or fewer, adds no gaussians (the dialog says so in place of the steps table). To grow it again, set
+    **Grow Until** from 1,000 steps after the model's to 3,000 before the new total (4,000 more steps at least). A model that lacks detail everywhere is still better
     started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
     be continued. A task processed again while its splats train has that training canceled (its model would not
     fit the new results), and is trained again on the new results when it is set to Train Splats When Completed.
+
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
     about 12 min left": the time the steps left take at the rate of the last few minutes, once it can tell), a
     progress bar, **Cancel** and **Show Log** (the trainer's output), to everyone who can see the task and after
@@ -112,3 +108,7 @@ trainer wrote it is kept in the task's folder (`data/splatme/splatme-model.ply`,
 task's size.
 
 Trainings waiting on the node do not hold up WebODM's own processing.
+
+Every user sees on **SplatMe → Settings** whether the node is ready, its address, its GPU and its queue (never the
+token, and what is wrong with the node only as "ask an administrator"). The node's address and token are on
+**Administration → SplatMe** (staff see it, superusers change it).
