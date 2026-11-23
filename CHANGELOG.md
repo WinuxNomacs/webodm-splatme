@@ -3,10 +3,12 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
-## Unreleased
+## 0.4.0 (2026-11-23)
 
 Cleaning up WebODM's textured 3D model, and better splat training. Needs splat node 0.2.3 for Grow Until (an older
-node refuses a training only when Grow Until is set) and for datasets of 2 to 4.3 GB (below).
+node refuses a training only when Grow Until is set) and for datasets of 2 to 4.3 GB (below); **Test Connection**
+says what an older node lacks. Restart WebODM once after the upgrade: until then Update the Model and Continue From
+Step fail.
 
 - **3D model cleanup and repair**: **Edit** now edits the task's textured 3D model too (**Splats** and **3D
   Model** above the editor's view; a task with a textured model but no splats opens on it). **Remove Floating
@@ -22,7 +24,12 @@ node refuses a training only when Grow Until is set) and for datasets of 2 to 4.
   Filled holes take the texture of the surface beside them. The view shows the edits as
   they change; **Update the Model** writes them into the GLB (WebODM's 3D view and share links) and the OBJ (the
   Textured Model download) in seconds, keeping the original files, so **Clear Edits** then **Update the Model**
-  puts the model back. See [Editing the 3D Model](https://winuxnomacs.github.io/webodm-splatme/editing-model/).
+  puts the model back. A brush stroke that jumps to another surface (off an eave down to the ground) ends there
+  and starts again, one Undo for the whole drag; on a phone, one finger paints and two fingers turn the view. A
+  fill goes when a later edit takes the surface round it. Update the Model waits for WebODM to finish processing the
+  task, and refuses an update whose Clone and wide fills need a texture over 16,384 pixels a side. **Textured Model
+  (3D Tiles)** in WebODM's downloads keeps the unedited model. See
+  [Editing the 3D Model](https://winuxnomacs.github.io/webodm-splatme/editing-model/).
 - **Splat training**: **Grow Until**, under Advanced and on **Continue From Step**, sets the step the model stops
   growing at (blank keeps the trainer's own: half the steps, at most 15,000), so a long training or a continued
   one can add gaussians; **Continue From Step** shows the stages table only when the added steps grow the model.
@@ -40,7 +47,7 @@ node refuses a training only when Grow Until is set) and for datasets of 2 to 4.
 - Shorter page introductions, each with a link into the documentation.
 - **API**: `task/<id>/model-edits` (GET, PUT), `model-original` and `model-apply` (with `cancel`);
   `task/<id>/thumbnail` (GET, PUT); `status` adds `times`, `resume`, `earlier_training`, `thumbnail`,
-  `model_editable` and `model_apply`.
+  `model_editable` and `model_apply`; `check` adds `trained_grow_until`; `node` adds `update`.
 - The 3D model's editor uses three.js 0.187.0's GLTF and Draco loaders (MIT) and the Draco decoder from the same
   package (Apache-2.0), vendored with their hashes.
 - **Documentation**: a new page, **Editing the 3D Model**.

@@ -14,7 +14,7 @@ Above the view, **Splats** and **3D Model** switch between the task's splats ([E
 its textured model; a task with only a textured model opens on **3D Model**. The view shows the model as
 WebODM's 3D view does, with the edits' panel to its right, or below it on a phone.
 
-![The 3D model's editor on a roof: the Repair row, and the Brush's Clone mode with its circle on the shingles](assets/screenshots/editing-model.png)
+![The 3D model's editor: the Repair row, and the Brush's Clone mode with its circle on the roof](assets/screenshots/editing-model.png)
 
 A task can be edited once WebODM has made its textured model (its GLB, OBJ and MTL files).
 
@@ -23,7 +23,7 @@ A task can be edited once WebODM has made its textured model (its GLB, OBJ and M
 The repairs most work needs are on the **Brush** (B), which paints on the surface ([The Brush](#the-brush)). The
 **Repair** buttons under the tools start each repair: **Fill**, **Clone Texture**, **Smooth**, **Flatten** and
 **Remove Object** start the Brush in that mode ([Remove Object](#remove-object)); **Straighten** asks for a line
-([Straighten](#straighten)); **Move** adds a box that moves what it covers, in the middle of the view, to move and
+([Straighten](#straighten)); **Move** adds a box that moves what it covers, in the middle of the model, to move and
 size like any box.
 
 **Add Box** (X), **Draw Polygon** (P) and **Lasso** (L) are for large areas, drawn as on Editing Splats (see
@@ -43,7 +43,7 @@ metres, and a drag paints along the surface. It acts only on the surface it cove
 is behind it. The buttons above its panel choose what it does:
 
 - **Fill**: fills each hole whose whole edge is under the circle, with the texture of the surface beside it. Paint
-  over the holes, edge to edge; specks of a few centimetres fill as the brush passes over them.
+  over the holes, edge to edge.
 - **Clone**: copies the texture of a good area. Click the middle of the good area, then paint where it should go:
   the texture comes from the same distance and direction from the good area as from where you started painting,
   so a stroke beside the first one carries on from it. The holes under the paint are filled with it too. **Pick the
@@ -56,10 +56,13 @@ is behind it. The buttons above its panel choose what it does:
 - **Remove** and **Restore**: remove what it paints, or bring back what the edits above it removed.
 - **Remove Object**: removes the object painted over ([Remove Object](#remove-object)).
 
-Each stroke is one **Undo**. A mode's strokes are one edit in the list (**Fill Brush, 3 strokes**) until the mode,
-the step or Clone's source changes, which starts another. The wheel, or **[** and **]**, make the brush larger or
-smaller (**Size** in the panel, 4 cm to 10 m across), and Shift+wheel zooms. While painting, a drag paints: Alt+drag
-or the middle button turns the view, and right-drag moves it. **Done** or Esc stops.
+Each drag is one **Undo**. Where the surface under the pointer jumps (off an eave down to the ground), the stroke
+ends and starts again on the new surface instead of painting through the air between them. A mode's strokes are
+one edit in the list (**Fill Brush, 3 strokes**) until the mode, the step or Clone's source changes, which starts
+another. The wheel, or **[** and **]**, make the brush larger or smaller (**Size** in the panel, 4 cm to 10 m
+across), and Shift+wheel zooms. While painting, a drag paints: Alt+drag or the middle button turns the view, and
+right-drag moves it; on a phone, one finger paints and two fingers turn and zoom the view. **Done** or Escape
+stops.
 
 ### Remove Object
 
@@ -77,7 +80,7 @@ mark. **Clone** can go over it after, for a pattern such as shingles.
 **Straighten** makes a broken or wavy edge straight: a gutter, an eave, a ridge, a window frame. Trace the edge as
 it is now: click points along it on the model, starting where it is straight at one end and ending where it is
 straight at the other; a line follows the pointer from the last point. Double-click the last point, or **Finish**,
-to end it (at least 3 points); Backspace takes back the last point, and Esc stops. The edge is then made straight
+to end it (at least 3 points); Backspace takes back the last point, and Escape stops. The edge is then made straight
 between the first and last points: each place on the traced line moves to the place as far along the straight line
 (shown dashed), and the surface near it moves with it by the same amount, so a gutter stays whole and the roof
 behind it stretches. Everything within **Reach** of the traced line (30 cm at first) moves fully, and the move fades
@@ -104,11 +107,11 @@ Two tools act on the whole model, once each:
   Large adds a few seconds each time the editor opens it.
 
 Each one's size is a field in the list: type a number and press Enter (or leave the field), or pick a suggested size
-from the menu beside it. While the view works out a change, the list says so beside the edit's name, and after a
-moment so does the top of the view.
+from the menu beside it.
 
 The edits apply in the list's order: a fill closes its hole for the edits below it, and a restore brings back
-only what the edits above it removed. The model's outer edge is never filled, nor a hole of more than 5,000 edges.
+only what the edits above it removed. The model's outer edge is never filled, nor a hole of more than 5,000 edges. A fill goes when a later edit takes
+away the surface round it.
 
 A filled hole 20 cm or more across takes the texture of the surface beside it, repeated across it and blended into
 the colours at its edge, so a removed object leaves lawn, gravel or roof in its place. A smaller hole is coloured
@@ -116,13 +119,10 @@ from its edge, blended across it. Where a removed object's hole joins older hole
 all and can cover some of the ground around them: draw the shape again, smaller. The **Clone** brush over a fill
 replaces its texture with one you choose.
 
-The line under the view says how many triangles the model has, how many the edits remove and retexture, how many
-points they move and how many holes they fill. The
-view shows the edits as they change, by the same rule **Update the Model** uses; while it works them out, the line
-says **Showing the edits…** and the view can still be turned. The first time, a model with many filled holes can take
-several seconds; after that, a change works out again only from the edit changed. **Undo**, **Redo**, **Clear
-Edits**, the keys, moving around (a double-click centres the view on the surface under the pointer) and saving
-work as on [Editing Splats](editing.md#moving-around).
+The view shows the edits as they change, by the same rule **Update the Model** uses, and the line under it says
+how many triangles the model has, how many the edits remove and retexture, how many points they move and how many
+holes they fill. **Undo**, **Redo**, **Clear Edits**, the keys, moving around (a double-click centres the view on
+the surface under the pointer) and saving work as on [Editing Splats](editing.md#moving-around).
 
 ## Updating the Model
 
@@ -133,9 +133,11 @@ are now. **Cancel**, beside the button while it runs, stops it and leaves the mo
 
 The first update keeps the model's original files in the task's `data/splatme/model` folder, and every update
 starts from them, so edits never pile up. To make the model whole again, **Clear Edits**, then **Update the
-Model**. The textures the edits make are more images beside the model's, named in the MTL:
-`odm_textured_model_geo_splatme_clone_map_Kd.png` (the Clone brush and the wider fills) and
-`odm_textured_model_geo_splatme_fill_map_Kd.png` (the smaller fills); an update that needs neither removes it.
+Model**. The Clone brush and the wide fills share one texture of at most 16,384 pixels a side: an update that
+needs more is refused and says so (clone less of the model, or fill fewer wide holes).
+
+**Textured Model (3D Tiles)** and **All** in WebODM's Download menu keep the unedited model, for anyone who may
+download the task: an object or a person removed in the editor can still be seen there.
 
 A task processed again gets a new model from WebODM. Its edits stay in the list: press **Update the Model** to
 apply them to the new one.

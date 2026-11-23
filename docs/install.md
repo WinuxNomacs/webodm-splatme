@@ -50,8 +50,9 @@ Between trainings: a training running during an upgrade picks up again or fails 
 - **The splat node**: `curl -fsSL …/splatnode.sh | bash -s upgrade` (the same address as above) downloads the
     newest image, restarts the node keeping its jobs, token and port, and
     deletes the previous image. While the node trains it asks first, as the restart fails that training; with no
-    terminal to ask on it stops (`upgrade --force` goes on). SplatMe needs a node of version 0.2.0 or
-    later, and **Test Connection** says when the node is older.
+    terminal to ask on it stops (`upgrade --force` goes on). SplatMe 0.4.0 trains on a node of version 0.2.0 or
+    later, but needs 0.2.3 for Grow Until and for datasets over 2 GB; **Test Connection** says what an older node
+    lacks.
 
 ## Uninstall
 
@@ -64,8 +65,11 @@ Between trainings: a training running during an upgrade picks up again or fails 
       model as the trainer wrote it (`data/splatme/splatme-model.ply` in the task's folder, with the options it
       was trained with in `splatme-model.json`, kept for continuing a training and for editing), all deleted
       with the task. To delete only the kept ones (the tasks then cannot be continued or edited; 0.2 kept them in
-      `assets/splats`):
+      `assets/splats`; this also deletes the original files of an edited 3D model, below):
       `docker exec webapp sh -c 'rm -rf /webodm/app/media/project/*/task/*/data/splatme /webodm/app/media/project/*/task/*/assets/splats/splatme-model.*'`.
+    - **The edited 3D models**: a task whose model was updated keeps the edited model in WebODM's 3D view and
+      downloads, and its original files in `data/splatme/model`, deleted with the task. Before uninstalling,
+      **Clear Edits** then **Update the Model** on [Editing the 3D Model](editing-model.md) puts a model back.
     - **SplatMe's settings and records** in WebODM's database (the node's address and token, the
       administrators' defaults, users' options, each task's training and edits), which a reinstall finds again.
       To delete them:

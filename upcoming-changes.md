@@ -9,20 +9,10 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
-   Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
-   `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
-   user pushes and tags. The review is done ("Release review of 0.4.0 (done)", findings A to Y and the
-   documentation's). The user's choice (2026-11-23): every medium or higher finding, with H, E and Y's Grow Until
-   and node version parts, and all the documentation's; F, G, I, Q, X and the rest of Y wait. Built on four
-   branches, each tested and merged: `review-server` (A, B, C, D in the docs, E, H, Y's parts: Test Connection
-   says what a node older than 0.2.3 lacks, MIN_VERSION unchanged), `review-engine` (J: stroke points kept to the
-   model's bounds on the server and a stroke broken where the pointer leaves the surface; K, L: the atlas packed
-   square, up to 16,384 a side, an update refused past it; M, N, O, P: a fill goes with the triangles round it),
-   `review-editor` (R to W: W's two-finger turn and move while painting), then the documentation and screenshots on
-   the release branch. The three code branches are built and merged (2026-11-23, see "Fixes from the release
-   review of 0.4.0"); left: the release branch (version, CHANGELOG, the documentation's corrections and removals,
-   the screenshots, Getting Started's upgrade from 0.3.0 with node 0.2.3), then the release check.
+1. Release 0.4.0 (prepared 2026-11-23): `release/0.4.0` merged into `main`, the release check passed (see
+   "Release check of 0.4.0 (done)"). Left, for the user: push `main`, then tag `v0.4.0` and push the tag (the
+   release workflow builds the zip, attaches `splatnode.sh`, publishes node 0.2.3 to ghcr.io and the docs); then the
+   directory entry for WebODM-Plugins (a branch on the user's fork, with the user's approval).
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
@@ -72,6 +62,11 @@ joins older holes.
 
 **Done**
 
+- Release 0.4.0 prepared (2026-11-23): the release review (findings A to Y), the fixes the user chose on
+  `review-server`, `review-engine` and `review-editor`, then `release/0.4.0`: version, CHANGELOG, the documentation's
+  corrections and removals, Getting Started's upgrade from 0.3.0 with node 0.2.3, five screenshots retaken, and the
+  release check. See "Release review of 0.4.0 (done)", "Fixes from the release review of 0.4.0 (built)" and
+  "Release check of 0.4.0 (done)".
 - The rest of the UX review (2026-11-22), all twelve findings, in `ux-editor` (1 to 5), `ux-tasks` (6, 7, 8,
   12) and `ux-pages` (9, 10, 11). See "12. UX review, the rest". For the next release's changelog (written).
 - The 0.3.0 directory entry (2026-11-19): the user's pull request,
@@ -1136,6 +1131,42 @@ a lost Apply failed when next read; a task deleted during Apply; Download's temp
 *Also found*: the dev stack's check task was applied on directly on 2026-11-18 (34,308 splats removed, its edits
 since cleared), against the rule to copy it: its shown model is cut by edits it no longer has. An Apply with its
 empty edits makes it whole again; the user decides.
+
+### Release check of 0.4.0 (done)
+
+On a throwaway production WebODM 4.0.0 (port 8018, project `sm-scratch`, removed after), with two copies of the
+217-photo task imported from a backup zip (the dev task untouched), 2026-11-23. `dist/splatme-0.4.0.zip` from
+4205f4a, SHA-256 `1f069ee942c72d4aa50e2e29664feced7b14ac8168d0d100bffb0aa34eab81b0`; node image
+`splatme-node:relcheck` from the same commit (its `splatnode.py` compared with the commit's: identical). The
+release's node port was 3118: the user's own node holds 3100 on this machine.
+
+- **0.3.0 as published** (SHA-256 `092648bf…`, the release's own) and its `splatnode.sh install` (node 0.2.2 from
+  ghcr.io): a Draft trained and imported; the administrators' defaults, the administrator's own options, a task's
+  automatic training and a splat edit (Remove Floaters) saved.
+- **The upgrade under a running training** (7,000 steps, at step 50): "Cannot load plugin: A plugin with the name
+  splatme already exist...", deleted, "SplatMe installed successfully" (0.4.0), WebODM restarted. The record stood
+  at step 50 for 80 s; one `GET revive` (204) took it over (step 1,570 twenty seconds later) and it completed. Every
+  record as before (the job completed, `shown::<id>` added); the saved token still the node's (compared by hash).
+- **On the old node under 0.4.0**: `node` answered `update`: "Node 0.2.2 trains, but has no Grow Until and cannot
+  train datasets over 2 GB: update it to 0.2.3 or later."; Continue From Step on the idle copy (3,000 to 4,000) and
+  on the other (7,000 to 10,000) completed.
+- **The node's upgrade** from the commit's `splatnode.sh`: during a training, with no terminal: "A training runs on
+  the node: the upgrade restarts the node and that training fails. Upgrade once it is done, or run again with
+  --force.", exit 1, the node untouched. Idle, through a `docker` stand-in for the pull: "The splat node runs
+  version 0.2.3 (it was 0.2.2). Its jobs and token are kept." then "The previous image is still used (by a
+  container or another tag): kept." (the user's own node runs that image; expected here).
+- **On 0.4.0 and node 0.2.3**: `update` null; Continue with Grow Until (4,000 to 9,000, Grow Until 6,000), WebODM's
+  worker restarted mid-training; the record stood still until SplatMe's pages were opened (GET only), whose revive
+  took it over; it imported. Update the Model on the 3D model (Remove Floating Pieces 1,000, Fill Holes 50):
+  completed, 2,628 triangles removed, 3,786 holes filled. The splat edit saved on 0.3.0 applied (92 removed).
+- **Pages**: SplatMe → Tasks (View in 3D) and Administration → SplatMe ("The splat node is ready.") without console
+  errors.
+- **Logs**: no traceback in the webapp, the worker or the node; the webapp logged both takeovers ("lost its
+  worker, starting another"). One "Not Found: /plugins/splatme/main.js" right after installing 0.3.0, before its
+  restart (0.3.0's install, not the upgrade).
+- **Cleanup**: the node uninstalled, the stack removed with its volumes, `splatme-node:relcheck` deleted, the
+  local `ghcr.io/winuxnomacs/splatme-node:latest` tag pointed back at the user's 0.2.2 image (the stand-in had
+  moved it), the task copy and zips deleted. No `smz-` container, `sm-scratch` volume or network left.
 
 ### Release check of 0.3.0 (done)
 

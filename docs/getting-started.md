@@ -73,7 +73,7 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
 
     ```
     WebODM found: webapp (network webodm_default)
-    The splat node 0.2.2 runs (folder /home/you/splatnode).
+    The splat node 0.2.3 runs (folder /home/you/splatnode).
     SplatMe in WebODM (webapp) now trains on this node: http://splat-node:3100
     ```
 
@@ -131,30 +131,17 @@ Upgrade between trainings: a training running during an upgrade picks up again o
 settings, users' options, tasks' trainings, trained models and edits are kept: they are in WebODM's database and in
 the tasks, not in the plugin's folder.
 
-### From 0.2.x to 0.3.0
+### From 0.3.0 or Earlier to 0.4.0
 
-The splat node is unchanged (0.2.2): only the plugin.
-
-1. **The plugin**, on **Administration → Plugins**:
-    - If **Install Plugins** shows **Update** for SplatMe, press it.
-    - Otherwise delete SplatMe (its row's bin), then send `splatme-0.3.0.zip` from the
-      [latest release](https://github.com/WinuxNomacs/webodm-splatme/releases/latest) with **Load Plugin
-      (.zip)**.
-2. **Restart WebODM once**, with the options it was started with, as in a [fresh install](#3-restart-webodm-once).
-   Until then, **Update the Model** (on Edit Splats) and **Continue From Step** fail: WebODM's worker still runs the old plugin, which looks
-   for the trained models where 0.2 kept them.
-
-**You should see**, on **SplatMe → Tasks**, **Edit** and **Download .ply** beside **View in 3D** on each task
-SplatMe trained.
-
-### From 0.1.x to 0.2.0
+0.4.0 needs splat node 0.2.3 for Grow Until and for datasets over 2 GB: upgrade the node too.
 
 1. **The plugin**, on **Administration → Plugins**:
     - If **Install Plugins** shows **Update** for SplatMe, press it.
-    - Otherwise delete SplatMe (its row's bin), then send `splatme-0.2.0.zip` from the
-      [latest release](https://github.com/WinuxNomacs/webodm-splatme/releases/latest) with **Load Plugin
+    - Otherwise delete SplatMe (its row's bin), then send `splatme-0.4.0.zip` from the
+      [0.4.0 release](https://github.com/WinuxNomacs/webodm-splatme/releases/tag/v0.4.0) with **Load Plugin
       (.zip)**. WebODM refuses the zip while SplatMe is still installed, so delete it first.
 2. **Restart WebODM once**, with the options it was started with, as in a [fresh install](#3-restart-webodm-once).
+   Until then, **Update the Model** and **Continue From Step** fail: WebODM's worker still runs the old plugin.
 3. **The splat node**, on its machine:
 
     ```
@@ -165,15 +152,14 @@ SplatMe trained.
     image. It ends with:
 
     ```
-    The splat node runs version 0.2.2 (it was 0.2.0). Its jobs and token are kept.
+    The splat node runs version 0.2.3 (it was 0.2.2). Its jobs and token are kept.
     The previous image was deleted.
     ```
 
-**You should see**, on **Administration → SplatMe**, "The splat node is ready." with node 0.2.2, and your tasks
-on **SplatMe → Tasks** as they were. The sky model used by Ignore Sky is downloaded again by its next training,
-as an update replaces the plugin's folder.
+**You should see**, on **Administration → SplatMe**, "The splat node is ready." with node 0.2.3, and on
+**SplatMe → Tasks**, **Edit** on each task with a textured 3D model or splats SplatMe trained.
 
 ### Later Versions
 
-The steps of 0.1.x to 0.2.0: the plugin, a restart of WebODM, the splat node. The [changelog](changelog.md) says when a release needs a newer splat node; **Test
-Connection** on **Administration → SplatMe** also says when the node is too old.
+The same three steps: the plugin, a restart of WebODM, the splat node when the [changelog](changelog.md) says the
+release needs a newer one. **Test Connection** on **Administration → SplatMe** also says when the node is too old.
