@@ -21,7 +21,17 @@ dataset, output = args[0], args[args.index("-o") + 1]
 steps = int(args[args.index("--num-iters") + 1])
 mode = os.environ.get("FAKE_TRAINER", "")
 
-os.mkdir(os.path.join(os.path.dirname(dataset), "opensplat-extracted"))
+# The node unpacks the zip (OpenSplat's own zip reader refuses some of WebODM's), and deletes it before training
+if not os.path.isdir(dataset):
+    print(f"Invalid zip archive: {dataset}", flush=True)
+    sys.exit(1)
+if not os.path.isfile(os.path.join(dataset, "sparse", "0", "cameras.bin")):
+    print("Invalid project folder (must be either a colmap or nerfstudio or openmvg project folder)", flush=True)
+    sys.exit(1)
+if os.path.exists(os.path.join(os.path.dirname(dataset), "dataset.zip")):
+    print("The dataset's zip is still there", flush=True)
+    sys.exit(1)
+os.mkdir(os.path.join(os.path.dirname(dataset), "opensplat-cache"))  # what the trainer leaves beside its input
 print("Using CUDA", flush=True)
 if mode == "fail":
     print("No cameras see any sparse points", flush=True)

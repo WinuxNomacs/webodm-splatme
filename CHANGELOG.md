@@ -6,7 +6,7 @@ where a release needs a newer one.
 ## Unreleased
 
 Cleaning up WebODM's textured 3D model, and better splat training. Needs splat node 0.2.3 for Grow Until (an older
-node refuses a training only when Grow Until is set).
+node refuses a training only when Grow Until is set) and for datasets of 2 to 4.3 GB (below).
 
 - **3D model cleanup and repair**: **Edit** now edits the task's textured 3D model too (**Splats** and **3D
   Model** above the editor's view; a task with a textured model but no splats opens on it). **Remove Floating
@@ -42,6 +42,10 @@ node refuses a training only when Grow Until is set).
 - The 3D model's editor uses three.js 0.187.0's GLTF and Draco loaders (MIT) and the Draco decoder from the same
   package (Apache-2.0), vendored with their hashes.
 - **Documentation**: a new page, **Editing the 3D Model**.
+- Fixed: a training whose dataset zip was between 2 GiB and about 4.3 GB (a few thousand photos at a large Image
+  Size) failed with "Invalid zip archive": OpenSplat's zip reader refuses the ZIP64 offsets WebODM's export gives
+  entries past 2 GiB. Splat node 0.2.3 unpacks the dataset itself and gives OpenSplat the folder; the zip is deleted
+  once unpacked, so a training also needs less disk on the node.
 - Fixed: on a case-insensitive disk (a WebODM whose media folder is on one), New Task With Splats showed nothing.
 
 ## 0.3.0 (2026-11-19)
