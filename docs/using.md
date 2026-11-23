@@ -1,6 +1,6 @@
 # Using SplatMe
 
-![SplatMe → Tasks with a trained thermal task](assets/screenshots/tasks.png)
+![SplatMe → Tasks with trained tasks, one with its picture](assets/screenshots/tasks.png)
 
 1. **Train**: on **SplatMe → Tasks** in the side menu, which lists the tasks SplatMe can train in the projects
     the user can see (a **Project** filter narrows it), press **Train Splats** on a completed task. A task is

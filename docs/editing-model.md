@@ -14,7 +14,7 @@ Above the view, **Splats** and **3D Model** switch between the task's splats ([E
 its textured model; a task with only a textured model opens on **3D Model**. The view shows the model as
 WebODM's 3D view does, with the edits' panel to its right, or below it on a phone.
 
-![The 3D model's editor on a roof: the Repair row, and the Brush's Clone mode with its circle on the shingles](assets/screenshots/editing-model.png)
+![The 3D model's editor: the Repair row, and the Brush's Clone mode with its circle on the roof](assets/screenshots/editing-model.png)
 
 A task can be edited once WebODM has made its textured model (its GLB, OBJ and MTL files).
 
