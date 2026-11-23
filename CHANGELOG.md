@@ -16,7 +16,7 @@ node refuses a training only when Grow Until is set) and for datasets of 2 to 4.
   **Restore**; the wheel sizes it. **Remove Object** takes off an object painted over, or outlined with a lasso or
   a polygon, down to the surface it stands on, and lays that surface again with the texture round it. **Straighten**
   makes a broken edge (a gutter, an eave) straight: traced by points clicked along it, it is moved straight between
-  its ends, the surface near it with it. A box, polygon or lasso can **Remove** or **Keep
+  its ends, the surface near it with it; each end can be raised or lowered to level it or set a pitch. A box, polygon or lasso can **Remove** or **Keep
   Inside**, or **Move Inside** (raise, shift or stretch it, with a soft edge). A **Repair** row starts each repair.
   Their settings change a step at a time with - and +.
   Filled holes take the texture of the surface beside them. The view shows the edits as

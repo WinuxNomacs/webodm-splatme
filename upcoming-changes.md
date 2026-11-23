@@ -3644,3 +3644,11 @@ panel, Strength 100% at first, Reach 0.3 m and Soft Edge 0.5 m with - and +. mes
 `soft`, and refuses the old `line`. Live on a copy: four points traced across the model, the preview in 172 ms, a
 Strength step in 322 ms, no errors. Tests: Jest (a bent row snapped straight, reach and soft edge, strength; seen
 failing before) and Django (a traced line over the test model's bump, kept in the projection, snapped flat).
+
+**Asked and built (2026-11-23, branch straighten-heights): Straighten's ends raised or lowered.** The user, after
+trying R9 on the roof corner: raise the left side level with the right, or to a chosen angle, each end on its own (a
+line between two hinges, not a see-saw). Dragging an end can't (it stays on the surface) nor can a Move box (it
+raises all it covers), so the edit got `lift: [start, end]` (metres, -20 to 20; `[0, 0]` when left out), which raises
+the straight line's first and last ends; the panel's **Start Height** and **End Height**, 5 cm a step. Live on a copy:
+two steps of End Height, each previewed in 0.2 to 0.7 s. Tests: Jest (an end raised, the other staying; seen failing
+before), Django (the heights checked).
