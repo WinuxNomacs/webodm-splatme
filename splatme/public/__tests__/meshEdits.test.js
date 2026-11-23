@@ -1,4 +1,4 @@
-import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneParts, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
+import { weld, openEdges, loops, components, applyEdits, editedPieces, centres, fitPlane, earClip, fillColours, fillAtlas, sampleImage, planeFrame, faceGrid, cloneAtlas, cloneParts, packParts, MAX_TEXTURE, cloneRegions, sampleRegion, splitFills, cloneAxes, createPreview, PREVIEW_STATES, strokeFaces, startEdits } from "../meshEdits";
 import { applyShape } from "../editShapes";
 import speck from "./speck.json";
 import thinHole from "./thinhole.json";
@@ -702,6 +702,16 @@ describe("the surface brush", () => {
         expect(after.filter(k => before.includes(k))).toEqual([]);
         // The same edits give the same keys: a part is kept while nothing it is made from changed
         expect(keys([lift, clone, fill])).toEqual(after);
+    });
+
+    test("parts are packed in a texture about as tall as it is wide, and too many for the largest one fail with why", () => {
+        const rgba = new Uint8ClampedArray(600 * 600 * 4);
+        const part = () => ({w: 600, h: 600, rgba, triangles: [], at: new Map(), tx: () => 0, ty: () => 0});
+        const packed = packParts(Array.from({length: 64}, part), new Float64Array(0));
+        expect(packed.width).toBeLessThan(6000);
+        expect(packed.height).toBeLessThan(6000);
+        const huge = () => ({...part(), w: MAX_TEXTURE, h: MAX_TEXTURE / 2 + 1});
+        expect(() => packParts([huge(), huge()], new Float64Array(0))).toThrow("too much of the model for one texture");
     });
 
     test("a later clone over the same triangles wins, and none is textured without a surface near its source", () => {

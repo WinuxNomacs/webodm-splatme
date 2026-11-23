@@ -1861,7 +1861,8 @@ export function splitFills(fills){
 export const CLONE_TEXEL = 0.01;  // metres a texel of a source patch covers
 const MAX_PATCH = 1024;  // texels across a source patch
 const MAX_CELL = 2048;  // texels across one clone's part of the texture
-export const CLONE_WIDTH = 4096;  // texels: the clones' texture's width
+export const CLONE_WIDTH = 4096;  // texels: the clones' texture's width, at least
+export const MAX_TEXTURE = 16384;  // texels a side: the most a texture made can have (what many GPUs show at most)
 
 // Where each piece's texture is read by the clones: {piece: [u0, v0, u1, v1]}, for the caller to load those parts
 // Grows regions ({piece: [u0, v0, u1, v1]}) to take in triangle f's texture
@@ -2159,16 +2160,22 @@ export function cloneParts(surface, pieces, result, sample, cache = null){
     return parts;
 }
 
-// Parts packed on shelves in one texture (CLONE_WIDTH texels wide): {piece: their triangles with uvs into it, width,
+// Parts packed on shelves in one texture (about square, MAX_TEXTURE a side at most): {piece: their triangles with uvs into it, width,
 // height, rgba}, or null with none
 export function packParts(parts, resultPositions){
     if (!parts.length) return null;
-    // Shelves, the tallest first
+    // Shelves, the tallest first, in a texture about as tall as it is wide (CLONE_WIDTH wide at least)
     const order = parts.map((_p, i) => i).sort((a, b) => parts[b].h - parts[a].h);
-    let x = 0, y = 0, shelf = 0;
+    let area = 0, widest = 0;
+    for (const part of parts){
+        area += part.w * part.h;
+        widest = Math.max(widest, part.w);
+    }
+    const across = Math.min(MAX_TEXTURE, Math.max(CLONE_WIDTH, widest, Math.ceil(Math.sqrt(area * 1.2))));
+    let x = 0, y = 0, shelf = 0, right = 0;
     for (const i of order){
         const part = parts[i];
-        if (x + part.w > CLONE_WIDTH){
+        if (x + part.w > across){
             x = 0;
             y += shelf;
             shelf = 0;
@@ -2176,9 +2183,14 @@ export function packParts(parts, resultPositions){
         part.left = x;
         part.top = y;
         x += part.w;
+        right = Math.max(right, x);
         shelf = Math.max(shelf, part.h);
     }
-    const width = Math.min(CLONE_WIDTH, Math.max(...parts.map(part => part.left + part.w))), height = y + shelf;
+    const width = right, height = y + shelf;
+    if (height > MAX_TEXTURE){
+        throw new Error("The Clone brush and the wide fills cover too much of the model for one texture (" + MAX_TEXTURE.toLocaleString("en-US") +
+            " texels a side): clone less of it, or fill fewer wide holes.");
+    }
     const rgba = new Uint8ClampedArray(width * height * 4);
     let count = 0;
     for (const part of parts){
