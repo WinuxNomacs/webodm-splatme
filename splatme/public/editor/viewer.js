@@ -25,17 +25,20 @@ export const PAINT_RADII = [0.02, 5];  // metres: the surface brush's radius, sm
 const PAINT_STEP = 1.25;  // the wheel's and the [ and ] keys' change of the surface brush's radius
 const PAINT_SPACING = 0.3;  // of the radius: how far the pointer moves before a stroke takes another point
 const PAINT_POINTS = 1000;
-const PAINT_JUMP = 4;  // radii: a move of the point under the pointer farther than this ends the stroke, and another starts
-const PAINT_JUMP_LEAST = 0.25;  // metres: but a move this short never does (a small brush moved fast)
+const LOAD_WAIT = 5 * 60 * 1000;  // ms the model's worker may take to read the model
+const PAINT_JUMP = 4;  // radii: a jump of the surface under the pointer farther than this ends the stroke, and another starts
+const PAINT_JUMP_LEAST = 0.5;  // metres: but a jump this short never does
+const PAINT_PATH_PIXELS = 4;  // pixels between the looks at the surface along a pointer move that went far along it
+const PAINT_PATH_STEPS = 32;  // such looks in one move, at most
 const round4 = x => Math.round(x * 10000) / 10000;  // to a tenth of a millimetre
 const PICK_LAYER = 1;  // the layer of the model's meshes (its pieces, fills and clones): what picking draws
 const PICK_SIZE = 7;  // pixels: the square about the pointer picking draws  // a stroke's points, at most (meshes.py's MAX_BRUSH_POINTS over all strokes)
 
 // A colour of WebODM's theme (theme.css), read from an element given one of its classes: no colour is set here
 // The file at url, whole, telling onProgress({loaded, total}) as it comes
-async function fetchBytes(url, onProgress){
-    const res = await fetch(url, {credentials: "same-origin"});
-    if (!res.ok) throw new Error(res.status === 404 ? "The trained model is gone, or you may not edit it." : "The request failed (" + res.status + ").");
+async function fetchBytes(url, onProgress, signal = null, gone = "The trained model is gone, or you may not edit it."){
+    const res = await fetch(url, {credentials: "same-origin", signal});
+    if (!res.ok) throw new Error(res.status === 404 ? gone : "The request failed (" + res.status + ").");
     const total = parseInt(res.headers.get("Content-Length") || "0", 10) || 0;
     const reader = res.body.getReader();
     let bytes = new Uint8Array(total || 1 << 20), loaded = 0;
@@ -72,7 +75,7 @@ function lineMaterial(color){
 // handlers: onBoxChange(index, box) while a box is dragged, onPolygon(ring) when one is closed, onCorners(count)
 // while one is drawn, onLasso({ring, view, camera}) when a lasso is drawn, onLassoEnd() when lasso drawing stops,
 // onBrushStroke({stroke, view, aspect, camera}) for each brush stroke, onBrushSize(pixels) when a key changes the
-// brush's size, onBrushEnd() when painting stops, onPaintStroke(stroke, normal), onPaintSource(source, normal),
+// brush's size, onBrushEnd() when painting stops, onPaintStroke(stroke, normal, continued), onPaintSource(source, normal),
 // onPaintRadius(radius) and onPaintEnd() for the 3D model's surface brush, onModelBusy(busy) when the model's edits
 // start and stop being worked out, onModelMasked(removed, floating) when the textured model's edits have been shown
 // (triangles), and for Straighten's traced line onLinePoints(count) as it is traced, onLine(points) when it is
@@ -103,6 +106,8 @@ export function createViewer(container, handlers){
     let mesh = null, xs, ys, zs, opacity, shown, keep, base = null, frame = null, floaters = null;
     // The task's textured model, when this view shows it instead of splats: {group, meshes, pieces, surface, kept}
     let model = null;
+    let loadingWorker = null;  // the model's worker while it loads, before model has it
+    const stopped = new AbortController();  // aborted when the view is closed (dispose)
     let rgb = null, colourShown = "";  // the splats' colours as trained; the Colour Adjust shown ("": none)
     let edits = [], selected = -1, handles = [], maskQueued = false;
     let drawing = null;  // {corners: [[x, y]], line}
@@ -532,9 +537,12 @@ export function createViewer(container, handlers){
         cancelLasso();
         endPaint();
         transform.detach();
-        paint = {op, radius, source: source || null, stroke: null, at: null, cursor: null, trail: new THREE.Group(), queued: false, last: null};
+        paint = {op, radius, source: source || null, stroke: null, at: null, cursor: null, trail: new THREE.Group(), queued: false, last: null,
+            touches: new Set(), gesture: false};
         scene.add(paint.trail);
         controls.mouseButtons = {LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN};
+        // On a touch screen one finger paints, and two turn and zoom the view
+        controls.touches = {ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE};
         canvas.style.cursor = op === "clone" && !source ? "crosshair" : "none";
     }
     function setPaint(op, radius, source){
@@ -553,6 +561,7 @@ export function createViewer(container, handlers){
         scene.remove(paint.trail);
         paint = null;
         controls.mouseButtons = {LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN};
+        controls.touches = {ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN};
         canvas.style.cursor = "";
         if (handlers.onPaintEnd) handlers.onPaintEnd();
     }
@@ -564,33 +573,67 @@ export function createViewer(container, handlers){
         if (handlers.onPaintRadius) handlers.onPaintRadius(radius);
     }
     // A point of the stroke being painted, when the pointer has moved far enough from the last
-    function paintTo(hit){
+    function paintTo(hit, at){
+        const far = Math.max(paint.radius * PAINT_JUMP, PAINT_JUMP_LEAST);
+        const from = paint.stroke.screen, last = paint.stroke.points[paint.stroke.points.length - 1];
+        if (from && hit.point.distanceTo(new THREE.Vector3(...last)) > far){
+            // A long way along the surface in one frame: the surface under the pointer's path between, every few
+            // pixels, so that the stroke follows it, and ends only where it truly jumps (off an edge to a surface far
+            // behind, as from an eave to the ground), rather than painting a line through the air
+            const pixels = Math.hypot(at.clientX - from.clientX, at.clientY - from.clientY);
+            const steps = Math.min(PAINT_PATH_STEPS, Math.ceil(pixels / PAINT_PATH_PIXELS));
+            for (let i = 1; i < steps; i++){
+                const t = i / steps, between = {clientX: from.clientX + t * (at.clientX - from.clientX), clientY: from.clientY + t * (at.clientY - from.clientY)};
+                const found = surfaceHit(between);
+                if (found) paintPoint(found, between, far);
+            }
+        }
+        paintPoint(hit, at, far);
+    }
+    // A point of the stroke, or the start of another where the surface jumped farther than far from the last
+    function paintPoint(hit, at, far){
         const points = paint.stroke.points, last = points[points.length - 1];
         if (points.length >= PAINT_POINTS) return;
         const distance = Math.hypot(hit.point.x - last[0], hit.point.y - last[1], hit.point.z - last[2]);
         if (distance < paint.radius * PAINT_SPACING) return;
-        if (distance > Math.max(paint.radius * PAINT_JUMP, PAINT_JUMP_LEAST)){
-            // The pointer left the surface, or jumped off an edge to one far behind: the stroke ends where it was
-            // and another starts here, rather than painting a line through the air between them
+        if (distance > far){
             sendStroke();
-            startStroke(hit);
+            startStroke(hit, at, true);
             return;
         }
         points.push(hit.point.toArray().map(round4));
+        paint.stroke.screen = at;
         paint.trail.add(paintCircle(hit, paint.radius, true));
     }
-    function startStroke(hit){
+    // continued: the same drag's, after the surface jumped (one Undo with the stroke before it)
+    function startStroke(hit, at, continued = false){
         const view = camera.position.clone().sub(hit.point).normalize();
-        paint.stroke = {points: [hit.point.toArray().map(round4)], view: view.toArray().map(round4), normal: hit.normal.toArray().map(round4)};
+        paint.stroke = {points: [hit.point.toArray().map(round4)], view: view.toArray().map(round4), normal: hit.normal.toArray().map(round4),
+            screen: at ? {clientX: at.clientX, clientY: at.clientY} : null, continued};
         paint.trail.add(paintCircle(hit, paint.radius, true));
     }
     function sendStroke(){
         const stroke = paint.stroke;
         paint.stroke = null;
         clearGroup(paint.trail);
-        if (handlers.onPaintStroke) handlers.onPaintStroke({points: stroke.points, radius: paint.radius, view: stroke.view}, stroke.normal);
+        if (handlers.onPaintStroke) handlers.onPaintStroke({points: stroke.points, radius: paint.radius, view: stroke.view}, stroke.normal, stroke.continued);
+    }
+    // A stroke given up: not sent (a second finger came down, the system took the touch over)
+    function dropStroke(){
+        paint.stroke = null;
+        clearGroup(paint.trail);
     }
     function onPaintDown(event){
+        if (event.pointerType === "touch"){
+            // A second finger: the view's controls turn and zoom it, and the stroke the first began is dropped
+            // until every finger is lifted
+            paint.touches.add(event.pointerId);
+            if (paint.touches.size > 1){
+                dropStroke();
+                paint.gesture = true;
+            }
+            if (paint.gesture) return true;
+        }
         if (event.button !== 0 || event.altKey) return false;  // the view's controls turn or move it
         const hit = surfaceHit(event);
         if (!hit) return true;
@@ -600,11 +643,18 @@ export function createViewer(container, handlers){
             if (handlers.onPaintSource) handlers.onPaintSource(paint.source, hit.normal.toArray().map(round4));
             return true;
         }
-        startStroke(hit);
+        startStroke(hit, event);
         canvas.setPointerCapture(event.pointerId);
         return true;
     }
-    function onPaintUp(){
+    function onPaintUp(event){
+        if (event && event.pointerType === "touch"){
+            paint.touches.delete(event.pointerId);
+            if (paint.gesture){
+                if (!paint.touches.size) paint.gesture = false;
+                return;
+            }
+        }
         if (paint.stroke) sendStroke();
     }
     // Pointer moves while painting, at most once a frame: finding the surface under the pointer takes a while
@@ -617,7 +667,7 @@ export function createViewer(container, handlers){
             paint.queued = false;
             const hit = surfaceHit(paint.last);
             paint.at = hit;
-            if (hit && paint.stroke) paintTo(hit);
+            if (hit && paint.stroke) paintTo(hit, paint.last);
             drawPaintCursor();
         });
     }
@@ -915,7 +965,7 @@ export function createViewer(container, handlers){
     }
     function onPointerUp(event){
         if (paint){
-            onPaintUp();
+            onPaintUp(event);
             return;
         }
         if (dragging){
@@ -954,7 +1004,20 @@ export function createViewer(container, handlers){
         drawDrawing();
     }
     // A touch the system took over (a gesture, a call): the stroke is dropped
-    function onPointerCancel(){
+    function onPointerCancel(event){
+        if (paint){
+            paint.touches.delete(event.pointerId);
+            if (!paint.touches.size) paint.gesture = false;
+            if (paint.stroke) dropStroke();
+            return;
+        }
+        if (dragging){  // a point of a Straighten line: left where it was dragged to
+            dragging = null;
+            controls.enabled = true;
+            queueMask();
+            if (handlers.onLineChange) handlers.onLineChange(selected, edits[selected].points);
+            return;
+        }
         if (brush && brush.down){
             brush.down = false;
             brush.points = [];
@@ -1214,9 +1277,21 @@ export function createViewer(container, handlers){
         // The task's textured model (WebODM's GLB, at url) instead of splats, loaded whole: answers {triangles,
         // frame}. Its pieces are welded into one surface (meshEdits.js), which the edits then cut.
         async loadModel(url, onProgress){
-            const bytes = await fetchBytes(url, onProgress);
-            const loader = new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath(DRACO_DECODER));
-            const gltf = await new Promise((resolve, reject) => loader.parse(bytes.buffer, "", resolve, reject));
+            // Closing the view while it loads stops the download and the worker, and adds nothing to the scene
+            const closed = () => {
+                if (stopped.signal.aborted) throw new Error("The view was closed.");
+            };
+            const bytes = await fetchBytes(url, onProgress, stopped.signal, "The task's textured model is gone, or you may not edit it.");
+            closed();
+            const draco = new DRACOLoader().setDecoderPath(DRACO_DECODER);
+            const loader = new GLTFLoader().setDRACOLoader(draco);
+            let gltf;
+            try {
+                gltf = await new Promise((resolve, reject) => loader.parse(bytes.buffer, "", resolve, reject));
+            } finally {
+                draco.dispose();  // its decoders' workers: the model is decoded once
+            }
+            closed();
             const meshes = [];
             gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o); });
             for (const m of meshes) m.layers.enable(PICK_LAYER);
@@ -1226,32 +1301,56 @@ export function createViewer(container, handlers){
             // The edits are worked out in a worker, which welds the pieces into one surface and gives it back (the
             // view uses it for the Clone brush's source square)
             const worker = new Worker(import.meta.resolve("/plugins/splatme/editor/modelWorker.js"), {type: "module"});
-            const images = await Promise.all(meshes.map(m => {
-                const image = m.material && m.material.map && m.material.map.image;
-                return image ? createImageBitmap(image) : null;
-            }));
-            const surface = await new Promise((resolve, reject) => {
-                worker.onmessage = event => {
-                    if (event.data.type === "loaded") resolve(event.data.surface);
-                    else if (event.data.type === "error") reject(new Error(event.data.message));
-                };
-                worker.onerror = event => reject(new Error(event.message || "The model's worker did not start."));
-                worker.postMessage({type: "load", pieces: pieces.map(p => ({positions: p.positions, indices: p.indices, uvs: p.uvs})), images,
-                    modules: {meshEdits: import.meta.resolve("/plugins/splatme/meshEdits.js"), editShapes: import.meta.resolve("/plugins/splatme/editShapes.js")}},
-                images.filter(Boolean));
-            });
+            loadingWorker = worker;
+            let surface;
+            try {
+                const images = await Promise.all(meshes.map(m => {
+                    const image = m.material && m.material.map && m.material.map.image;
+                    return image ? createImageBitmap(image) : null;
+                }));
+                closed();
+                surface = await new Promise((resolve, reject) => {
+                    const late = setTimeout(() => reject(new Error("The model's worker did not answer in " + LOAD_WAIT / 60000 + " minutes.")), LOAD_WAIT);
+                    stopped.signal.addEventListener("abort", () => reject(new Error("The view was closed.")));
+                    worker.onmessage = event => {
+                        clearTimeout(late);
+                        if (event.data.type === "loaded") resolve(event.data.surface);
+                        else if (event.data.type === "error") reject(new Error("The model could not be read: " + event.data.message));
+                    };
+                    worker.onerror = event => {
+                        clearTimeout(late);
+                        reject(new Error(event.message || "The model's worker did not start."));
+                    };
+                    worker.postMessage({type: "load", pieces: pieces.map(p => ({positions: p.positions, indices: p.indices, uvs: p.uvs})), images,
+                        modules: {meshEdits: import.meta.resolve("/plugins/splatme/meshEdits.js"), editShapes: import.meta.resolve("/plugins/splatme/editShapes.js")}},
+                    images.filter(Boolean));
+                });
+            } catch (e){
+                worker.terminate();
+                throw e;
+            } finally {
+                loadingWorker = null;
+            }
             model = {group: gltf.scene, meshes, pieces, surface, kept: null, counts: null, fills: null, clones: new Map(),
                 worker, seq: 0, shownSeq: 0, busy: false};
+            // The edits that could not be worked out: the view keeps the last it showed, and the page says so
+            const failed = message => {
+                console.error("SplatMe: the model's edits could not be shown:", message);
+                model.busy = false;
+                if (handlers.onModelBusy) handlers.onModelBusy(false);
+                if (handlers.onModelError) handlers.onModelError(message);
+            };
             worker.onmessage = event => {
                 if (!model || model.worker !== worker) return;
                 if (event.data.type === "result") showModelResult(event.data);
-                else if (event.data.type === "error"){
-                    console.error("SplatMe: the model's edits could not be shown:", event.data.message);
-                    if (event.data.seq === model.seq && model.busy){
-                        model.busy = false;
-                        if (handlers.onModelBusy) handlers.onModelBusy(false);
-                    }
-                }
+                else if (event.data.type === "error" && event.data.seq === model.seq) failed(event.data.message);
+            };
+            // The worker itself ended (out of memory): no answer comes, and none will
+            worker.onerror = event => {
+                if (!model || model.worker !== worker) return;
+                event.preventDefault();
+                failed(event.message || "The model's worker stopped.");
+                model.worker = null;
             };
             scene.add(gltf.scene);
             const n = surface.count;
@@ -1331,6 +1430,8 @@ export function createViewer(container, handlers){
         },
         startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, finishLine, undoLinePoint, startPaint, setPaint, endPaint, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
+            stopped.abort();
+            if (loadingWorker) loadingWorker.terminate();
             renderer.setAnimationLoop(null);
             if (pick){
                 pick.target.dispose();
