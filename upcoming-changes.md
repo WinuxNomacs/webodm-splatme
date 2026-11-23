@@ -11,7 +11,9 @@ other software. The plugin does that step.
 
 1. The model editor's tools reworked around a brush on the surface, and made fast (R7, asked 2026-11-22, section
    14's end). R7a, R7b and R7c built; R7d left: a live check on a roof with the user. The release waits for it.
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+2. Trainings of 2 to 4.29 GB datasets fail ("Invalid zip archive"): the node unpacks the dataset itself and gives
+   OpenSplat the folder (found and planned 2026-11-23, section 15). Ships with the next release.
+3. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
@@ -3474,3 +3476,51 @@ strokes at most 170 ms. Update the Model matched the preview (2,055 points moved
 retextured, 854,797 triangles) in about 8 s. One long task of about 2 s remains while the model loads (at 5 s on
 the page's clock, before it shows). The editor-check skill now prints when each step and long task happened, and
 takes `VIEWPORT`.
+
+### 15. Trainings of 2 to 4.29 GB datasets (found and planned 2026-11-23, branch node-zip-folder)
+
+Found on a production install: "Krotiak Road" (2,727 photos; 30,000 steps, image size 2600) failed with "The trainer
+ended with code 1: Invalid zip archive: .../dataset.zip". The upload was whole (the node checks its length, and
+`check_dataset` read the zip).
+
+Cause, reproduced with that dataset rebuilt by SplatMe's export steps (3.4 GiB, 2,668 entries):
+
+- WebODM's export (`app/splats.py`, `zipstream-ng`) writes a ZIP64 extra field for each entry whose local header starts
+  at 2^31 bytes or later, with 0xFFFFFFFF in the central directory's offset field, even in an archive under 4 GiB. Valid
+  ZIP (Python's `zipfile` does the same: `ZIP64_LIMIT` = 2^31-1).
+- OpenSplat (the node's pinned commit `e33f9dd`) reads zips with its vendored miniz (`MZ_VERSION "11.3.2"`; miniz's
+  master and 3.1.2 have the same code). In `mz_zip_reader_read_central_dir`, when the compressed size isn't 0xFFFFFFFF
+  it checks `MZ_READ_LE32(p + MZ_ZIP_CDH_LOCAL_HEADER_OFS) + MZ_ZIP_LOCAL_DIR_HEADER_SIZE + comp_size` against the
+  archive's size with the raw 32-bit field, not the ZIP64 offset: 0xFFFFFFFF + ... is past the end of any archive under
+  about 4.29 GB, so the whole archive is refused. Larger archives pass by accident (a synthetic 8.6 GiB one trains).
+- In Krotiak Road the first refused entry is `images/DJI_20260924122700_0174_V.JPG`, at offset 2,148,967,850.
+- Not reported in miniz's or OpenSplat's issues (searched 2026-11-22).
+- OpenSplat (`opensplat.cpp`, `zip_utils.cpp` `extractZipToCache`) extracts a zip into `opensplat-<crc32>` beside it and
+  then reads that folder through `inputDataFromX`; a folder given as the input is read the same way (COLMAP: `sparse/`),
+  and masks are looked for in the folder it reads (`findMaskPath`). Its default outputs and temporary folders go beside
+  the input, which is the job's folder either way.
+
+Decided with the user (2026-11-23):
+
+- The node unpacks the dataset with Python's `zipfile` and gives OpenSplat the folder; no patch to OpenSplat or miniz.
+- It ships with the next release (node 0.2.3), not a patch release.
+- Reports to miniz and OpenSplat: Claude drafts them (the code, a small reproducer); nothing is posted until the user
+  approves the text.
+- The user retrains Krotiak Road after the upgrade.
+
+Build (`node/splatnode.py`):
+
+- `run_job`, before the trainer starts: extract `dataset.zip` into `dataset.partial/` (names were checked by
+  `check_dataset` at upload), rename it to `dataset/`, delete the zip; the trainer is given `dataset/`. A leftover
+  `dataset.partial/` (a stop or restart during extraction) is deleted and the extraction done again; an existing
+  `dataset/` with no zip (a restart after extraction) is used as it is. The job shows "Unpacking the dataset" meanwhile.
+- A failed extraction (disk full, a corrupt entry, a CRC error) fails the job with that reason; nothing partial is left.
+  A cancel during extraction is honoured before the trainer starts.
+- `resume.ply` keeps being extracted at upload, as now. `DISK_FACTOR` (2.5) still covers the zip and its extraction side
+  by side; the zip is deleted as soon as the folder is complete, so a job then uses less disk than when OpenSplat kept both.
+- Tests (`node/tests`): the fake trainer refuses a zip and reads the folder; extraction failing on a corrupt zip and on a
+  full disk (made to happen), a leftover `dataset.partial/`, a restart with `dataset/` already there, a cancel during
+  extraction.
+- Checked for real: the locally built image trains a few steps on the Krotiak Road export (the dataset that fails
+  today) on the dev machine's throwaway stack, and Brighton Beach (a small zip) still trains.
+- CHANGELOG's Unreleased: the fix. Drafts of the two upstream reports kept in `ignored/` for the user.
