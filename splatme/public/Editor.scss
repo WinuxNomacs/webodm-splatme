@@ -20,6 +20,32 @@
         }
     }
 
+    // The edits being worked out, over the view's top (a button's look, as nothing to press)
+    .splatme-editor-busy{
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        cursor: default;
+    }
+
+    // A size typed or picked (SizeField.jsx): wide enough for 100,000
+    .splatme-size-field{
+        width: 200px;
+
+        .dropdown-menu{
+            left: 0;
+            right: auto;
+            top: 100%;
+        }
+
+        &.dropup .dropdown-menu{
+            top: auto;
+            bottom: 100%;
+        }
+    }
+
     .splatme-editor-note{
         position: absolute;
         top: 50%;

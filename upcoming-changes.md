@@ -3714,3 +3714,8 @@ editor-check skill, on viewer.js's `window.__splatmeCamera` hook):**
   face grid's cells keyed by number. In Node (Update the Model's path), `cloneParts` went from 3.9 s to 2.7 s at 200
   edges, 7.6 to 5.1 s at 1,000 and 8.5 to 5.6 s at 5,000; in the editor's worker at 5,000, 10.4 to 8.1 s (its
   texture reads, through canvas tiles, are now most of what is left).
+- Then (the user's request, 2026-11-23): Fill Holes' and Remove Floating Pieces' sizes are a field (SizeField.jsx:
+  a number typed, taken on Enter or when left, 1 to 5,000 edges or 100,000 triangles, or a suggestion picked from
+  the menu beside it, which opens upward when the panel has no room below), replacing the lists and their Other. While
+  the view works out the edits, the edit's name says "filling…" or "finding them…", and after 400 ms a badge over
+  the view's top says "Showing the edits…" (quicker changes, a stroke's, show none).
