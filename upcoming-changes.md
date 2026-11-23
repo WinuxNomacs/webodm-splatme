@@ -9,10 +9,11 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Release 0.4.0 (prepared 2026-11-23): `release/0.4.0` merged into `main`, the release check passed (see
-   "Release check of 0.4.0 (done)"). Left, for the user: push `main`, then tag `v0.4.0` and push the tag (the
-   release workflow builds the zip, attaches `splatnode.sh`, publishes node 0.2.3 to ghcr.io and the docs); then the
-   directory entry for WebODM-Plugins (a branch on the user's fork, with the user's approval).
+1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
+   `splatnode.sh`, node 0.2.3 on ghcr.io, the docs). The published zip's SHA-256 is `9bd1319d…` (the same files as
+   the zip the release check used). The directory entry is branch `splatme-0.4.0` on the user's fork (373d6e9, from
+   upstream's `main` at 7e32adf), pushed 2026-11-23. Left, for the user: open the pull request on GitHub; then check
+   https://plugins.webodm.org/index.json lists 0.4.0 once it is merged.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
