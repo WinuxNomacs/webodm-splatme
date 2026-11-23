@@ -1508,7 +1508,43 @@ export function applyEdit(surface, state, edit, applyShape){
             }
         }
     }
+    if (fills.length && edit.op !== "move" && edit.type !== "straighten") dropLooseFills(surface, state);
 }
+
+// The fills an edit took the surface round from: one with a rim corner that has neither a kept triangle nor
+// another fill left goes too (so a fill does not stay behind as a patch in the air, and the hole can be filled
+// again), until none is left so. By corners, not edges: a fill's rim can cut across the surface (Remove Object's
+// round a footprint, the brush's closed as seen from the stroke)
+function dropLooseFills(surface, state){
+    const { kept } = state, { start, list } = vertexFaces(surface);
+    const onSurface = v => {
+        for (let i = start[v]; i < start[v + 1]; i++) if (kept[list[i]]) return true;
+        return false;
+    };
+    // How many fills have each corner, so that a fill against another is held by it
+    const users = new Map();
+    const use = (fill, step) => { for (const v of fill.ring) users.set(v, (users.get(v) || 0) + step); };
+    for (const fill of state.fills) use(fill, 1);
+    const alive = state.fills.map(() => true);
+    let changed = true;
+    while (changed){
+        changed = false;
+        state.fills.forEach((fill, i) => {
+            if (!alive[i]) return;
+            if (fill.ring.every(v => users.get(v) > 1 || onSurface(v))) return;
+            alive[i] = false;
+            use(fill, -1);
+            changed = true;
+        });
+    }
+    if (alive.every(Boolean)) return;
+    for (const name of ["fills", "fillClone", "fillDetail"]){
+        const left = state[name].filter((_x, i) => alive[i]);
+        state[name].length = 0;
+        state[name].push(...left);
+    }
+}
+
 export function finishEdits(surface, state){
     const { n, kept, positions } = state;
     let removed = 0;

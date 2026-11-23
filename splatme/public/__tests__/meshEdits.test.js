@@ -205,6 +205,19 @@ test("Flatten on a whole piece, with no rim, uses the plane of its own vertices"
 });
 
 describe("filling holes", () => {
+    test("a fill goes when a later edit takes the surface round its rim, not when the surface stays at every corner", () => {
+        const surface = weld(grid(6, (i, j) => i === 2 && j === 2));
+        const fill = {type: "holes", size: 10};
+        const remove = (points, radius) => ({type: "paint", op: "delete", strokes: [{points, radius, view: [0, 0, 1]}]});
+        expect(applyEdits(surface, [fill], applyShape).fills.length).toBe(1);
+        // Everything round the hole removed: the fill does not stay as a patch in the air
+        const gone = applyEdits(surface, [fill, remove([[2.5, 2.5, 0]], 1.6), {type: "floating", size: 100000}], applyShape);
+        expect(gone.fills.length).toBe(0);
+        expect(gone.added).toBe(0);
+        // One square beside it removed: each rim corner still has the surface, and the fill stays
+        expect(applyEdits(surface, [fill, remove([[3.5, 2.5, 0]], 0.3)], applyShape).fills.length).toBe(1);
+    });
+
     const area = (xs, ys, tris) => {
         let sum = 0;
         for (let t = 0; t < tris.length; t += 3){
