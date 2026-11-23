@@ -20,7 +20,9 @@ other software. The plugin does that step.
    model's bounds on the server and a stroke broken where the pointer leaves the surface; K, L: the atlas packed
    square, up to 16,384 a side, an update refused past it; M, N, O, P: a fill goes with the triangles round it),
    `review-editor` (R to W: W's two-finger turn and move while painting), then the documentation and screenshots on
-   the release branch.
+   the release branch. The three code branches are built and merged (2026-11-23, see "Fixes from the release
+   review of 0.4.0"); left: the release branch (version, CHANGELOG, the documentation's corrections and removals,
+   the screenshots, Getting Started's upgrade from 0.3.0 with node 0.2.3), then the release check.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
@@ -854,6 +856,28 @@ anyone who may see the task, its file kept per task until the edits or the model
   frees the panel; the notice shows after a change and clears after Apply; Cancel stops an Apply and keeps the
   model; at 320 px the drawing controls stay in sight; a plain user who may not see the task gets the heading,
   the link back and the reason; no console error.
+
+### Fixes from the release review of 0.4.0 (built)
+
+Built 2026-11-23 on three branches, each merged with its tests; the results of the engine's changes checked equal
+to the old code's on random strokes, moves and Remove Objects (scratch scripts, deleted).
+
+- `review-server` (meshes.py, training.py, node.py, api.py, node.html, the Grow Until fields, node/splatnode.py):
+  A (only the size saved), B (no update while processing; one whose task started processing or whose GLB changed
+  fails), C (the GLB an update wrote is stamped in `modelshown::`; kept originals dropped when it no longer
+  matches), E (file errors without paths), H (Grow Until's messages, minimums, placeholder; the node's comment),
+  Y (Test Connection names what a node older than 0.2.3 lacks: `node.update_note`). Tests: five new Django tests,
+  the Grow Until ones extended, one node test.
+- `review-engine` (meshEdits.js, viewer.js): J (column grid along the thinnest axis, segments cut to the model's
+  bounds and walked in pieces; a stroke follows the surface along the pointer's path and ends where it jumps, its
+  pieces one Undo), O (the grid made again after a move over 2 m), K (nearest-first soft edge, rings or columns,
+  exact), N (Remove Object's holes from the triangles round each piece), M (sources in the cache keys), L (atlas
+  about square, 16,384 a side at most, an update past it fails with why), P (a fill goes when a rim corner loses
+  the surface). Tests: three new Jest tests (cache keys, packing, loose fills), seen failing first.
+- `review-editor` (Editor.jsx, Editor.scss, viewer.js, modelWorker.js): R, S, T, U, V, W. Checked live: typed
+  150 stays 150, a change then a switch is saved, switching during a load (no page error once
+  `forceContextLoss`, tried for S, was taken out: it threw on the next view), one finger paints without turning
+  the view and two turn it (touch through CDP), a broken drag is one Undo, the painting panel at 375 px.
 
 ### Release review of 0.4.0 (done)
 
