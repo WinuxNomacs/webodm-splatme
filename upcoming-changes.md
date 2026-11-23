@@ -12,7 +12,8 @@ other software. The plugin does that step.
 1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
-   user pushes and tags.
+   user pushes and tags. The review is done ("Release review of 0.4.0 (done)", findings A to Y and the
+   documentation's): the user decides which are fixed before the tag.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
@@ -846,6 +847,149 @@ anyone who may see the task, its file kept per task until the edits or the model
   frees the panel; the notice shows after a change and clears after Apply; Cancel stops an Apply and keeps the
   model; at 320 px the drawing controls stay in sight; a plain user who may not see the task gets the heading,
   the link back and the reason; no console error.
+
+### Release review of 0.4.0 (done)
+
+Asked 2026-11-23 ("continue" into the release): the review the `release-review` skill describes, before 0.4.0 (3D
+model editing, Grow Until, the UX review). Read: `git diff v0.3.0..main` (90 commits, 66 files) in full, then the
+whole product again, in five parts read in parallel (the server's Python, the mesh edit engine, the Edit page, the
+other pages with the node and the release, the documentation); each finding below marked checked was confirmed
+again in the code. Run: the engine on synthetic meshes (timings below; a randomised 150-step run of every edit kind
+found the preview and the server's rule identical), crafted model edits through `meshes.clean` (all refused
+cleanly), the node's failures against its real code (54 tests, crafted Grow Until values, an encrypted zip), the
+zip built, and the live sweep. No change was made during the review. Weights: medium unless marked.
+
+*The server (meshes.py, training.py)*
+
+- A. Update the Model saves the task row it read before Node ran (up to 30 min earlier): `update_size(commit=True)`
+  reverts a rename, a share, a Restart, or a move to another project made meanwhile; the move leaves the database
+  on the old project with the files in the new one's folder. Previous K, made worse. Checked.
+- B. Update the Model never checks the task's status: during a reprocessing (WebODM empties `assets` and extracts
+  the new results for minutes before `task_completed`) it can keep the new files as "originals" or overwrite the
+  new model with the old one plus the edits. Checked in code.
+- C. The kept originals are trusted without checking they belong to the current model: they are cleared only by
+  the `task_completed` receiver, which does not run while SplatMe is disabled (or a worker started before it was
+  installed); an update after such a reprocessing writes the old model back. Plausible.
+- D. (low-medium) Download → Textured Model (3D Tiles) and All keep the unedited model, public viewers included: a
+  removed object or person can still be downloaded there. The docs do not say so. Checked.
+- E. (low) An update's `OSError` (disk full, a missing file) is stored with the server's paths and shown in Status
+  and Tasks to anyone who may see the task. Previous I, made worse. Checked.
+- F. (low) A cancel after the last check lets the files be replaced, and the record says canceled while the model
+  was updated; a run failed as lost can overlap the next one's cleanup (previous F's pattern). Checked.
+- G. (low) Node killed for memory says "Node failed." (or a V8 stack line); a GLB piece without UVs fails with a
+  bare TypeError. Plausible.
+- H. (low) Grow Until on Continue From Step: with fewer than 4,000 added steps every value is refused, with an
+  inverted range in the message; the inputs allow 0 (the minimum is 1,000 or the model's steps + 1,000); the
+  placeholder "As the model was trained" is wrong when the model had none (blank means the trainer's own on the new
+  total; using.md says the same); the comment on AFTER_GROWING says the faint gaussians are pruned at least once,
+  but OpenSplat prunes only at a multiple of 3,000 after Grow Until and before the last step, so Grow Until at a
+  multiple of 3,000 exactly 3,000 before the end never prunes. Checked.
+- I. (low) Smaller: Remove Floating Pieces' count is not kept in the update's record; a failed copy of the
+  originals leaves a `.splatme-new` file; Node keeps running with no deadline if only the Celery child dies; a
+  training's time is lost when its job never showed "training"; a reduced copy of a GLB over 150 MB made during an
+  update can be the old model. Plausible.
+- Still standing from 0.3.0: H (a PUT of edits has no overall size limit) and L (the worker must restart after the
+  upgrade; Getting Started's step does it).
+
+*The mesh edit engine (meshEdits.js, modelWorker.js, meshApply.mjs)*
+
+- J. (high for crafted edits, medium in the page) A brush stroke's segment scans every 0.25 m cell of its box:
+  one segment (0,0,0) to (50,50,50) took 3.0 s on 498k triangles; radius 5 m, 11-15 ms a point (1,600 points,
+  17.8 s). In the page, a stroke that leaves the model and comes back far away makes one such segment (and paints a
+  straight line through the air between them): `paintTo` has no jump limit. On the server, points are allowed up to
+  1e9 m, so a crafted edit spins Node until its 30-minute deadline. Checked.
+- K. Move Inside's Soft Edge is inside x outside: soft 20 m on 250k vertices took 4.0 s (10 m box), 11.4 s (20 m)
+  and 16.9 s (30 m), on every preview update. Checked.
+- L. The server's clone atlas has no height limit: a 50 x 50 m Clone made a 4096 x 6140 atlas; past about 1.1 ha
+  of cloned or detailed fill it exceeds 16,384 texels (a common GPU limit; WebODM's 3D view not checked). The
+  preview packs 8 m chunks and never shows it. Measured up to 4096 x 6140; the limits beyond are not checked.
+- M. The preview's part cache misses a change at a clone's source: an earlier Remove, Raise or Move over the source
+  keeps the old texture in the view, while Update the Model renders a new one (4 of 5 parts differed in a test,
+  same keys). Wide fills likewise keep a source the surface around them no longer has. Checked.
+- N. Remove Object goes over the whole model for each separate piece marked: 200 pieces 0.9 s, 1,000 3.6 s, 3,000
+  11.3 s on 318k triangles (a lasso over vegetation with many floaters). Checked.
+- O. (medium-low) After anything moves more than 2 m, every later brush stroke scans every triangle: a Fill stroke
+  took 0.8 s after a 1.9 m move and 3.3 s after 2.1 m (500k triangles). Checked.
+- P. (low-medium) Fills are never removed by later edits: Fill Holes, then a Remove brush over the area and Remove
+  Floating Pieces leave the fill as a floating patch. Preview and server agree. Checked.
+- Q. (low) Full-size texture copies per textured piece touched, in the tab and in Node; not measured. Crafted edit
+  lists can make `paintedObject` and `neckHoles` slow (bounded by the 30-minute deadline). Texture colours of
+  smooth fills differ slightly (sharp's resize against the canvas's). Plausible.
+
+*The Edit page (Editor.jsx, viewer.js, SizeField.jsx)*
+
+- R. Switching Splats / 3D Model drops edits not saved yet (the panel remounts and its save timer is cleared; no
+  question asked): drag a box and switch within 600 ms, or after a failed save. Checked.
+- S. Switching (or Try Again) while the 3D model loads leaves its worker running (it is kept only once loaded) and
+  the load then adds to a disposed renderer; the fetch is not aborted; the Draco decoder's workers are never
+  disposed, so each load makes a new pool. Checked.
+- T. The worker's errors are only logged: the view and the counts keep the last result as if current, and a worker
+  that crashes after loading (out of memory) leaves "Showing the edits…" for good; the load has no deadline.
+  Checked.
+- U. Delete, the bin or Undo while tracing Draw the Line Again puts the line on whatever edit then sits at its
+  place (a Move box), and the view hides that edit meanwhile. Checked.
+- V. The - / + fields (Stretch, Reach, Soft Edge…) clamp on every keystroke: typing 150 in Stretch East gives 1000
+  ("1" becomes 10), Reach "0.3" becomes 0.05 at "0"; each keystroke is its own Undo. Checked.
+- W. The surface brush on a phone: the view cannot turn while painting (Alt+drag and the middle button only), a
+  second finger starts a new stroke, the fixed painting panel likely covers half the view, and its help names only
+  mouse keys. Plausible (not run on touch).
+- X. (low) Smaller, checked: starting a tool clears the selection in the list but not in the view (its handles
+  come back, a Straighten point can be dragged while painting); `pointercancel` not handled for the surface brush
+  and point drags; the view's keys fire while typing (Enter in Fill Holes' size field also closes a polygon),
+  against editing.md; the 3D model's Brush and Draw Polygon tooltips are the splats' ("through to the back");
+  Update the Model stays "updating" after a polling error; the 404 text says "The trained model is gone" for the
+  3D model; the page title is Edit Splats on 3D Model; editor.html names a missing EditorPage.jsx; Repair buttons
+  lack `aria-pressed`, and Straighten and Fill restart rather than end on a second press; the size field's menu
+  has no menu roles and stays open on Tab; "no triangle removed" for an update that only filled or moved; the
+  floaters' error repeats its first words (previous S); two tabs, last save wins (previous S); on a task not found,
+  the Splats / 3D Model switch shows under "Not found."; on SplatMe → Tasks at 320 px the ••• menu wraps onto its
+  own line (live sweep).
+
+*The other pages, the node and the release*
+
+- Y. (low) Checked: a node 0.2.2 refuses Grow Until clearly but fails datasets over 2 GB with no hint, and
+  MIN_VERSION stays 0.2.0, so Test Connection accepts it; an encrypted zip fails with a raw `RuntimeError` text and
+  a traceback; Train Splats shows "0" for a saved full-size Image Size (blank elsewhere) and does not pre-fill a
+  saved Grow Until; `vendor/README.md` names a missing `editor/modelView.js`; the vendored Draco decoder is 1.5.6
+  (three.js r187's), while Draco 1.5.7 and 1.5.8 list security fixes (it decodes the task's own model, for editors
+  only); previous W (`persist-credentials`) and X (CUDA 12.8 end of support, undated) stand; "Learn more" is not in
+  Title Case, if links count as names.
+
+*The documentation*: 18 corrections and 7 removals, for the user before they are applied. Corrections:
+using.md's step 2 (**Follow it**) is swallowed by step 1 in the built page; Getting Started has no 0.3.0 to 0.4.0
+upgrade, its outputs say node 0.2.2, its older sections link zips from `releases/latest` (gone after this
+release), and the 0.2 to 0.3 step names **Update the Model** where 0.3.0 says **Apply**; install.md says a node of
+0.2.0 or later will do; Editing Splats says Download .ply shows instead of Edit (it shows too) and that a task with
+WebODM's own splats has no Edit (it has, on 3D Model); Move's box is at the model's middle, not the view's;
+Uninstall does not say the kept originals and the edited model stay, nor that removing `data/splatme` loses the
+originals; the README and Home do not mention 3D model editing, and three.js's thanks name only Edit Splats;
+api.md says Apply in prose; the CHANGELOG omits `trained_grow_until`; Esc and Escape both used; screenshots out of
+date: editing.png (Side View, Apply), tasks.png (no picture, the old intro, the project's button), train.png (no
+Grow Until, Image Size 0), admin.png (node 0.2.2), editing-model.png (Remove Object cut off). Removals: the older
+upgrade sections; Editing the 3D Model repeating "Showing the edits…" and its internals, the texture file names,
+"specks of a few centimetres"; using.md's permissions paragraph at the top; two long sentences split (using.md's
+continuing paragraph, editing.md's unreadable edits).
+
+*Dependencies (checked 2026-11-23)*: three.js 0.187.0 and Spark 2.4.0 are the latest, no advisories, every
+vendored file matches its hash and three's tarball; Draco 1.5.6 (Y); the actions are their latest releases, by
+SHA; the CUDA 12.8.2 images are active, by digest; OpenSplat e33f9dd is main's head; libtorch 2.7.1's advisories
+(GHSA-v32g-mr63-3j83 new, 2026-11-10) are all in Python, `torch.load` or RPC paths OpenSplat does not use; eslint
+10.15.0 latest; jest 30.5.2's glob and minimatch (moderate, dev only, no fix); Playwright 1.64.1 (1.65.1 out);
+Zensical 0.1.2 (0.1.3 features only), the docs' lock clean in OSV.
+
+*The live sweep*: the Dashboard, SplatMe → Tasks, SplatMe → Settings, Administration → SplatMe and Edit at 320 and
+1,280 px, as an administrator and a plain user (403 on the administrators' page; 404 from Edit's API): no console
+error besides livereload, no sideways scroll; the only write tried was Edit's thumbnail, by design, blocked.
+
+*Sound*: permissions on every new view (change_project for writes, `get_and_check_task` for reads, the original's
+URL only for editors, the originals in `data/`, never served); CSRF; texture names from constants only; Node run
+from an argument list with a deadline and a group kill; every crafted model edit refused cleanly; one update per
+task under the records' lock; each file written beside and renamed (Duplicate's hard links never written through);
+the thumbnail checked as a JPEG; upgrades from 0.3.0's records and keys; the preview's rule identical to the
+server's; the save chain and the view-only path; previous M, N, O, P, Q, T, U fixed; the node's Grow Until
+validation and its passing to OpenSplat; the VERSION rule (0.2.3, not yet on ghcr); the zip (68 files, 1.76 MB,
+one `splatme/` root, Draco's licence in it); the docs' numbers and keys (presets, limits, steps, sizes, api.md's
+routes).
 
 ### Release review of 0.3.0 (done)
 
