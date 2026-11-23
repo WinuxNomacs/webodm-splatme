@@ -82,13 +82,15 @@ between the first and last points: each place on the traced line moves to the pl
 (shown dashed), and the surface near it moves with it by the same amount, so a gutter stays whole and the roof
 behind it stretches. Everything within **Reach** of the traced line (30 cm at first) moves fully, and the move fades
 to nothing over a **Soft Edge** past it (50 cm at first). **Strength** starts at 100%, fully straight: **-** steps
-it back toward where the edge was. Picked in the list, any point of the line can be dragged on the model, or
+it back toward where the edge was. **Start Height** and **End Height** raise or lower the straight line's first or
+last end (where the tracing began or ended), each on its own: the line tilts about its other end, so an eave can be
+made level, or set to a pitch. Picked in the list, any point of the line can be dragged on the model, or
 **Draw the Line Again**; while a line is traced, the view leaves its edit out, so what it hid can be clicked.
 
 The picked edit's settings show under the list, each with **-** and **+** to change it a step at a time, and each
 step is one **Undo**: Move Inside's **Up**, **East** and **North** (5 cm a step), **Stretch East**, **Stretch North**
-and **Stretch Up** (5%) and **Soft Edge** (0.25 m); Straighten's **Strength** (10%), **Reach** (5 cm) and **Soft
-Edge** (10 cm). The view
+and **Stretch Up** (5%) and **Soft Edge** (0.25 m); Straighten's **Strength** (10%), **Reach** (5 cm), **Soft
+Edge** (10 cm), and **Start Height** and **End Height** (5 cm). The view
 shows each step as it is made.
 
 Two tools act on the whole model, once each:

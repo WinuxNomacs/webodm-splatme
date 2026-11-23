@@ -189,8 +189,9 @@ export function components(faces, count, kept){
 //                              the vertices of the triangles the shape covers scaled about their middle and moved;
 //                              those within soft metres of them moved part of the way (less the farther), so the
 //                              surface stretches instead of tearing
-//   {type: "straighten", points: [[x, y, z], ...], strength, reach, soft}
-//                              a broken edge traced by points made straight between its first and last: each place
+//   {type: "straighten", points: [[x, y, z], ...], strength, reach, soft, lift: [start, end]}
+//                              a broken edge traced by points made straight between its first and last (each raised
+//                              by its lift, metres: the straight line turns about the other end): each place
 //                              on the traced line moved to the place as far along the straight one, and the kept
 //                              surface's vertices within reach metres of it moved as its nearest place, past reach
 //                              less and less, to nothing at reach + soft; strength (0 to 1) of the way
@@ -996,7 +997,9 @@ function straighten(surface, kept, positions, edit){
     // The traced line's length up to each point, and the straight line between its ends
     const along = [0];
     for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Math.hypot(...[0, 1, 2].map(k => points[i][k] - points[i - 1][k])));
-    const total = along[along.length - 1], a = points[0], b = points[points.length - 1];
+    const total = along[along.length - 1], lift = edit.lift || [0, 0];
+    const a = [points[0][0], points[0][1], points[0][2] + lift[0]];
+    const b = [points[points.length - 1][0], points[points.length - 1][1], points[points.length - 1][2] + lift[1]];
     if (!total || !strength) return 0;
     // How far the place t of the way along piece k of the traced line moves: to as far along the straight line
     const shift = (k, t) => {

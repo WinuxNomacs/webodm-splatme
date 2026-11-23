@@ -463,6 +463,17 @@ describe("Straighten", () => {
         expect(where(surface, applyEdits(surface, [{...traced, soft: 0}], applyShape), 3, 4)[1]).toBe(4);
     });
 
+    test("raises an end of the straight line by its height, turning it about the other end", () => {
+        const surface = bent();
+        // The end at x = 5 raised 0.4 m: the end stays at x = 1, the bend (halfway along) rises 0.2 m, the end 0.4 m
+        const result = applyEdits(surface, [{...traced, lift: [0, 0.4]}], applyShape);
+        expect(where(surface, result, 1, 3)).toEqual([1, 3, 0]);
+        expect(where(surface, result, 3, 3.4)[2]).toBeCloseTo(0.2, 6);
+        expect(where(surface, result, 5, 3)[2]).toBeCloseTo(0.4, 6);
+        // The start lowered instead
+        expect(where(surface, applyEdits(surface, [{...traced, lift: [-0.4, 0]}], applyShape), 1, 3)[2]).toBeCloseTo(-0.4, 6);
+    });
+
     test("goes that much of the way with less strength, and nowhere at none", () => {
         const surface = bent();
         expect(where(surface, applyEdits(surface, [{...traced, strength: 0.5}], applyShape), 3, 3.4)[1]).toBeCloseTo(3.2, 6);
