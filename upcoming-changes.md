@@ -13,7 +13,14 @@ other software. The plugin does that step.
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags. The review is done ("Release review of 0.4.0 (done)", findings A to Y and the
-   documentation's): the user decides which are fixed before the tag.
+   documentation's). The user's choice (2026-11-23): every medium or higher finding, with H, E and Y's Grow Until
+   and node version parts, and all the documentation's; F, G, I, Q, X and the rest of Y wait. Built on four
+   branches, each tested and merged: `review-server` (A, B, C, D in the docs, E, H, Y's parts: Test Connection
+   says what a node older than 0.2.3 lacks, MIN_VERSION unchanged), `review-engine` (J: stroke points kept to the
+   model's bounds on the server and a stroke broken where the pointer leaves the surface; K, L: the atlas packed
+   square, up to 16,384 a side, an update refused past it; M, N, O, P: a fill goes with the triangles round it),
+   `review-editor` (R to W: W's two-finger turn and move while painting), then the documentation and screenshots on
+   the release branch.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
