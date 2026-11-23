@@ -3681,3 +3681,26 @@ the model) needs the splats rendered onto it, on a GPU (the editor's browser or 
   changing, ranked) to the user, who decides what is built.
 - R10c, the measurement for a Match the Splats tool: how close and how noisy the splats' points are about the
   surface (roof, walls, eaves), how many are floaters, and whether moving the surface toward them improves the score.
+
+**Results (2026-11-23, HomerunObliqueII9; the harness is `compareSplats.mjs` and `scoreCompare.mjs` in the
+editor-check skill, on viewer.js's `window.__splatmeCamera` hook):**
+
+| Edits | Difference (mean colour, 0 to 255) | Holes (of the model's area) |
+|---|---|---|
+| None | 25.36 | 0.86% |
+| Remove Floating Pieces + Fill Holes Large (200 edges, the panel's largest) | 25.19 | 0.37% |
+| Remove Floating Pieces + Fill Holes 5,000 edges (only by API) | 25.21 | 0.27% |
+
+- Fill Holes takes most holes away but hardly changes how the model looks: what is left between the model and the
+  splats is its texture (colour, blur, photo seams), not its shape or holes.
+- Fill Holes at 5,000 edges filled 3,958 holes and took about 39 s to show on load (about 10 s of it the fill
+  textures); at 200, about 5 s. The holes left at 200 are the roof's scattered specks, which the Fill brush does.
+- The Holes and Pieces lists show **Small** for a saved size that is none of theirs (one saved by API).
+- The splats are not better everywhere: behind the house they are blurred with haze where the model is sharper.
+- The measurement: of 216,865 splats, 47,882 are opaque, 9,448 opaque and flat (discs on a surface). On the roof,
+  1,643 flat centres lie a median 10.5 cm from the model (90% within 28.5 cm); along the roof's normal, a median
+  +3 cm, half within -3.8 to +12.2 cm, 80% within -12.5 to +19.7 cm. No offset to correct, but their spread
+  (about 16 cm between the 25% and 75% marks) is larger than the roof's bumps: moving the surface toward them would
+  add bumps, not take them away. A Match the
+  Splats tool for geometry is not worth building on this data; the visual gap is texture, which needs the splats
+  rendered onto the model's texture on a GPU (the browser or the splat node), a larger step for after the release.

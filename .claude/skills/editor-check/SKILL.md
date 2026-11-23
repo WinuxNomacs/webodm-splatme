@@ -42,3 +42,20 @@ The dev stack (http://localhost:8008) must be up, and the editor rebuilt after a
 
 Timings are only comparable on a quiet machine: before a timed run, list the heavy processes and stacks
 (`docker stats --no-stream`) and tell the user; stopping another stack is the user's call.
+
+## The model compared with its splats
+
+`compareSplats.mjs` is a scenario that shows the splats and the model from the same nine viewpoints (eight round
+a target, one from above) through viewer.js's `window.__splatmeCamera` hook, saves `splats-N.png` and
+`model-N.png`, and prints each view's colour difference and how much of the model is see-through:
+
+```bash
+CMP_OUT=<out dir> CMP_TARGET=<x,y,z in the model's frame> CMP_DIST=16 GALLIUM_DRIVER=d3d12 \
+  LD_LIBRARY_PATH=/usr/lib/wsl/lib MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA \
+  node .claude/skills/editor-check/editorCheck.mjs .claude/skills/editor-check/compareSplats.mjs <out dir> [task] [model edits JSON]
+```
+
+Pass the edits to try as the model edits JSON (in the task's projection), one run per set. Then
+`node .claude/skills/editor-check/scoreCompare.mjs <dir> [<dir> ...]` scores the folders side by side: the
+difference where both show something, and holes (pixels the model leaves empty with its surface within 40 px on
+all four sides, where the splats show something). Don't print the target or the edits' coordinates to the user.

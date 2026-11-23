@@ -1161,6 +1161,9 @@ export function createViewer(container, handlers){
     function topView(){
         place([0, -0.001, 1.3]);
     }
+    // A live check that sets window.__splatmeCamera to an object gets goTo and the framing in it: both tabs looked at
+    // from the same places
+    if (window.__splatmeCamera) Object.assign(window.__splatmeCamera, {goTo, frame: () => frame});
 
     return {
         // The model at url, loaded whole, with what the task's boundary leaves out hidden (boundary: polygons of
