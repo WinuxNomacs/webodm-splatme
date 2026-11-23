@@ -9,7 +9,9 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. Remove Object reworked: the object marked with the brush, a lasso or a polygon, not a box (R8, reported
+   2026-11-23: see "16. Remove Object reworked"). The release waits for it.
+2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
@@ -3566,3 +3568,26 @@ Build (`node/splatnode.py`):
   one-line change to the check opens it): `ignored/upstream-reports/` in the main checkout. Not posted: the user
   approves the text first.
 - CHANGELOG's Unreleased: the fix. Drafts of the two upstream reports kept in `ignored/` for the user.
+
+### 16. Remove Object reworked (reported and planned 2026-11-23)
+
+**Bug report (the user, HomerunObliqueII9):** a Remove Object box placed around an exhaust pipe on the roof left the
+pipe; placing the box was tedious, and a box will almost never fit an object's shape. Found: the box did remove the
+pipe's upper part (185 triangles), but its floor sat a little above the roof, so a stub of the base stayed; and the
+pipe's white is in the roof's texture round its foot (photo texturing paints a tall object onto what is behind it),
+so a white patch stays even with the pipe gone. Polygon and Lasso cannot stand in today: on the model a polygon is
+all heights and a lasso through to the back, so set to Remove Object they cut through the roof and the house.
+
+**Design (agreed 2026-11-23):**
+
+- The object is marked on the screen, as seen from the view: painted over with a Remove Object brush, or outlined
+  with a lasso or a polygon. The Repair panel's **Remove Object** starts the brush (its size in metres, as the
+  other brushes); Lasso and Polygon beside it outline instead (the user's decision: "Brush first, all three").
+- The rule: the surface the object stands on is fitted to the triangles just outside the mark (a band round it).
+  Inside the mark (along the view), the triangles that rise above that surface (toward the view) by more than a
+  small tolerance are removed, whatever their height: the whole object, its base included; the surface stays. The
+  holes it leaves are filled on that surface, and the footprint and a margin round it are retextured from the
+  texture round it (as Fill's colours), so no smear stays. Clone can go over it after.
+- The box Remove Object goes (the user's decision): never released; the server refuses it, as R7c did the removed
+  box kinds. Only the dev task has one saved.
+- Stays as it is: Remove Inside with a box, polygon or lasso, the Remove brush, Move, Straighten.
