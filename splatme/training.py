@@ -560,6 +560,8 @@ def parse_options(given, node_info):
             raise TrainingError("{} must be between {} and {}.".format(name, limits["min"], limits["max"]))
         options[name] = value
     grow_until = options.get("densify_until")
+    if grow_until is not None and options["steps"] < GROW_AT_LEAST + AFTER_GROWING:
+        raise TrainingError(f"densify_until needs steps of {GROW_AT_LEAST + AFTER_GROWING} or more.")
     if grow_until is not None and grow_until > options["steps"] - AFTER_GROWING:
         raise TrainingError(f"densify_until must be at most {options['steps'] - AFTER_GROWING}: "
                             f"{AFTER_GROWING} steps less than the steps.")
@@ -614,6 +616,8 @@ def start(task, username, given, auto=False):
             except (TypeError, ValueError):
                 raise TrainingError("densify_until must be a whole number.") from None
             low, high = resume + GROW_AT_LEAST, resume + more - AFTER_GROWING
+            if low > high:
+                raise TrainingError(f"densify_until needs {GROW_AT_LEAST + AFTER_GROWING} more steps or more.")
             if not low <= grow_until <= high:
                 raise TrainingError(f"densify_until must be between {low} and {high}: at least {GROW_AT_LEAST} "
                                     f"steps after the model's {resume}, and {AFTER_GROWING} before the last.")

@@ -305,6 +305,8 @@ class TestSplatNode(NodeTestCase):
             response, answer = self.request("POST", "/jobs?" + query, body=training_zip())
             self.assertEqual(response.status, 400, query)
         self.assertIn("at most 2000", answer["error"])
+        response, answer = self.request("POST", "/jobs?steps=3999&densify_until=1000", body=training_zip())
+        self.assertIn("needs steps of 4000 or more", answer["error"])
         self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
         self.assertEqual(self.create("densify_until=4000")["options"], {"steps": 7000, "densify_until": 4000})
 

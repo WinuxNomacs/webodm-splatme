@@ -118,8 +118,8 @@ export default class TrainDialog extends React.Component {
                         <div className="form-group">
                             <label className="col-sm-4 control-label" htmlFor="splatme-grow-until">{_("Grow Until")}</label>
                             <div className="col-sm-8">
-                                <input type="number" min="0" className="form-control splatme-grow-until" id="splatme-grow-until" value={growUntil}
-                                       placeholder={modelGrowUntil ? _("The model's:") + " " + modelGrowUntil.toLocaleString() : _("As the model was trained")}
+                                <input type="number" min={growRange ? growRange.min : 0} className="form-control splatme-grow-until" id="splatme-grow-until" value={growUntil}
+                                       placeholder={modelGrowUntil ? _("The model's:") + " " + modelGrowUntil.toLocaleString() : _("Half the steps, at most 15,000")}
                                        onChange={e => this.setState({growUntil: e.target.value, error: null})} />
                                 <span className="help-block">
                                     {_("The step the model stops growing at, for it to grow again:")} {growRange ?

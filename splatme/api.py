@@ -57,7 +57,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import crop, edits, meshes, thermal, training
-from .node import Node, NodeError
+from .node import Node, NodeError, update_note
 
 logger = logging.getLogger("app.logger")
 
@@ -79,7 +79,7 @@ def node_state(info):
     """What any user may know of the node: not the id of the job it runs."""
     return {
         "version": info.get("version"), "trainer": info.get("trainer"), "gpu": info.get("gpu"),
-        "busy": bool(info.get("running")), "queued": info.get("queued", 0),
+        "busy": bool(info.get("running")), "queued": info.get("queued", 0), "update": update_note(info.get("version")),
     }  # fmt: skip
 
 

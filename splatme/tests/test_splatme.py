@@ -838,6 +838,87 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(res.data["apply"]["triangles"], 17)  # cut from the new model
         self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 17)
 
+    def test_an_update_saves_only_the_tasks_size_keeping_what_changed_on_the_task_meanwhile(self):
+        task = make_task(self.user)
+        make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        real_make = meshes.make_model
+
+        def renamed_meanwhile(*args):
+            Task.objects.filter(pk=task.id).update(name="Renamed meanwhile", public=True)
+            return real_make(*args)
+
+        with mock.patch.object(meshes, "make_model", renamed_meanwhile):
+            res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "completed", res.data)
+        task.refresh_from_db()
+        self.assertEqual((task.name, task.public), ("Renamed meanwhile", True))
+        self.assertGreater(task.size, 0)
+
+    def test_the_model_is_not_updated_while_webodm_processes_the_task(self):
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        Task.objects.filter(pk=task.id).update(status=status_codes.RUNNING)
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("processing", res.data["error"])
+        Task.objects.filter(pk=task.id).update(status=status_codes.COMPLETED)
+
+        # Processed again while Node made the model: the new model stays, and is not kept as the original
+        with open(os.path.join(folder, meshes.OBJ), "rb") as f:
+            before = f.read()
+        real_make = meshes.make_model
+
+        def processed_meanwhile(*args):
+            out = real_make(*args)
+            Task.objects.filter(pk=task.id).update(status=status_codes.RUNNING)
+            return out
+
+        with mock.patch.object(meshes, "make_model", processed_meanwhile):
+            res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["state"], "failed", res.data)
+        self.assertIn("processing", res.data["apply"]["error"])
+        with open(os.path.join(folder, meshes.OBJ), "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertFalse(meshes.kept(task))
+
+    def test_originals_kept_from_a_model_since_replaced_unknown_to_splatme_are_dropped(self):
+        # Processed again while SplatMe was disabled: its receiver did not run, and WebODM wrote a new model
+        task = make_task(self.user)
+        folder = make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertTrue(meshes.kept(task))
+        self.assertTrue(self.model_edits(task).data["applied"])
+        # An update's own model is not taken for a new one
+        self.assertTrue(meshes.kept(task))
+        make_textured_model(task)
+        later = time.time() + 5
+        os.utime(os.path.join(folder, meshes.GLB), (later, later))
+        res = self.model_edits(task)
+        self.assertFalse(meshes.kept(task))
+        self.assertIsNone(res.data["applied"])
+        res = self.client.post(f"{API}/task/{task.id}/model-apply")
+        self.assertEqual(res.data["apply"]["triangles"], 17)  # cut from the new model
+        self.assertEqual(obj_faces(os.path.join(folder, meshes.OBJ)), 17)
+
+    def test_an_update_that_cannot_write_its_files_says_so_without_the_servers_paths(self):
+        task = make_task(self.user)
+        make_textured_model(task)
+        box = {"op": "delete", "type": "box", "keep": False, "center": [1.5, 1.5, 0], "size": [1, 1, 1], "turn": 0}
+        self.assertEqual(self.model_edits(task, [box]).status_code, 200)
+        for error, words in ((OSError(28, "No space left on device", "/webodm/app/media/project/x"), "disk is full"),
+                             (OSError(13, "Permission denied", "/webodm/app/media/project/x"), "could not be read or written")):
+            with mock.patch.object(meshes, "keep_originals", mock.Mock(side_effect=error)), self.assertLogs("app.logger", "WARNING"):
+                res = self.client.post(f"{API}/task/{task.id}/model-apply")
+            self.assertEqual(res.data["apply"]["state"], "failed", res.data)
+            self.assertIn(words, res.data["apply"]["error"])
+            self.assertNotIn("/webodm", res.data["apply"]["error"])
+
     def test_a_removed_task_forgets_its_model_edits(self):
         task = make_task(self.user)
         make_textured_model(task)
@@ -1045,7 +1126,7 @@ class TestSplatMe(BootTestCase):
 
     def test_grow_until_beyond_the_steps_less_3000_or_below_1000_is_refused(self):
         task = make_task(self.user)
-        for steps, grow_until, message in ((30000, 27001, "at most 27000"), (3999, 1000, "at most 999"),
+        for steps, grow_until, message in ((30000, 27001, "at most 27000"), (3999, 1000, "needs steps of 4000 or more"),
                                            (30000, 999, "between 1000 and")):
             res = self.train(task, steps=steps, densify_until=grow_until)
             self.assertEqual(res.status_code, 400, (steps, grow_until))
@@ -1070,6 +1151,9 @@ class TestSplatMe(BootTestCase):
             res = self.train(task, resume="true", steps=10000, densify_until=grow_until)
             self.assertEqual(res.status_code, 400, grow_until)
             self.assertIn(message, res.data["error"])
+        res = self.train(task, resume="true", steps=3999, densify_until=21000)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("needs 4000 more steps or more", res.data["error"])
         res = self.train(task, resume="true", steps=10000, densify_until=37000)
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(self.node.jobs["job3"]["options"], {"steps": 40000, "densify_until": 37000})
@@ -1349,6 +1433,18 @@ class TestSplatMe(BootTestCase):
         res = admin.post(f"{API}/node", {"url": self.node.url, "token": "", "save": False}, format="json")
         self.assertIsNone(res.data["error"])
         self.assertEqual(training.get_node().token, self.node.token)
+
+    def test_test_connection_says_what_a_node_older_than_this_splatmes_lacks(self):
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        self.node.version = "0.2.2"
+        res = admin.post(f"{API}/node", {"url": self.node.url, "save": False}, format="json")
+        self.assertIsNone(res.data["error"])
+        self.assertIn("no Grow Until", res.data["node"]["update"])
+        self.assertIn("0.2.3 or later", res.data["node"]["update"])
+        self.node.version = "0.2.3"
+        res = admin.post(f"{API}/node", {"url": self.node.url, "save": False}, format="json")
+        self.assertIsNone(res.data["node"]["update"])
 
     def test_the_nodes_settings_are_the_administrators_and_never_show_the_token(self):
         self.assertEqual(self.client.post(f"{API}/node", {"url": "http://elsewhere:3100"}).status_code, 403)

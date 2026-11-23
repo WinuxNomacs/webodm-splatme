@@ -177,6 +177,7 @@ behind a link under it. The token is never shown.
                 (gpu.memory_used / 1024).toFixed(1) + " GB in use)"));
             box.appendChild(line("fa fa-cogs", node.trainer + ", node " + node.version));
             box.appendChild(line("fa fa-tasks", node.busy ? "Training now, " + node.queued + " waiting" : "Idle"));
+            if (node.update) box.appendChild(line("fa fa-exclamation-circle", node.update));
         }
         state.appendChild(box);
         if (tried && !data.error) state.appendChild(line("fa fa-info-circle", "Not saved yet."));
