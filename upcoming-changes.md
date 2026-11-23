@@ -9,16 +9,14 @@ other software. The plugin does that step.
 
 **Up next**
 
-1. Straighten reworked: a line traced along a broken edge snapped straight between its ends (R9, asked
-   2026-11-23: see "17. Straighten reworked"). The release waits for it.
-2. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
+1. The next release (M5's end): 3D model cleanup and the splat training improvements as the headlines (CHANGELOG's
    Unreleased has them), then the UX review's findings and the case-name fix. Steps: the release review, a
    `release/X.Y.Z` branch (Getting Started's upgrade steps, with node 0.2.3), the upgrade rehearsal, merge; the
    user pushes and tags.
 
 Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
 after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
-tests) are built: see sections 13 and 14, and Remove Object reworked (R8, section 16). Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
+tests) are built: see sections 13 and 14, Remove Object reworked (R8, section 16) and Straighten reworked (R9, section 17). Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
 which failed with "Invalid zip archive" (the node now unpacks the dataset itself; section 15, branch
 node-zip-folder). Possible follow-ups,
 after the release: photo projection for fills and clones, and fills that stay inside the removed area when it
@@ -3636,3 +3634,13 @@ a gutter's width is squashed onto it, and where the broken gutter lies farther t
   (Strength 10% a step). The view shows the traced line and the straight one.
 - The edit is `{"type": "straighten", "points": [[x, y, z], ...], "strength", "reach", "soft"}`; the two-point `line`
   goes (never released; no task has one saved).
+
+**Built (2026-11-23, branch straighten-trace).** `meshEdits.js`'s `straighten`: each kept vertex within reach + soft
+of the traced line (its box first) moves as its nearest place on it does, from there to as far along the straight
+line (by length along each), fully within reach and by a smoothstep over soft past it, strength of the way.
+`viewer.js`: tracing (clicks add points, a double-click, Enter or `finishLine` ends at 3, Backspace `undoLinePoint`,
+Esc stops), the straight line drawn dashed between the ends, any point dragged. Editor.jsx: Finish in the tracing
+panel, Strength 100% at first, Reach 0.3 m and Soft Edge 0.5 m with - and +. meshes.py takes `points` (2 to 200) and
+`soft`, and refuses the old `line`. Live on a copy: four points traced across the model, the preview in 172 ms, a
+Strength step in 322 ms, no errors. Tests: Jest (a bent row snapped straight, reach and soft edge, strength; seen
+failing before) and Django (a traced line over the test model's bump, kept in the projection, snapped flat).

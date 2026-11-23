@@ -579,7 +579,7 @@ class TestSplatMe(BootTestCase):
         box = {"type": "box", "keep": False, "center": [1, 1, 0], "size": [1, 1, 1], "turn": 0}
         for bad in ({"op": "flatten", **box}, {"op": "fill", **box}, {"op": "smooth", **box, "passes": 3}, {"op": "object", **box},
                     {"op": "clone", **box, "source": [0, 0, 0], "patch": 1, "feather": 0.25, "spin": 0},
-                    {"op": "straighten", **box, "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1},
+                    {"op": "straighten", **box, "points": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1},
                     {"type": "stamps", "op": "clone", "source": [0.5, 1.5, 0], "feather": 0.1, "stamps": []}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
 
@@ -677,23 +677,24 @@ class TestSplatMe(BootTestCase):
         self.assertLess(max(heights), 0.5)
         self.assertGreater(max(heights), 0)
 
-    def test_straighten_keeps_its_line_in_the_tasks_projection_and_pulls_the_surface_within_reach_to_it(self):
+    def test_straighten_keeps_its_traced_line_in_the_tasks_projection_and_snaps_it_straight_between_its_ends(self):
         task = make_task(self.user)
         folder = make_textured_model(task, bump=0.5)
-        line = {"type": "straighten", "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}
-        for bad in ({**line, "line": [[0, 1, 0]]}, {**line, "strength": 1.5}, {**line, "reach": 0},
-                    {**line, "line": [[0, 1], [2, 1]]}):
+        # Traced over the bump (the vertex at 1, 1 raised 0.5 m), from one side of the grid to the other
+        line = {"type": "straighten", "points": [[0, 1, 0], [1, 1, 0.5], [2, 1, 0]], "strength": 1, "reach": 0.2, "soft": 0}
+        for bad in ({**line, "points": [[0, 1, 0]]}, {**line, "strength": 1.5}, {**line, "reach": 0}, {**line, "soft": -1},
+                    {**line, "points": [[0, 1], [2, 1]]}, {"type": "straighten", "line": [[0, 1, 0], [2, 1, 0]], "strength": 1, "reach": 1}):
             self.assertEqual(self.model_edits(task, [bad]).status_code, 400, bad)
         res = self.model_edits(task, [line])
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data["edits"][0]["line"], [[0, 1, 0], [2, 1, 0]])
+        self.assertEqual(res.data["edits"][0]["points"], [[0, 1, 0], [1, 1, 0.5], [2, 1, 0]])
         stored = edits.store().get_json(meshes.edits_key(task.id))
-        self.assertEqual(stored[0]["line"], [[1000, 2001, 0], [1002, 2001, 0]])
+        self.assertEqual(stored[0]["points"], [[1000, 2001, 0], [1001, 2001, 0.5], [1002, 2001, 0]])
         res = self.client.post(f"{API}/task/{task.id}/model-apply")
         self.assertEqual(res.data["apply"]["state"], "completed", res.data)
-        self.assertEqual(res.data["apply"]["moved"], 1)  # within reach and off the line: the bump
+        self.assertEqual(res.data["apply"]["moved"], 1)  # on the traced line and off the straight one: the bump
         heights = obj_heights(os.path.join(folder, meshes.OBJ))
-        self.assertAlmostEqual(max(heights), 0.25, places=4)  # 0.5 m from the line, reach 1: half the way
+        self.assertAlmostEqual(max(heights), 0, places=4)  # snapped onto the straight line
 
     def test_the_clone_brush_moves_what_it_paints_to_a_texture_of_their_own_which_goes_with_the_clone(self):
         task = make_task(self.user)

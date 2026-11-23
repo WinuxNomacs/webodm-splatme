@@ -430,37 +430,43 @@ describe("Move and the Smooth brush", () => {
 });
 
 describe("Straighten", () => {
-    // A 4 by 4 grid whose vertex (2, 2) sticks up 0.3 m from the line y = 2 along the ground
-    const surfaceWithBump = () => {
-        const pieces = grid(4);
-        for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 2 && p.positions[i + 1] === 2) p.positions[i + 2] = 0.3;
+    // A 6 by 6 grid whose row y = 3 bends: its vertex (3, 3) 0.4 m off to the north, as a broken gutter does
+    const bent = () => {
+        const pieces = grid(6);
+        for (const p of pieces) for (let i = 0; i < p.positions.length; i += 3) if (p.positions[i] === 3 && p.positions[i + 1] === 3) p.positions[i + 1] = 3.4;
         return weld(pieces);
     };
-    const middle = {type: "straighten", line: [[1, 2, 0], [3, 2, 0]]};
-    const height = (surface, result, x, y) => {
-        for (let v = 0; v < surface.count; v++) if (surface.positions[3 * v] === x && surface.positions[3 * v + 1] === y) return result.positions[3 * v + 2];
+    // The line traced along the bent row, its ends on the straight part
+    const traced = {type: "straighten", points: [[1, 3, 0], [3, 3.4, 0], [5, 3, 0]], strength: 1, reach: 0.3, soft: 0.5};
+    const where = (surface, result, x, y) => {
+        for (let v = 0; v < surface.count; v++) if (surface.positions[3 * v] === x && Math.abs(surface.positions[3 * v + 1] - y) < 1e-6) return Array.from(result.positions.slice(3 * v, 3 * v + 3));
         return null;
     };
 
-    test("pulls the surface toward the line, more with more strength, none at 0", () => {
-        const surface = surfaceWithBump();
-        const z = strength => height(surface, applyEdits(surface, [{...middle, strength, reach: 1}], applyShape), 2, 2);
-        expect(z(0)).toBeCloseTo(0.3);
-        expect(z(0.5)).toBeLessThan(0.3);
-        expect(z(1)).toBeLessThan(z(0.5));
-        expect(z(1)).toBeGreaterThanOrEqual(0);
+    test("moves what is on the traced line onto the straight line between its ends, its ends staying", () => {
+        const surface = bent();
+        const result = applyEdits(surface, [traced], applyShape);
+        expect(where(surface, result, 3, 3.4)[1]).toBeCloseTo(3, 6);  // the bend, straight
+        expect(where(surface, result, 1, 3)).toEqual([1, 3, 0]);
+        expect(where(surface, result, 5, 3)).toEqual([5, 3, 0]);
+        expect(where(surface, result, 3, 0)).toEqual([3, 0, 0]);  // far from the line
     });
 
-    test("leaves the vertices beyond its reach, and those on the line, where they are", () => {
-        const surface = surfaceWithBump();
-        const far = applyEdits(surface, [{...middle, strength: 1, reach: 0.2}], applyShape);
-        expect(far.moved).toBe(0);  // the bump is 0.3 m away; (1, 2), (2, 2)'s neighbours on the line need no move
-        expect(height(surface, far, 2, 2)).toBeCloseTo(0.3);
-        const raised = {...middle, line: [[1, 2, 1], [3, 2, 1]], strength: 1, reach: 1.5};
-        const result = applyEdits(surface, [raised], applyShape);
-        expect(height(surface, result, 0, 0)).toBe(0);  // 2.4 m from the line
-        expect(height(surface, result, 1, 1)).toBeGreaterThan(0);  // 1.4 m: pulled a little
-        expect(height(surface, result, 2, 2)).toBeGreaterThan(0.3);  // toward the line above
+    test("moves the surface within reach as the line's nearest place moves, less over the soft edge, none past it", () => {
+        const surface = bent();
+        // (3, 4) is 0.6 m from the bend: within reach 0.7 it moves as the bend does (0.4 m south); with reach 0.3 and a
+        // soft edge of 0.5 part of the way; with no soft edge not at all
+        expect(where(surface, applyEdits(surface, [{...traced, reach: 0.7}], applyShape), 3, 4)[1]).toBeCloseTo(3.6, 6);
+        const part = where(surface, applyEdits(surface, [traced], applyShape), 3, 4)[1];
+        expect(part).toBeGreaterThan(3.6);
+        expect(part).toBeLessThan(4);
+        expect(where(surface, applyEdits(surface, [{...traced, soft: 0}], applyShape), 3, 4)[1]).toBe(4);
+    });
+
+    test("goes that much of the way with less strength, and nowhere at none", () => {
+        const surface = bent();
+        expect(where(surface, applyEdits(surface, [{...traced, strength: 0.5}], applyShape), 3, 3.4)[1]).toBeCloseTo(3.2, 6);
+        expect(applyEdits(surface, [{...traced, strength: 0}], applyShape).moved).toBe(0);
     });
 });
 
@@ -550,7 +556,7 @@ describe("the preview", () => {
         remove: {...box([5.5, 5.5, 0], [0.9, 0.9, 1]), op: "delete"},
         move: {...box([3, 3, 0], [2, 2, 1]), op: "move", offset: [0, 0, 0.5], scale: [1, 1, 1], soft: 1},
         smooth: {type: "paint", op: "smooth", passes: 3, strokes: [{points: [[3, 3, 0]], radius: 1, view: [0, 0, 1]}]},
-        straighten: {type: "straighten", line: [[1, 2.4, 0], [5, 2.4, 0]], strength: 1, reach: 1},
+        straighten: {type: "straighten", points: [[1, 2.4, 0], [3, 2.8, 0], [5, 2.4, 0]], strength: 1, reach: 1, soft: 0.5},
         holes: {type: "holes", size: 10},
         clone: {type: "paint", op: "clone", source: [2.5, 0.5, 0], target: [0.5, 4.5, 0], normal: [0, 0, 1], feather: 0,
             strokes: [{points: [[0.5, 4.5, 0]], radius: 0.45, view: [0, 0, 1]}]},

@@ -189,10 +189,11 @@ export function components(faces, count, kept){
 //                              the vertices of the triangles the shape covers scaled about their middle and moved;
 //                              those within soft metres of them moved part of the way (less the farther), so the
 //                              surface stretches instead of tearing
-//   {type: "straighten", line: [[x, y, z], [x, y, z]], strength, reach}
-//                              the kept surface's vertices within reach metres of the line pulled toward it,
-//                              strength (0 to 1) of the way at the line, fading to nothing at reach: an edge made
-//                              straight
+//   {type: "straighten", points: [[x, y, z], ...], strength, reach, soft}
+//                              a broken edge traced by points made straight between its first and last: each place
+//                              on the traced line moved to the place as far along the straight one, and the kept
+//                              surface's vertices within reach metres of it moved as its nearest place, past reach
+//                              less and less, to nothing at reach + soft; strength (0 to 1) of the way
 //   {type: "paint", op, strokes: [{points: [[x, y, z], ...], radius: metres, view: [x, y, z]}], ...}
 //                              the surface brush: each stroke covers the triangles whose centres are within radius
 //                              of its path and that face view (toward where it was painted from: never the back
@@ -991,22 +992,41 @@ function smooth(surface, kept, selected, positions, passes){
 function straighten(surface, kept, positions, edit){
     const used = new Uint8Array(surface.count), { faces } = surface;
     for (let f = 0; f < kept.length; f++) if (kept[f]) used[faces[3 * f]] = used[faces[3 * f + 1]] = used[faces[3 * f + 2]] = 1;
-    const [a, b] = edit.line, { strength, reach } = edit;
-    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
-    const length2 = dx * dx + dy * dy + dz * dz;
+    const { points, strength, reach } = edit, soft = edit.soft || 0, far = reach + soft;
+    // The traced line's length up to each point, and the straight line between its ends
+    const along = [0];
+    for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Math.hypot(...[0, 1, 2].map(k => points[i][k] - points[i - 1][k])));
+    const total = along[along.length - 1], a = points[0], b = points[points.length - 1];
+    if (!total || !strength) return 0;
+    // How far the place t of the way along piece k of the traced line moves: to as far along the straight line
+    const shift = (k, t) => {
+        const s = (along[k] + t * (along[k + 1] - along[k])) / total;
+        return [0, 1, 2].map(i => a[i] + s * (b[i] - a[i]) - (points[k][i] + t * (points[k + 1][i] - points[k][i])));
+    };
+    const lo = [0, 1, 2].map(i => Math.min(...points.map(p => p[i])) - far), hi = [0, 1, 2].map(i => Math.max(...points.map(p => p[i])) + far);
     let moved = 0;
     for (let v = 0; v < surface.count; v++){
         if (!used[v]) continue;
-        const px = positions[3 * v], py = positions[3 * v + 1], pz = positions[3 * v + 2];
-        const t = length2 ? Math.min(1, Math.max(0, ((px - a[0]) * dx + (py - a[1]) * dy + (pz - a[2]) * dz) / length2)) : 0;
-        const qx = a[0] + t * dx, qy = a[1] + t * dy, qz = a[2] + t * dz;
-        const d = Math.hypot(px - qx, py - qy, pz - qz);
-        if (d >= reach || d < 1e-9) continue;  // on the line: nothing to move
-        const s = 1 - d / reach, w = strength * s * s * (3 - 2 * s);
-        if (!w) continue;
-        positions[3 * v] += (qx - px) * w;
-        positions[3 * v + 1] += (qy - py) * w;
-        positions[3 * v + 2] += (qz - pz) * w;
+        const q = [positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]];
+        if (q.some((x, i) => x < lo[i] || x > hi[i])) continue;
+        // The nearest place on the traced line
+        let best = Infinity, bk = 0, bt = 0;
+        for (let k = 0; k + 1 < points.length; k++){
+            const p = points[k], d = [0, 1, 2].map(i => points[k + 1][i] - p[i]);
+            const length2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            const t = length2 ? Math.min(1, Math.max(0, ((q[0] - p[0]) * d[0] + (q[1] - p[1]) * d[1] + (q[2] - p[2]) * d[2]) / length2)) : 0;
+            const e = Math.hypot(q[0] - p[0] - t * d[0], q[1] - p[1] - t * d[1], q[2] - p[2] - t * d[2]);
+            if (e < best){
+                best = e;
+                bk = k;
+                bt = t;
+            }
+        }
+        if (best >= far) continue;
+        const s = best <= reach ? 1 : 1 - (best - reach) / soft, w = strength * s * s * (3 - 2 * s);
+        const m = shift(bk, bt);
+        if (!w || Math.hypot(...m) < 1e-9) continue;
+        for (let i = 0; i < 3; i++) positions[3 * v + i] += m[i] * w;
         moved++;
     }
     return moved;
