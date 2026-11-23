@@ -8,6 +8,8 @@ import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
 const BUSY_SHOWN_AFTER = 400;  // ms the model's edits are worked out before the view says so (a stroke's are quicker)
+// A touch screen (no mouse): the brush's help names fingers, not buttons and keys
+const TOUCH = typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
 const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
 const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
@@ -102,7 +104,7 @@ class EditorPanel extends React.Component {
         this.floaters = {};  // the server's floaters by strength: a promise of the splats' numbers
         this.state = {
             info: null, error: null, edits: [], selected: -1, mode: "translate", drawing: null, loading: false,
-            progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null,
+            progress: null, loaded: null, saving: false, saved: true, saveError: null, apply: null, applyError: null, modelError: null,
             starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
             brushing: false, brushSize: BRUSH_SIZE, brushMode: "remove",
             painting: null,  // the surface brush: {mode, radius, step, source, normal}
@@ -222,9 +224,10 @@ class EditorPanel extends React.Component {
                 onPaintRadius: radius => this.setState({painting: this.state.painting && {...this.state.painting, radius}}),
                 onPaintEnd: () => this.setState({painting: null}),
                 onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}}),
+                onModelError: modelError => this.setState({modelError}),
                 onModelBusy: modelBusy => {
                     clearTimeout(this.busyTimer);
-                    this.setState(modelBusy ? {modelBusy} : {modelBusy, busyShown: false});
+                    this.setState(modelBusy ? {modelBusy, modelError: null} : {modelBusy, busyShown: false});
                     if (modelBusy) this.busyTimer = setTimeout(() => this._mounted && this.setState({busyShown: true}), BUSY_SHOWN_AFTER);
                 }
             });
@@ -335,6 +338,12 @@ class EditorPanel extends React.Component {
     };
 
     // The tool in use stopped as Esc stops it (a polygon's corners and a lasso being drawn are dropped)
+    // A line traced again for an edit in the list (Draw the Line Again) is given up when the list changes under it:
+    // it would go to whichever edit then sits at its place
+    endLineFor(){
+        if (this.state.lining && this.lineIndex >= 0) this.endTool();
+    }
+
     endTool(){
         if (!this.viewer) return;
         this.viewer.cancelLasso();
@@ -420,7 +429,8 @@ class EditorPanel extends React.Component {
         if (this.viewer) this.viewer.setPaint(paintOp(painting.mode), painting.radius, painting.source);
     }
 
-    handlePaintStroke = (stroke, normal) => {
+    // continued: the same drag's as the stroke before (the view ends a stroke where the surface jumps), one Undo with it
+    handlePaintStroke = (stroke, normal, continued = false) => {
         const { painting } = this.state;
         if (!painting) return;
         const edits = this.state.edits.slice();
@@ -443,7 +453,7 @@ class EditorPanel extends React.Component {
             edits.push(edit);
         }
         this.freshPaint = false;
-        this.change(edits, -1);
+        this.change(edits, -1, continued && same);
     };
 
     setBrushSize(brushSize){
@@ -589,6 +599,7 @@ class EditorPanel extends React.Component {
     }
 
     remove(index){
+        this.endLineFor();
         const edits = this.state.edits.filter((_e, i) => i !== index);
         const { selected } = this.state;
         this.change(edits, selected === index ? -1 : selected > index ? selected - 1 : selected);
@@ -604,6 +615,7 @@ class EditorPanel extends React.Component {
     // Undo or Redo's edits shown and saved (a brush still painting starts a new edit with its next stroke)
     step(taken){
         if (!taken) return;
+        this.endLineFor();
         const { edits, history } = taken;
         const selected = this.state.selected < edits.length ? this.state.selected : -1;
         this.freshBrush = true;
@@ -773,7 +785,8 @@ class EditorPanel extends React.Component {
                                 onClick={() => this.setPainting({mode: m})}>{_(label)}</button>)}
                 </div>
                 <p>{mode === "clone" && !source ? _("Click the middle of a good area on the model to copy from.") : _(help)}
-                {" "}{_("Drag to paint; Alt+drag or the middle button turns the view, right-drag moves it. The wheel or [ and ] size the brush, Shift+wheel zooms.")}</p>
+                {" "}{TOUCH ? _("Drag a finger to paint; two fingers turn and zoom the view.") :
+                    _("Drag to paint; Alt+drag or the middle button turns the view, right-drag moves it. The wheel or [ and ] size the brush, Shift+wheel zooms.")}</p>
                 <table className="splatme-editor-fields splatme-editor-steps">
                     <tbody>
                         {row("Size", (2 * radius).toFixed(2), "m", () => this.setPainting({radius: radius / 1.25}), () => this.setPainting({radius: radius * 1.25}),
@@ -817,6 +830,21 @@ class EditorPanel extends React.Component {
             edits[index] = changed;
             this.change(edits, this.state.selected);
         };
+        // A number typed is taken on Enter or when the field is left (each keystroke would be clamped, and an Undo
+        // step); one that is not a number is dropped
+        const { drafts } = this.state;
+        const draftKey = (name, axis) => "step:" + name + axis;
+        const drop = (name, axis) => {
+            const left = {...this.state.drafts};
+            delete left[draftKey(name, axis)];
+            this.setState({drafts: left});
+        };
+        const take = (name, axis, low, high, factor) => {
+            const text = this.state.drafts[draftKey(name, axis)];
+            if (text === undefined) return;
+            drop(name, axis);
+            set(name, axis, parseFloat(text), low, high, factor);
+        };
         return (
             <table className="splatme-editor-fields splatme-editor-steps">
                 <tbody>
@@ -827,8 +855,14 @@ class EditorPanel extends React.Component {
                                 <th>{_(label)}</th>
                                 <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " -"} disabled={shown <= low}
                                             onClick={() => set(name, axis, shown - step, low, high, factor)}><i className="fa fa-minus fa-fw"></i></button></td>
-                                <td><input type="number" step={step} min={low} max={high} className="form-control input-sm" aria-label={_(label)} value={shown}
-                                           onChange={e => set(name, axis, parseFloat(e.target.value), low, high, factor)} /></td>
+                                <td><input type="number" step={step} min={low} max={high} className="form-control input-sm" aria-label={_(label)}
+                                           value={draftKey(name, axis) in drafts ? drafts[draftKey(name, axis)] : shown}
+                                           onChange={e => this.setState({drafts: {...drafts, [draftKey(name, axis)]: e.target.value}})}
+                                           onBlur={() => take(name, axis, low, high, factor)}
+                                           onKeyDown={e => {
+                                               if (e.key === "Enter") take(name, axis, low, high, factor);
+                                               else if (e.key === "Escape") drop(name, axis);
+                                           }} /></td>
                                 <td><button type="button" className="btn btn-sm btn-default" aria-label={_(label) + " +"} disabled={shown >= high}
                                             onClick={() => set(name, axis, shown + step, low, high, factor)}><i className="fa fa-plus fa-fw"></i></button></td>
                                 <td>{unit}</td>
@@ -1151,7 +1185,11 @@ class EditorPanel extends React.Component {
         const cloned = result && result.cloned ? "; " + result.cloned.toLocaleString("en-US") + " " + (result.cloned === 1 ? _("triangle retextured") : _("triangles retextured")) : "";
         const filled = result && result.filled ? "; " + result.filled.toLocaleString("en-US") + " " + (result.filled === 1 ? _("hole filled") : _("holes filled")) : "";
         const line = loaded.triangles.toLocaleString("en-US") + " " + _("triangles") + removed + flattened + filled + cloned + ".";
-        return this.state.modelBusy ? <span>{line} <i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Showing the edits…")}</span> : line;
+        if (this.state.modelBusy) return <span>{line} <i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Showing the edits…")}</span>;
+        if (this.state.modelError){
+            return <span className="text-danger">{_("The edits could not be shown:")} {this.state.modelError} {_("The view shows them as they were before.")}</span>;
+        }
+        return line;
     }
 
     render(){
@@ -1227,11 +1265,20 @@ export default class EditorPage extends React.Component {
 
     choose(kind){
         if (kind === this.state.kind) return;
-        const url = new URL(window.location.href);
-        if (kind === "model") url.searchParams.set("model", "1");
-        else url.searchParams.delete("model");
-        window.history.replaceState(null, "", url.pathname + url.search);
-        this.setState({kind});
+        const go = () => {
+            if (!this._mounted) return;
+            const url = new URL(window.location.href);
+            if (kind === "model") url.searchParams.set("model", "1");
+            else url.searchParams.delete("model");
+            window.history.replaceState(null, "", url.pathname + url.search);
+            this.setState({kind});
+        };
+        // The panel's edits not saved yet are saved first: the other panel replaces it
+        const panel = this.panel;
+        if (!panel || (panel.state.saved && !panel.saving && !panel.state.saveError)) return go();
+        panel.save().then(go, () => {
+            if (window.confirm(_("The edits were not saved. Switch anyway, without the last changes?"))) go();
+        });
     }
 
     render(){
@@ -1246,6 +1293,6 @@ export default class EditorPage extends React.Component {
                     </button>
                 ))}
             </div> : null;
-        return <EditorPanel key={kind} kind={kind} taskId={this.props.taskId} loadViewer={this.props.loadViewer} switcher={switcher} />;
+        return <EditorPanel key={kind} ref={el => { this.panel = el; }} kind={kind} taskId={this.props.taskId} loadViewer={this.props.loadViewer} switcher={switcher} />;
     }
 }

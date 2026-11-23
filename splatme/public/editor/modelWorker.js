@@ -27,10 +27,16 @@ self.onmessage = async event => {
             self.postMessage({type: "error", seq: 0, message: String(e && e.stack || e)});
             return;
         }
-        const surface = weld(message.pieces);
-        model = {pieces: message.pieces, surface, preview: createPreview(surface, applyShape), cache: new Map(),
-            images: message.images, copies: new Map(), tiles: new Map(), moved: false, sent: new Map(),
-            sentIndices: [], sentCorners: []};
+        let surface;
+        try {
+            surface = weld(message.pieces);
+            model = {pieces: message.pieces, surface, preview: createPreview(surface, applyShape), cache: new Map(),
+                images: message.images, copies: new Map(), tiles: new Map(), moved: false, sent: new Map(),
+                sentIndices: [], sentCorners: []};
+        } catch (e){
+            self.postMessage({type: "error", seq: 0, message: String(e && e.message || e)});
+            return;
+        }
         self.postMessage({type: "loaded", surface: {count: surface.count, faces: surface.faces, positions: surface.positions,
             vertexOf: surface.vertexOf, pieceOf: surface.pieceOf, localOf: surface.localOf}});
         if (waiting && !working) work();
@@ -51,7 +57,8 @@ function work(){
             const { answer, transfer } = answerFor(edits);
             self.postMessage({type: "result", seq, ...answer}, transfer);
         } catch (e){
-            self.postMessage({type: "error", seq, message: String(e && e.stack || e)});
+            console.error(e);  // with its stack, for the developer tools; the page shows its message
+            self.postMessage({type: "error", seq, message: String(e && e.message || e)});
         }
     }
     working = false;

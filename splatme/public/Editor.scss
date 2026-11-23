@@ -235,6 +235,8 @@
             bottom: 8px;
             z-index: 10;
             margin: 0;
+            max-height: 40vh;  // the view above it stays mostly in sight; the rest scrolls
+            overflow-y: auto;
         }
     }
 }
