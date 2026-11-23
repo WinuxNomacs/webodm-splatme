@@ -1,4 +1,4 @@
-import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, HISTORY_STEPS, floatersStrength, colourEdit, colourMatrix, colourText, newColour, plyPositions } from '../editShapes';
+import { keepMask, strokeRing, insideLasso, insideBrush, brushStroke, addStroke, MAX_BRUSH_POINTS, boundaryMask, insideShapes, insideRing, framing, newBox, cleanRing, editLabel, sizeText, wholeSize, applyText, modelText, newHistory, recordChange, undoChange, redoChange, HISTORY_STEPS, floatersStrength, colourEdit, colourMatrix, colourText, newColour, plyPositions } from '../editShapes';
 
 const xs = Float32Array.from([0, 3, 0.5, 0]);
 const ys = Float32Array.from([0, 0, -0.5, -1.5]);
@@ -423,3 +423,14 @@ test("a canceled Apply says the task's model is as it was", () => {
     expect(applyText({state: "canceled"})).toBe("Applying the edits was canceled: the task's model is as it was.");
 });
 
+describe("wholeSize", () => {
+    test("takes a whole number from 1 to the largest size", () => {
+        expect(wholeSize("1", 5000)).toBe(1);
+        expect(wholeSize(" 750 ", 5000)).toBe(750);
+        expect(wholeSize("5000", 5000)).toBe(5000);
+    });
+
+    test("refuses nothing, zero, a fraction, a negative, text and a size past the largest", () => {
+        for (const text of ["", "0", "2.5", "-3", "1e3", "abc", "5001"]) expect(wholeSize(text, 5000)).toBeNull();
+    });
+});

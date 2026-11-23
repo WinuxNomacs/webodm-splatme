@@ -2,10 +2,12 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import { request, downloadUrl } from './api';
-import { newBox, cleanRing, editLabel, sizeText, applyText, modelText, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
+import { newBox, cleanRing, editLabel, sizeText, applyText, modelText, MAX_HOLE, MAX_FLOATING, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
+import SizeField from './SizeField';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
+const BUSY_SHOWN_AFTER = 400;  // ms the model's edits are worked out before the view says so (a stroke's are quicker)
 const POLL = 2000;  // ms between looks at an Apply Edits that runs
 const TRAINING_POLL = 10000;  // ms between looks at a training that keeps Apply disabled
 const FIELD_NAMES = {center: "Centre", size: "Size", turn: "Turn"};
@@ -16,9 +18,6 @@ const SHAPES = ["box", "polygon", "lasso", "brush"];
 const FLOATING_SIZES = [[100, "Small"], [1000, "Medium"], [10000, "Large"]];
 // Fill Holes: the holes of up to this many edges are filled
 const HOLE_SIZES = [[10, "Small"], [50, "Medium"], [200, "Large"], [1000, "Very Large"]];
-// A size list's choices: its own, and the edit's size among them as Other when it is none of them (saved through the API)
-const sizeChoices = (sizes, size) => sizes.some(([s]) => s === size) ? sizes :
-    [...sizes, [size, "Other"]].sort((a, b) => a[0] - b[0]);
 // What the splats' Brush does: its mode, its button and what its panel says
 const BRUSH_MODES = [
     ["remove", "Remove", "Paint over what to remove. Everything under the brush on screen goes, through to the back."],
@@ -160,6 +159,7 @@ class EditorPanel extends React.Component {
         window.removeEventListener("beforeunload", this.handleLeave);
         window.removeEventListener("keydown", this.handleKey);
         clearTimeout(this.saveTimer);
+        clearTimeout(this.busyTimer);
         clearTimeout(this.pollTimer);
         clearTimeout(this.trainingTimer);
         clearTimeout(this.thumbnailTimer);
@@ -222,7 +222,11 @@ class EditorPanel extends React.Component {
                 onPaintRadius: radius => this.setState({painting: this.state.painting && {...this.state.painting, radius}}),
                 onPaintEnd: () => this.setState({painting: null}),
                 onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}}),
-                onModelBusy: modelBusy => this.setState({modelBusy})
+                onModelBusy: modelBusy => {
+                    clearTimeout(this.busyTimer);
+                    this.setState(modelBusy ? {modelBusy} : {modelBusy, busyShown: false});
+                    if (modelBusy) this.busyTimer = setTimeout(() => this._mounted && this.setState({busyShown: true}), BUSY_SHOWN_AFTER);
+                }
             });
             this.viewer.setMode(this.state.mode);
             const progress = e => {
@@ -878,18 +882,16 @@ class EditorPanel extends React.Component {
                         <div className="splatme-editor-item-actions">
                             {edit.type === "brush" ? <span className="splatme-editor-item-note">{edit.restore ? _("Brings back what it painted over") : edit.op === "object" ? _("Removes what it painted over and fills the hole") : _("Removes what it painted over")}</span> :
                             edit.type === "holes" ?
-                                <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
-                                        aria-label={_("Which holes to fill")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
-                                    {sizeChoices(HOLE_SIZES, edit.size).map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("up to")} {size.toLocaleString("en-US")} {_("edges")})</option>)}
-                                </select> :
+                                <SizeField value={edit.size} sizes={HOLE_SIZES} max={MAX_HOLE} unit="edges" bound="up to"
+                                           label={_("The largest hole to fill, in edges around it")} disabled={!info.can_edit}
+                                           onChange={size => this.setFloatingSize(i, size)} /> :
                             edit.type === "colour" ? <span className="splatme-editor-item-note">{colourText(edit)}</span> :
                             edit.type === "straighten" ? <span className="splatme-editor-item-note">{_("Makes its traced line straight between its ends")}</span> :
                             edit.type === "paint" ? <span className="splatme-editor-item-note">{_(PAINT_NOTES[edit.op === "raise" && edit.amount < 0 ? "lower" : edit.op])}</span> :
                             edit.type === "floating" ?
-                                <select className="form-control input-sm" value={edit.size} disabled={!info.can_edit}
-                                        aria-label={_("Which pieces to remove")} onChange={e => this.setFloatingSize(i, parseInt(e.target.value, 10))}>
-                                    {sizeChoices(FLOATING_SIZES, edit.size).map(([size, label]) => <option key={size} value={size}>{_(label)} ({_("under")} {size.toLocaleString("en-US")} {_("triangles")})</option>)}
-                                </select> :
+                                <SizeField value={edit.size} sizes={FLOATING_SIZES} max={MAX_FLOATING} unit="triangles" bound="under"
+                                           label={_("Pieces under this many triangles are removed")} disabled={!info.can_edit}
+                                           onChange={size => this.setFloatingSize(i, size)} /> :
                             edit.type === "floaters" ?
                                 <select className="form-control input-sm" value={edit.strength} disabled={!info.can_edit}
                                         aria-label={_("How many floaters to remove")} onChange={e => this.setStrength(i, e.target.value)}>
@@ -917,6 +919,7 @@ class EditorPanel extends React.Component {
     floatingLabel(){
         const result = this.viewer && this.state.loaded ? this.viewer.modelResult() : null;
         if (!result) return _("Floating Pieces");
+        if (this.state.modelBusy) return <span>{_("Floating Pieces")}, <i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("finding them…")}</span>;
         return _("Floating Pieces") + ", " + result.floating.toLocaleString("en-US") + " " + (result.floating === 1 ? _("triangle") : _("triangles"));
     }
 
@@ -924,6 +927,7 @@ class EditorPanel extends React.Component {
     holesLabel(){
         const result = this.viewer && this.state.loaded ? this.viewer.modelResult() : null;
         if (!result) return _("Holes");
+        if (this.state.modelBusy) return <span>{_("Holes")}, <i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("filling…")}</span>;
         return _("Holes") + ", " + result.filled.toLocaleString("en-US") + " " + _("filled");
     }
 
@@ -1179,6 +1183,8 @@ class EditorPanel extends React.Component {
                     <div className="splatme-editor">
                         <div className="splatme-editor-view" ref={el => { this.view = el; }}>
                             {this.renderViewNote()}
+                            {this.state.busyShown && loaded ? <div className="btn btn-default btn-sm splatme-editor-busy" role="status">
+                                <i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Showing the edits…")}</div> : ""}
                         </div>
                         {this.renderPanel()}
                     </div>}

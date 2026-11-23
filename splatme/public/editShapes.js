@@ -373,6 +373,18 @@ function round4(v){
 }
 
 // The size of a file in words: "54 MB"
+// The largest sizes Fill Holes and Remove Floating Pieces take (as meshEdits.js's and meshes.py's)
+export const MAX_HOLE = 5000;  // edges
+export const MAX_FLOATING = 100000;  // triangles
+
+// A size typed in a field: the whole number from 1 to max it is, or null when it is not one
+export function wholeSize(text, max){
+    const t = String(text).trim();
+    if (!/^\d+$/.test(t)) return null;
+    const n = parseInt(t, 10);
+    return n >= 1 && n <= max ? n : null;
+}
+
 export function sizeText(bytes){
     if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + " GB";
     return Math.max(1, Math.round(bytes / 1024 / 1024)) + " MB";
