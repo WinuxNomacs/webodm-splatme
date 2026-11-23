@@ -729,10 +729,11 @@ function paintedObject(surface, state, strokes){
 
 // Remove Object on the marked triangles: for each piece of them (joined at corners), the surface it stands on is
 // fitted to a band of the triangles round it (OBJECT_BAND rings, more while too few; the farthest from it dropped
-// and fitted again, as the object's own triangles left out of the mark are), facing toward (a unit vector toward
-// the view). What the piece has above that surface, or on it within OBJECT_ABOVE (or three times the band's spread),
-// is removed: the object and the surface under its foot, where its colours often are too. What is below is kept.
-// Then the holes that leaves are filled, laid out across the fitted surface, textured from around them
+// and fitted again, as the object's own triangles left out of the mark are), facing the side the piece is on
+// (toward, a unit vector toward the view, when that is even). What the piece has above that surface, or on it within
+// OBJECT_ABOVE (or three times the band's spread, at most OBJECT_BELOW), is removed: the object and the surface under
+// its foot, where its colours often are too. What is below is kept. Then the holes that leaves are filled, laid out
+// across the fitted surface, textured from around them
 function removeObject(surface, state, marked, toward, fill){
     const { faces, count } = surface, { kept, positions: p, n } = state;
     const { start, list } = vertexFaces(surface);
@@ -774,14 +775,20 @@ function removeObject(surface, state, marked, toward, fill){
         let normal = null, above = () => true;
         if (plane){
             normal = plane.normal;
-            if (normal[0] * toward[0] + normal[1] * toward[1] + normal[2] * toward[2] < 0) normal = normal.map(t => -t);
-            const tolerance = Math.max(OBJECT_ABOVE, 3 * spread), o = plane.point;
-            above = f => {
+            const o = plane.point;
+            const height = f => {
                 const a = 3 * faces[3 * f], b = 3 * faces[3 * f + 1], c = 3 * faces[3 * f + 2];
                 let h = 0;
                 for (let i = 0; i < 3; i++) h += ((p[a + i] + p[b + i] + p[c + i]) / 3 - o[i]) * normal[i];
-                return h > -tolerance;
+                return h;
             };
+            // Facing the object: the side of the surface the marked triangles are on, on the whole (the view's side
+            // when they are about even: seen from the side, the view lies along the surface and cannot tell)
+            const side = piece.reduce((sum, f) => sum + height(f), 0) / piece.length;
+            const flip = Math.abs(side) > OBJECT_SIDE ? side < 0 : normal[0] * toward[0] + normal[1] * toward[1] + normal[2] * toward[2] < 0;
+            if (flip) normal = normal.map(t => -t);
+            const tolerance = Math.max(OBJECT_ABOVE, Math.min(OBJECT_BELOW, 3 * spread));
+            above = f => height(f) > -tolerance;
         }
         const touched = new Uint8Array(count);
         let removed = 0;
@@ -1164,6 +1171,8 @@ const OBJECT_LAYER = 1;  // metres: a piece a shape marks whose top is farther b
 const OBJECT_BAND = 3;  // rings of triangles round a marked object that the surface it stands on is fitted to
 const OBJECT_BAND_LEAST = 12;  // corners: fewer in the band, and it grows (up to four times OBJECT_BAND rings)
 const OBJECT_ABOVE = 0.05;  // metres: what lies above the fitted surface, or less than this below it, is removed
+const OBJECT_BELOW = 0.2;  // metres: the most below the fitted surface what is removed may lie, however rough the band
+const OBJECT_SIDE = 0.01;  // metres: the marked triangles' mean height off the surface that tells which side the object is on
 const OBJECT_LOOSE = 2;  // open edges Remove Object made that no loop closes: more, and one hole round its footprint
 const OBJECT_SECTORS = 64;  // directions round a footprint its hole's rim takes a corner in (at most)
 const PAINT_NECK = 0.05;  // metres: a rim this close to itself across the view closes a hole seen from there (neckHoles)
