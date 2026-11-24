@@ -23,6 +23,9 @@ node-zip-folder). Possible follow-ups,
 after the release: the splats rendered onto the model's texture (R10's finding: texture is what still sets the model apart from its splats), photo projection for fills and clones, and fills that stay inside the removed area when it
 joins older holes.
 
+2. The LichtFeld Studio spike (planned 2026-11-24, branch `lichtfeld-spike`): see "19. Other trainers
+   (research)", "The spike's plan".
+
 **Then**
 
 (nothing yet)
@@ -37,8 +40,6 @@ joins older holes.
 3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
-4. Researched, not yet decided: other trainers for the splat node (LichtFeld Studio first, then perhaps our own
-   trainer on gsplat), asked 2026-11-24. See "19. Other trainers (research)".
 
 **Dropped**
 
@@ -3984,5 +3985,23 @@ The lift, if LichtFeld Studio is chosen (each a phase, planned with the user fir
    offered (the pinned commit and build recipe).
 4. The plugin's per-trainer Quality presets and times, measured, and the docs.
 
-Open decisions: whether to do the spike; one trainer per node (chosen at install) or several nodes, one per
+Open decisions: one trainer per node (chosen at install) or several nodes, one per
 trainer, chosen per training; whether OpenSplat stays the default.
+
+#### The spike's plan (decided with the user, 2026-11-24)
+
+- **Dataset:** the training zip SplatMe sends for the check task (217 photos, Image Size 1,600, sky masks), made
+  with the plugin's own code on the dev stack, which runs only for that; the check task is read, not changed.
+- **Build:** LichtFeld Studio v0.5.4.3 (its commit pinned), headless, `-DBUILD_CUDA_PTX_ONLY=ON`, CUDA 12.8, in a
+  scratch container; the Dockerfile kept on the branch in `dev/lichtfeld/` for phase 3. No change to `splatme/` or
+  `node/`.
+- **Runs** (the user's choice: LichtFeld's defaults only): 30,000 steps each, one at a time on the RTX 5060, same
+  photos and masks, every 8th photo by name held out of both. OpenSplat at the node's pin on a copy of the dataset
+  without those photos; LichtFeld with `--eval` (its every-8th split, checked to be the same photos), photos
+  undistorted (`--undistort`, as OpenSplat does). Recorded for each: time, peak GPU memory, Gaussians.
+- **Comparison** (the user's choice: visual and numeric): both `.ply` scored by `LichtFeld-Studio eval` on the
+  held-out photos (PSNR, SSIM, LPIPS, same settings for both, calibration correction off or both scores given),
+  and screenshots from the same views in a headless browser.
+- **Checks:** each `.ply` through `splat-tools`, uploaded to a throwaway copy of the task (deleted afterwards):
+  where it sits against the point cloud, Crop to Boundary, Edit Splats.
+- **Result:** recorded here, with a recommendation on phases 2 to 4.
