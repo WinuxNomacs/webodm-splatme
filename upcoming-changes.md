@@ -40,6 +40,8 @@ joins older holes.
 3. Proposed, not yet decided: recommended steps for an Image Size (a measured study of steps against image
    size, the node's GPU memory in `/info`, a recommendation with time and memory under the fields). See
    "6. Steps for an Image Size (proposed)".
+4. Research, after the trainer spike and the feature work (asked 2026-11-24): estimating a training's steps from
+   its number of photos. See "20. Steps from the number of photos (research, later)".
 
 **Dropped**
 
@@ -4005,3 +4007,19 @@ trainer, chosen per training; whether OpenSplat stays the default.
 - **Checks:** each `.ply` through `splat-tools`, uploaded to a throwaway copy of the task (deleted afterwards):
   where it sits against the point cloud, Crop to Boundary, Edit Splats.
 - **Result:** recorded here, with a recommendation on phases 2 to 4.
+
+### 20. Steps from the number of photos (research, later)
+
+Asked by the user (2026-11-24): research estimating the training steps from a task's image count. To come after
+the LichtFeld Studio spike (section 19) and the feature work then planned; not planned in detail yet.
+
+What it builds on and must answer, when it is planned:
+
+- The Quality presets were measured as hardly depending on the number of photos (`trainingView.js`, from the
+  2026-11-15 measurements on the 217-photo check task), but only on that one task: whether a large survey (the
+  2,727-photo one) needs more steps for the same quality is open. Each photo is seen fewer times in a fixed
+  number of steps as the count grows.
+- Section 6 (Steps for an Image Size, proposed) measures the other axis, image size; the two may be one study
+  (photos x Image Size x steps), scored on held-out photos as the spike does (LichtFeld's `eval` scores any `.ply`).
+- The answer may depend on the trainer, if section 19 adds one: the study is run per trainer.
+- What the user sees from it (a recommended Quality, a warning, a default) is decided after the numbers.
