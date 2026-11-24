@@ -3957,7 +3957,7 @@ LichtFeld's flags checked again 2026-11-24; nothing was built or run):
   `<image name>.png` matches ours. Continues from a `.ply` with `--init` (a new schedule, not a true resume). Writes
   an INRIA `.ply` (with normals, and a provenance comment unless `--no-provenance`). Exposure handling for drone
   surveys: `--bilateral-grid`, `--ppisp`, `--exposure-correction`; strategies mcmc, mrnf (default), igs+; Gaussians
-  capped at 1,000,000 by default (`--max-cap`). Against it: no Linux binaries or image (build from a pinned commit:
+  capped by `--max-cap` (the research read 1,000,000 as its default; the spike's default run, strategy mrnf, grew to 5,000,000). Against it: no Linux binaries or image (build from a pinned commit:
   C++23, GCC 14, CMake 4, vcpkg with about 30 ports), a default build targets only the GPU it sees (a Docker build
   needs `-DBUILD_CUDA_PTX_ONLY=ON` or `-DBUILD_PORTABLE=ON`), a TTY-style progress bar every 100 steps, a fast-moving
   CLI (output samples to capture again on every pin), Blackwell reports but no test matrix, `--max-width` 3840 by
@@ -4007,6 +4007,35 @@ trainer, chosen per training; whether OpenSplat stays the default.
 - **Checks:** each `.ply` through `splat-tools`, uploaded to a throwaway copy of the task (deleted afterwards):
   where it sits against the point cloud, Crop to Boundary, Edit Splats.
 - **Result:** recorded here, with a recommendation on phases 2 to 4.
+
+#### The spike's results (2026-11-24)
+
+The image: `dev/lichtfeld/Dockerfile` (LichtFeld's own CI steps, PTX-only from SM 7.5) built in 12 minutes of
+compiling, 22.8 GB unslimmed. The dataset had no sky masks (the sky model found no sky in the check task's
+photos). The machine was idle (GPU 1,135 MiB used before each run). Scored by `LichtFeld-Studio eval` on the 28
+held-out photos; the page with every photo side by side is `ignored/spike-lichtfeld/index.html` (local only:
+aerial photos of a real site).
+
+| | OpenSplat | LichtFeld .ply | LichtFeld + PPISP |
+|---|---|---|---|
+| PSNR (higher is better) | 27.01 | 24.45 | 27.76 |
+| SSIM (higher is better) | 0.753 | 0.767 | 0.775 |
+| LPIPS (lower is better) | 0.340 | 0.257 | 0.255 |
+| Best LPIPS, of 28 photos | 0 | 7 | 21 |
+| Training (30,000 steps) | 25 min 38 s | 50 min 17 s, its two evaluations included (about 12.5 and 4 min) | same run |
+| Peak GPU memory above idle | 5,615 MiB | 5,148 MiB | same run |
+| Gaussians, model file | 303,981, 75 MB | 5,000,000 (its cap), 1,240 MB | same, plus PPISP data |
+
+- "LichtFeld .ply" is the exported model scored as it is: what SplatMe would show. "+ PPISP" is LichtFeld's own
+  evaluation, which applies its learned exposure correction to each held-out photo (from the nearest training
+  photos); a plain .ply viewer does not. Without it the model renders about 2.4% brighter than the photos (mean
+  bias +0.024, -0.007 with it), which costs PSNR (sensitive to colour shifts) more than SSIM and LPIPS (structure,
+  perceived detail): on those it beats OpenSplat even as a plain .ply.
+- Its model is 16 times OpenSplat's in Gaussians and file size; what that does to WebODM's conversion, the 3D view
+  and the editors is the next check (planned: splat-tools, a throwaway copy of the task, Crop to Boundary, Edit
+  Splats). A lower `--max-cap` trades some of the detail for size: not measured.
+- Its progress bar needs a terminal (`-t`) to print while it trains; its first 200 steps include compiling its
+  GPU code (PTX); LPIPS needs its weights downloaded once (not with `--no-download`).
 
 ### 20. Steps from the number of photos (research, later)
 
