@@ -147,7 +147,8 @@ it short; edit in place.
 
 The `test` skill in `.claude/skills` has the steps; the `editor-check` skill, the editor checked live (a scenario
 against a throwaway copy of a task, with the preview's timings); the `release-review` skill, the review before a
-release; the `release-check` skill, the upgrade rehearsal before the tag.
+release; the `release-check` skill, the upgrade rehearsal before the tag. The `trainer-benchmark` skill trains and scores trainers outside WebODM on held-out photos; its numbers are in
+`dev/benchmarks/check-task.json`.
 
 - Django: `docker exec -w /webodm sm-webapp python manage.py test --noinput coreplugins.splatme.tests.test_splatme`.
   One run at a time: runs share the stack's test database.

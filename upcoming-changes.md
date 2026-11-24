@@ -3985,7 +3985,8 @@ The lift, if LichtFeld Studio is chosen (each a phase, planned with the user fir
    record carries the trained steps; the plugin reads them instead of OpenSplat's comment and shows only the
    options the node's trainer has. No change for OpenSplat nodes.
 3. A LichtFeld node image beside the OpenSplat one (its Dockerfile, its adapter in `splatnode.py`: command,
-   options, masks, `--init`, output parser against captured samples, failure tests), built and pushed by the
+   options, masks, `--init`, output parser against captured samples, failure tests, the exposure correction baked
+   into the exported `.ply`), built and pushed by the
    release workflow, chosen in `splatnode.sh install`. GPL-3.0 binaries in a published image need its source
    offered (the pinned commit and build recipe).
 4. The plugin's per-trainer Quality presets and times, measured, and the docs.
@@ -4077,7 +4078,30 @@ default.
   of the near-transparent ones. Its own cap (`--max-gaussians`, 5,000,000) was never reached: the growth rule is
   conservative, not capped. Its knobs: `--loss-thresh` (0.1; lower counts more pixels as high-error),
   `--refine-every`, `--no-edge-guidance`. A fair comparison: LichtFeld capped at about OpenSplat's count and at a
-  few sizes above it, and OpenSplat grown more (a lower `--loss-thresh`), each scored as the spike was.
+  few sizes above it, and OpenSplat grown more (a lower `--loss-thresh`), each scored as the spike was. The user
+  (2026-11-24): one LichtFeld run at 300,000 first; every run's numbers (not its images) are kept in
+  `dev/benchmarks/check-task.json` for the presets, made with the `trainer-benchmark` skill.
+
+  **The 300,000 run (2026-11-24)**, scored as the spike was (same 28 held-out photos):
+
+  | | OpenSplat | LichtFeld 5M | LichtFeld 300k |
+  |---|---|---|---|
+  | PSNR, the `.ply` as shown | 27.01 | 24.45 | 22.77 |
+  | SSIM | 0.753 | 0.767 | 0.664 |
+  | LPIPS (lower is better) | 0.340 | 0.257 | 0.446 |
+  | PSNR / LPIPS with its exposure correction | | 27.76 / 0.255 | 24.56 / 0.445 |
+  | Time (LichtFeld's include two evaluations) | 25 min 38 s | 50 min 17 s | 23 min 55 s (training 22 min 55 s) |
+  | GPU memory above idle | 5,615 MiB | 5,148 MiB | 1,930 MiB |
+  | Gaussians, file | 303,981, 75 MB | 5,000,000, 1,240 MB | 300,000, 74 MB |
+
+  Capped at OpenSplat's size, LichtFeld's default strategy (mrnf) is much worse than OpenSplat on every score. Why,
+  from its log: the export's starting cloud has 405,004 points, above the cap, so it was already at 300,000 by step
+  100 and could not grow or move Gaussians to where detail is missing (the cap only stops growth; it does not
+  redistribute). OpenSplat started from the same points and pruned and grew its way to 303,981. A cap below the
+  starting cloud is therefore no fair test of mrnf. Not run yet: a cap well above the start (1,000,000 to
+  2,000,000), and LichtFeld's `mcmc` strategy, which is built to work within a fixed budget by moving Gaussians.
+  Its exposure correction still matched the photos' brightness (bias -0.007 with it, +0.023 without), as in the
+  spike.
 - **Editing:** a LichtFeld `.ply` already loads and edits in Edit Splats (the spike); only SplatMe's read of the
   trained steps (`TRAINED_STEPS`) keeps it from being offered. Phase 2 fixes that.
 - **Continuing**, two ways in LichtFeld (its `argument_parser.cpp` at the pin; neither run yet):
@@ -4102,7 +4126,9 @@ default.
      version 2 at the pin: to be read, and captured again on each pin). Works in both viewers.
   3. A colour pass in Edit Splats only: WebODM's 3D view cannot have one without a change to WebODM, so the two
      would disagree. Not proposed.
-  Measure 1 beside the cap sizes first; build 2 only if 1 loses too much.
+  **Decided (the user, 2026-11-24): bake (2) first**, so LichtFeld's processing is supported to the fullest, as
+  OpenSplat's is. It is part of phase 3 (the LichtFeld node), with its result scored as the spike scored the
+  others (the baked `.ply` against LichtFeld's own corrected evaluation).
 
 ### 21. A trainer-neutral node (planned 2026-11-24)
 
