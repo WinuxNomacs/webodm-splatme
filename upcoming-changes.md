@@ -23,8 +23,8 @@ node-zip-folder). Possible follow-ups,
 after the release: the splats rendered onto the model's texture (R10's finding: texture is what still sets the model apart from its splats), photo projection for fills and clones, and fills that stay inside the removed area when it
 joins older holes.
 
-2. The LichtFeld Studio spike (planned 2026-11-24, branch `lichtfeld-spike`): see "19. Other trainers
-   (research)", "The spike's plan".
+2. LichtFeld Studio as a second trainer: plan phase 2 (the trainer-neutral node) with the user. The spike is done
+   (2026-11-24, branch `lichtfeld-spike`: `dev/lichtfeld/Dockerfile`, results in "19. Other trainers (research)").
 
 **Then**
 
@@ -4031,9 +4031,35 @@ aerial photos of a real site).
   photos); a plain .ply viewer does not. Without it the model renders about 2.4% brighter than the photos (mean
   bias +0.024, -0.007 with it), which costs PSNR (sensitive to colour shifts) more than SSIM and LPIPS (structure,
   perceived detail): on those it beats OpenSplat even as a plain .ply.
-- Its model is 16 times OpenSplat's in Gaussians and file size; what that does to WebODM's conversion, the 3D view
-  and the editors is the next check (planned: splat-tools, a throwaway copy of the task, Crop to Boundary, Edit
-  Splats). A lower `--max-cap` trades some of the detail for size: not measured.
+- Its model is 16 times OpenSplat's in Gaussians and file size. A lower `--max-cap` trades some of the detail
+  for size: not measured.
+- Images: both trained on the export's 1,600 px JPEGs, neither scaled them further (OpenSplat's downscale 1 and
+  no downscale schedule at the pin; LichtFeld's resize 1, max width 3,840), both undistorted them. OpenSplat then
+  re-encodes each photo as a JPEG at quality 95 for its image cache (`image_store.cpp`), so it trains on a second
+  JPEG; LichtFeld caches the decoded pixels (read in its loader, not run).
+
+In WebODM, on a throwaway copy of the check task (deleted afterwards), with SplatMe's own code:
+
+- **Coordinates kept:** LichtFeld's Gaussians sit in the same frame as OpenSplat's and the point cloud (medians
+  within about a metre, the same extents): no normalisation to undo.
+- **Crop to Boundary:** 2.3 s, 2,172,363 of the 5,000,000 outside the boundary (OpenSplat's: 0.3 s).
+- **splat-tools:** 59 s, a 189 MB `.rad`, about 1.8 GB of memory at its peak (OpenSplat's: 5 s, 13 MB).
+  WebODM's 3D view shows it, where the point cloud is.
+- **Edit Splats:** SplatMe's large-model notice asks first (1.2 GB, 5,000,000 splats); with Load Anyway it loads
+  in 57 s (16 s downloading), 1.9 GB of JavaScript heap, and hides the cropped splats as it should.
+- **Found:** SplatMe reads a model's steps only from OpenSplat's header comment (`TRAINED_STEPS`), so a LichtFeld
+  model is not offered to Edit Splats or Continue (`training.editable`, `trained_steps`). LichtFeld's own comment
+  (`comment lichtfeld_provenance {...}`) carries `"iteration":30000`: phase 2 reads either, or the node says it.
+  For the check, the copy's header comment was rewritten to OpenSplat's form.
+- Kept, local only: `ignored/spike-lichtfeld/samples/` (both trainers' output as captured, LichtFeld's
+  `training_config.json`, the timings).
+
+**Recommendation:** LichtFeld Studio as a second trainer (the user, 2026-11-24: "a great candidate, proceed").
+Phases 2 to 4 as listed above, with these to decide when phase 2 is planned: its default `--max-cap` (5,000,000
+makes a 1.2 GB model and a slow Edit Splats; a lower cap to be measured against its scores), whether PPISP's
+correction can be baked into the exported `.ply` (WebODM's viewer cannot apply it; without it the model is about
+2.4% brighter than the photos), one trainer per node or a choice per training, and whether OpenSplat stays the
+default.
 - Its progress bar needs a terminal (`-t`) to print while it trains; its first 200 steps include compiling its
   GPU code (PTX); LPIPS needs its weights downloaded once (not with `--no-download`).
 
