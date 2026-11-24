@@ -26,7 +26,8 @@ joins older holes.
 2. LichtFeld Studio as a second trainer: plan phase 2 (the trainer-neutral node) with the user. The spike is done
    (2026-11-24, branch `lichtfeld-spike`: `dev/lichtfeld/Dockerfile`, results in "19. Other trainers (research)").
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
-   continuing, editing and the exposure correction are in "Decisions after the spike" there.
+   continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 planned
+   2026-11-24: "21. A trainer-neutral node (planned)"; next, build it.
 
 **Then**
 
@@ -4102,6 +4103,47 @@ default.
   3. A colour pass in Edit Splats only: WebODM's 3D view cannot have one without a change to WebODM, so the two
      would disagree. Not proposed.
   Measure 1 beside the cap sizes first; build 2 only if 1 loses too much.
+
+### 21. A trainer-neutral node (planned 2026-11-24)
+
+Phase 2 of section 19: the node and the plugin stop assuming OpenSplat, with no change for an OpenSplat node's
+users. LichtFeld's own adapter, image and presets are phases 3 and 4.
+
+**The node** (`node/splatnode.py`, VERSION 0.3.0, so the release builds a new image):
+- What is OpenSplat's moves into one adapter: its command line (`--resume` for a continued job), OPTIONS, the
+  step-line and out-of-memory patterns, `--version`. The node picks the adapter from `SPLATNODE_TRAINER_KIND`
+  (default `opensplat`; the image sets it); an unknown kind is a start-up error that names the kinds there are.
+- `/info` adds `"trainer_kind"` (`"opensplat"`) and `"supports": {"masks": true, "continue": true}`; `"trainer"` (the
+  version string) and `"options"` stay as they are.
+- A completed job's record carries `"trained_steps"` (the steps it ran to).
+- Fails safely as before: no new loop, wait or state. The adapter's parsing is tested against the captured
+  OpenSplat samples, as now; an unknown `SPLATNODE_TRAINER_KIND` has a test.
+
+**The plugin**:
+- `trained_steps` reads the steps from the trained options SplatMe keeps beside the model (`steps`, now with the
+  trainer's kind as `_trainer`), and falls back to OpenSplat's header comment for models of SplatMe 0.1 to 0.4
+  (and LichtFeld's provenance comment, `"iteration"`). Edit Splats is then offered for any trainer's model.
+- The node's kind and what it supports reach the pages with its ranges (`check`, `automation?ranges=1`); a node
+  older than 0.3.0 (no `trainer_kind`) counts as OpenSplat with masks and continuing.
+- **Continue From Step** (the Train Splats dialog, SplatMe → Tasks) is offered only for a model trained by the
+  node's current trainer (the user, 2026-11-24); otherwise the dialog says the model came from another trainer and
+  offers a fresh training. Edit Splats is unaffected. A model with no `_trainer` (before 0.5) counts as OpenSplat's.
+- **Saved options the node lacks** (SplatMe → Settings' automatic training, a task's Change dialog, a Continue's
+  model options): the training runs without them, and its status line and log name each one skipped (the user,
+  2026-11-24). The forms (Train Splats, Change, New Task With Splats' panel, SplatMe → Settings and Administration
+  → SplatMe) hide the fields the node lacks, and saving them clears those options. A value out of the node's range
+  is still refused.
+- What is written for OpenSplat's schedule (the Quality presets' times, the stage table under Steps, Grow Until's
+  and Steps' hints, the steps warnings) is shown only with an OpenSplat node; with another trainer, Steps shows
+  without them until phase 4 gives that trainer its own.
+- Ignore Sky is offered only when the node supports masks.
+
+**Tests**: node (adapter selection, `/info`, `trained_steps` in the record), Django (`trained_steps` from the
+options and from each comment; Continue refused across trainers; skipped options and the note; an old node's
+`/info`), Jest (fields and texts by trainer kind). Live: an OpenSplat training and a Continue on the dev stack's
+node 0.3.0, and the pages with a stand-in node whose `/info` says another trainer.
+
+**Docs**: the API page (`/info`, the job record), Using SplatMe (Continue's rule), the node's page (the kind).
 
 ### 20. Steps from the number of photos (research, later)
 
