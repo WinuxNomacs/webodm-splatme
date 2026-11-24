@@ -25,6 +25,8 @@ joins older holes.
 
 2. LichtFeld Studio as a second trainer: plan phase 2 (the trainer-neutral node) with the user. The spike is done
    (2026-11-24, branch `lichtfeld-spike`: `dev/lichtfeld/Dockerfile`, results in "19. Other trainers (research)").
+   Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
+   continuing, editing and the exposure correction are in "Decisions after the spike" there.
 
 **Then**
 
@@ -4062,6 +4064,44 @@ correction can be baked into the exported `.ply` (WebODM's viewer cannot apply i
 default.
 - Its progress bar needs a terminal (`-t`) to print while it trains; its first 200 steps include compiling its
   GPU code (PTX); LPIPS needs its weights downloaded once (not with `--no-download`).
+
+#### Decisions after the spike (the user, 2026-11-24)
+
+- **One trainer per node**, chosen when the node is installed. **OpenSplat stays the default** for now.
+- **LichtFeld's Gaussian cap is to be measured** (the user: the comparison is skewed, OpenSplat's model has only
+  303,981). Why OpenSplat's is small, from its code at the pin (`model.cpp` `densifyAndPrune`, not measured further):
+  it started from the export's 405,004 points and ended with fewer. WebODM's fork clones or splits a Gaussian only
+  when its gradient passes the threshold *and* more than 5 photos' high-error pixels point at it (an importance
+  score, hard-coded at 5), once every 500 steps (`--refine-every`) until step 15,000, and each round removes half
+  of the near-transparent ones. Its own cap (`--max-gaussians`, 5,000,000) was never reached: the growth rule is
+  conservative, not capped. Its knobs: `--loss-thresh` (0.1; lower counts more pixels as high-error),
+  `--refine-every`, `--no-edge-guidance`. A fair comparison: LichtFeld capped at about OpenSplat's count and at a
+  few sizes above it, and OpenSplat grown more (a lower `--loss-thresh`), each scored as the spike was.
+- **Editing:** a LichtFeld `.ply` already loads and edits in Edit Splats (the spike); only SplatMe's read of the
+  trained steps (`TRAINED_STEPS`) keeps it from being offered. Phase 2 fixes that.
+- **Continuing**, two ways in LichtFeld (its `argument_parser.cpp` at the pin; neither run yet):
+  `--init <ply>` starts a new schedule from any `.ply` (SplatMe's `resume.ply` as today, so no API change, but its
+  learning rates start again and the optimiser's state is lost); `--resume <checkpoint.resume>` continues with the
+  optimiser's state, from the checkpoints it writes at its save steps (7,000 and 30,000 by default). The node would
+  have to keep that checkpoint (several times the model's size with 5,000,000 Gaussians: not measured), and whether
+  a finished run can be resumed for more steps is to be tried. Start with `--init`; `--resume` only if `--init`'s
+  scores fall short.
+- **The exposure correction ("PPISP")**: neither viewer applies it. WebODM's 3D view and SplatMe's Edit Splats both
+  draw the Gaussians' own colours with Spark; the correction is per photo (a brightness per photo, a colour
+  correction per photo, vignetting per camera), applied after rendering, so a new view has no photo to take it from
+  (LichtFeld's eval uses the nearest photo). The spike's default run had it from `use_exposure_correction`
+  (on by default; PPISP's machinery with the tone curve off), not `--ppisp`; `--no-exposure-correction` turns it
+  off. Ways to show it:
+  1. **Train with it off**: the Gaussians then match the photos' brightness themselves; nothing to bake, no code.
+     What it costs in detail is to be measured.
+  2. **Bake an average appearance into the `.ply`** after training (our code: LichtFeld has no such export at the
+     pin): the average brightness is an exact gain on the colour coefficients; the colour correction (a homography
+     in red, green and intensity, intensity kept) only approximately, as a fitted 3 x 3 matrix; vignetting, a lens
+     artefact, is dropped. Needs LichtFeld's PPISP parameters read from its checkpoint or sidecar (a binary format,
+     version 2 at the pin: to be read, and captured again on each pin). Works in both viewers.
+  3. A colour pass in Edit Splats only: WebODM's 3D view cannot have one without a change to WebODM, so the two
+     would disagree. Not proposed.
+  Measure 1 beside the cap sizes first; build 2 only if 1 loses too much.
 
 ### 20. Steps from the number of photos (research, later)
 
