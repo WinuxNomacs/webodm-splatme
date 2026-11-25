@@ -4257,9 +4257,20 @@ LichtFeld's model looks a little brighter than the photos' edges.
   the pinned build (progress, an out-of-memory retry, a failure); its exported `splat_<steps>.ply` becomes the
   job's model. Options gain two kinds: a choice (Strategy) and on/off (Exposure Correction), described in
   `/info`.
-- **3d. `splatnode.sh`**: `install --trainer lichtfeld` (default `opensplat`), kept in `~/splatnode/.env`;
-  `upgrade` keeps it; `status` names the trainer; another trainer is a new install. Tested against a throwaway
-  WebODM, as the script's other commands are.
+- **3d. `splatnode.sh`**, built 2026-11-25 (branch `install-trainer`): `install --trainer opensplat|lichtfeld`
+  picks the image (`ghcr.io/winuxnomacs/splatme-node` or `-lichtfeld`, `latest`; `SPLATNODE_IMAGE` still
+  overrides) and writes `SPLATNODE_TRAINER_KIND` to `.env` beside the image; `upgrade` and `connect` keep both (a
+  `.env` from before gets `opensplat`); install's last line and `status` name the trainer from `/info`, or the
+  installed one when the node does not answer; uninstall gives the image's size from Docker instead of "6.6 GB".
+  Checked on a throwaway WebODM (`smz-*`, SplatMe 0.4.0+ installed) with the LichtFeld image: an unknown trainer
+  refused before anything is written, the published image chosen when none is named (not yet on ghcr.io: the pull
+  fails and the install is undone), install connecting SplatMe, upgrade and connect keeping it, status with the
+  node up and stopped, uninstall. Finding: the image named its trainer "LichtFeld Studio 06c9a04 (06c9a04)", as
+  LichtFeld's version comes from `git describe` and the shallow fetch had no tag; the Dockerfile now fetches the
+  release tag too (`LFS_TAG`) and fails the build unless `git describe` gives it. Docs: Getting Started, Install,
+  The Splat Node (a Trainers section), the admin page's setup text. Planned as: `install --trainer lichtfeld`
+  (default `opensplat`), kept in `~/splatnode/.env`; `upgrade` keeps it; `status` names the trainer; another
+  trainer is a new install.
 - **3e. The plugin**: the forms' new fields (Strategy a select, Exposure Correction a checkbox, SH Degree and Max
   Gaussians numbers), shown when the node has them (phase 2's rule), in OptionsFields and `options.html`; the
   options' new kinds checked in `parse_options` and `optionsFromForm`.

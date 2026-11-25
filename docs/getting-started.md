@@ -73,7 +73,7 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
 
     ```
     WebODM found: webapp (network webodm_default)
-    The splat node 0.2.3 runs (folder /home/you/splatnode).
+    The splat node 0.3.0 runs with OpenSplat 1.2.2 (git commit e33f9dd) (folder /home/you/splatnode).
     SplatMe in WebODM (webapp) now trains on this node: http://splat-node:3100
     ```
 
@@ -103,6 +103,10 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     of it.
 
 A failed install is undone, so it can be run again once the problem it names is fixed.
+
+The node trains with [OpenSplat](https://github.com/WebODM/OpenSplat). To train with
+[LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) instead, add `--trainer lichtfeld` to the install
+command ([Trainers](splat-node.md#trainers)).
 
 **You should see**, on **Administration → SplatMe**, a green box: "The splat node is ready.", its address, your
 GPU and its memory, the trainer and the node's version, and "Idle".

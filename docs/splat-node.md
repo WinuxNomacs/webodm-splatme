@@ -10,12 +10,33 @@ compile the image instead, which downloads libtorch and compiles [OpenSplat](htt
 v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series; the build needs about 27 GB of disk). The image is
 `ghcr.io/winuxnomacs/splatme-node`, tagged with the node's version and `latest`.
 
+## Trainers
+
+A node runs one trainer, chosen at install: `splatnode.sh install --trainer opensplat` (the default) or
+`--trainer lichtfeld`. `status` names it, and `upgrade` keeps it; to change it, uninstall the node, then install
+it again with the other.
+
+| Trainer | Image |
+| --- | --- |
+| [OpenSplat](https://github.com/WebODM/OpenSplat) 1.2.2 | `ghcr.io/winuxnomacs/splatme-node` |
+| [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) v0.5.4.3 | `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, about a seventh of OpenSplat's size on disk |
+
+LichtFeld Studio's first training on a GPU starts about 2 minutes late: it builds its GPU code for that GPU, then
+keeps it in the node's volume for the next ones. LichtFeld Studio is GPL-3.0-or-later; its image is built from the
+source at its pinned commit by
+[node/lichtfeld.Dockerfile](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/lichtfeld.Dockerfile).
+`node/compose.yml` runs OpenSplat's node only.
+
+## Jobs
+
 The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
 (`SPLATNODE_KEEP_HOURS`). A training whose trainer prints nothing for 30 minutes is stopped and fails with that
 reason (`SPLATNODE_STALL_MINUTES`). Both are set in `~/splatnode/.env`, then `splatnode.sh upgrade`; a value that is not
 a number, or is below 1, is logged and the default used. If the node's own worker stops or hangs, or a trainer
 cannot be stopped, the node exits and Docker starts it again; the training it was running fails with a message.
 `status` says how to start a node that is not running.
+
+## API
 
 Its API ([node/splatnode.py](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/splatnode.py)), with `Authorization: Bearer <token>`:
 
