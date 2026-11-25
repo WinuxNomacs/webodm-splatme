@@ -55,6 +55,31 @@ shared (the admin page) the administrators', for users who saved none, which onl
                 runs out of memory, lower Image Size first.</span>
         </div>
     </div>
+    <!-- the help as public/trainingView.js's SH_DEGREE_HINT, STRATEGY_HINT and EXPOSURE_HINT -->
+    <div class="form-group" id="splatme-auto-sh-row">
+        <label class="col-sm-3 control-label" for="splatme-auto-sh">SH Degree</label>
+        <div class="col-sm-9">
+            <input type="number" min="0" class="form-control" id="splatme-auto-sh" placeholder="The trainer's own">
+            <span class="help-block">How much a gaussian's colour may change with the direction it is seen from: 0 the
+                same from every side, 3 the most (shine, reflections), for a larger model and more GPU memory.</span>
+        </div>
+    </div>
+    <div class="form-group" id="splatme-auto-strategy-row">
+        <label class="col-sm-3 control-label" for="splatme-auto-strategy">Strategy</label>
+        <div class="col-sm-9">
+            <select class="form-control" id="splatme-auto-strategy"><option value="">The trainer's own</option></select>
+            <span class="help-block">How the trainer adds, moves and removes gaussians. MCMC keeps the model within Max
+                Gaussians, moving them to where the photos need detail.</span>
+        </div>
+    </div>
+    <div class="form-group" id="splatme-auto-exposure-row">
+        <div class="col-sm-9 col-sm-offset-3">
+            <div class="checkbox"><label><input type="checkbox" id="splatme-auto-exposure"> Exposure Correction</label></div>
+            <span class="help-block">The trainer learns each photo's brightness and colour apart from the model, so light
+                that changed between photos does not end up in it. The 3D view shows the model without them: it can
+                look a little brighter than the photos' edges.</span>
+        </div>
+    </div>
     <div class="form-group" id="splatme-auto-grow-row">
         <label class="col-sm-3 control-label" for="splatme-auto-grow">Grow Until</label>
         <div class="col-sm-9">
@@ -156,6 +181,17 @@ shared (the admin page) the administrators', for users who saved none, which onl
     function showFields(){
         document.getElementById("splatme-auto-gaussians-row").style.display = has("max_gaussians") ? "" : "none";
         document.getElementById("splatme-auto-grow-row").style.display = has("densify_until") ? "" : "none";
+        ["sh", "strategy", "exposure"].forEach(function(row, i){
+            document.getElementById("splatme-auto-" + row + "-row").style.display =
+                has(["sh_degree", "strategy", "exposure_correction"][i]) ? "" : "none";
+        });
+        // The node's strategies (as public/trainingView.js's strategyChoices and STRATEGY_LABELS), the saved one kept
+        var chosen = strategy.value;
+        var range = node && node.ranges && node.ranges.strategy;
+        var choices = range && range.choices ? range.choices : ["mrnf", "mcmc", "igs+"];
+        while (strategy.options.length > 1) strategy.remove(1);
+        choices.forEach(function(key){ strategy.add(new Option(key.toUpperCase(), key)); });
+        strategy.value = chosen;
         document.getElementById("splatme-auto-sky-row").style.display = masks() ? "" : "none";
         document.getElementById("splatme-auto-stages").style.display = opensplat() ? "" : "none";
         document.getElementById("splatme-auto-steps-hint").textContent = opensplat() ?
@@ -183,6 +219,9 @@ shared (the admin page) the administrators', for users who saved none, which onl
     var size = document.getElementById("splatme-auto-size");
     var gaussians = document.getElementById("splatme-auto-gaussians");
     var grow = document.getElementById("splatme-auto-grow");
+    var sh = document.getElementById("splatme-auto-sh");
+    var strategy = document.getElementById("splatme-auto-strategy");
+    var exposure = document.getElementById("splatme-auto-exposure");
     var sky = document.getElementById("splatme-auto-sky");
     var crop = document.getElementById("splatme-auto-crop");
     var palette = document.getElementById("splatme-auto-palette");  // as public/trainingView.js's THERMAL_PALETTES
@@ -231,11 +270,16 @@ shared (the admin page) the administrators', for users who saved none, which onl
         size.value = options.image_size == null || options.image_size === 0 ? "" : options.image_size;  // 0: full size
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
         grow.value = options.densify_until == null ? "" : options.densify_until;
+        sh.value = options.sh_degree == null ? "" : options.sh_degree;
+        exposure.checked = options.exposure_correction !== false;  // on: the trainer's own default
+        strategy.dataset.saved = options.strategy || "";
         sky.checked = !!options.ignore_sky;
         crop.checked = options.crop !== false;
         palette.value = options.palette || "gray";
         if (data.node !== undefined) node = data.node;  // a save's answer has none: the node's stays
         showFields();
+        strategy.value = strategy.dataset.saved;
+        if (strategy.value !== strategy.dataset.saved) strategy.value = "";  // a strategy the node does not offer
         qualityOfSteps();
     }
 
@@ -274,6 +318,8 @@ shared (the admin page) the administrators', for users who saved none, which onl
         save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value.trim() === "" ? 0 : size.value,
             // A field the node's trainer lacks is hidden, and saving clears it
             max_gaussians: has("max_gaussians") ? gaussians.value : "", densify_until: has("densify_until") ? grow.value : "",
+            sh_degree: has("sh_degree") ? sh.value : "", strategy: has("strategy") ? strategy.value : "",
+            exposure_correction: has("exposure_correction") && !exposure.checked ? false : "",
             ignore_sky: masks() && sky.checked, crop: crop.checked, palette: palette.value});
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });

@@ -34,6 +34,19 @@
       from 1,000 to 3,000 less than **Steps**, so the training still has time to settle after the last growing.
       Later can give large scenes more detail, for more GPU memory and
       time (**Max Gaussians** still caps the growth); the steps table follows it.
+    - **SH Degree** (blank: the trainer's own): how much a gaussian's colour may change with the direction it is
+      seen from, from 0 (LichtFeld Studio only: the same from every side) to 3 (the most, for shine and
+      reflections), which makes a larger model and takes more GPU memory.
+
+    The fields follow the splat node's trainer: a node that trains with
+    [LichtFeld Studio](splat-node.md#trainers) has no Grow Until nor steps table, and has two more:
+
+    - **Strategy** (blank: LichtFeld Studio's own, MRNF): how the trainer adds, moves and removes gaussians.
+      **MCMC** keeps the model within **Max Gaussians**, moving gaussians to where the photos need detail.
+    - **Exposure Correction** (on by default): the trainer learns each photo's brightness and colour apart from
+      the model, so light that changed between photos does not end up in it. The 3D view shows the model without
+      them, so it can look a little brighter than the photos' edges. Off, the model takes the photos' brightness
+      itself.
 
     **Ignore Sky** is for photos that show the sky, which a training otherwise turns into haze around the
     model: SplatMe finds the sky in each photo and the training leaves those pixels out. It looks only above

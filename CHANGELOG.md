@@ -13,6 +13,10 @@ counts as OpenSplat, and nothing changes for it).
   task's Change dialog) is left out of a training, which names it, instead of refusing to start; saving the form
   clears it.
 - **Continue From Step** is offered only when the node's trainer made the task's model.
+- With a LichtFeld Studio node, the forms (Train Splats, Change, SplatMe's panel, SplatMe → Settings and the
+  admin page) offer **Strategy** and **Exposure Correction**; continuing a model trains only the steps after its
+  own. **SH Degree** is now in the forms for either trainer.
+- Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
 - `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio; `status`
   names a node's trainer.
 - A model's steps are read from what SplatMe keeps with it, not from OpenSplat's comment in the `.ply`: Edit Splats

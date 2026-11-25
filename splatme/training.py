@@ -67,7 +67,13 @@ ESTIMATE_STEPS = 20
 
 # What a job trains with when the request does not say; the node's ranges apply to all but image_size
 DEFAULTS = {"steps": 30000, "image_size": 1600}
-NODE_OPTIONS = ("steps", "max_gaussians", "sh_degree", "densify_until")
+NODE_OPTIONS = ("steps", "max_gaussians", "sh_degree", "densify_until", "strategy", "exposure_correction")
+# The options that are not whole numbers (a node's /info describes each: "choices", or "type": "bool"), for checking
+# them when the node does not answer
+CHOICE_OPTIONS = ("strategy",)
+ONOFF_OPTIONS = ("exposure_correction",)
+# A choice's form when the node does not answer to give its choices
+CHOICE = re.compile(r"[a-z0-9+_-]{1,32}")
 # Grow Until (densify_until): the steps a training goes on for after the model stops growing (the node's own rule)
 AFTER_GROWING = 3000
 # and the steps a continued training grows for at least, after the model's
@@ -96,7 +102,7 @@ DEFAULT_SUPPORTS = {"masks": True, "continue": True}
 TRAINER = "_trainer"
 # The options as the pages name them, for the note on options a node does not have
 OPTION_LABELS = {"max_gaussians": "Max Gaussians", "sh_degree": "SH Degree", "densify_until": "Grow Until",
-                 "ignore_sky": "Ignore Sky"}
+                 "strategy": "Strategy", "exposure_correction": "Exposure Correction", "ignore_sky": "Ignore Sky"}
 
 
 class TrainingError(Exception):
@@ -595,12 +601,31 @@ def parse_options(given, node_info):
     options = dict(DEFAULTS)
     if node_info is None:
         ranges = {name: {"min": 1, "max": 10**9} for name in NODE_OPTIONS}
+        ranges.update({name: {"choices": None} for name in CHOICE_OPTIONS})
+        ranges.update({name: {"type": "bool"} for name in ONOFF_OPTIONS})
     else:
         ranges = dict(node_info.get("options", {}))
     ranges["image_size"] = {"min": 16, "max": 100000}
     for name in (*NODE_OPTIONS, "image_size"):
         value = given.get(name)
         if value in (None, ""):
+            continue
+        limits = ranges.get(name)
+        if name in ONOFF_OPTIONS:
+            if str(value).lower() not in ("true", "false", "1", "0"):
+                raise TrainingError(f"{name} must be true or false.")
+            if limits is not None:
+                options[name] = str(value).lower() in ("true", "1")
+            continue
+        if name in CHOICE_OPTIONS:
+            value = str(value)
+            choices = (limits or {}).get("choices")
+            if choices is not None and value not in choices:
+                raise TrainingError("{} must be one of {}.".format(name, ", ".join(choices)))
+            if not CHOICE.fullmatch(value):
+                raise TrainingError(f"{name} is not one of the trainer's choices.")
+            if limits is not None:
+                options[name] = value
             continue
         try:
             value = int(value)
@@ -609,7 +634,6 @@ def parse_options(given, node_info):
         if name == "image_size" and value == 0:
             options[name] = 0  # the images as they are
             continue
-        limits = ranges.get(name)
         if limits is None:
             continue  # an option the node's trainer does not have: left out (skipped_options names it)
         if not limits["min"] <= value <= limits["max"]:
@@ -1079,6 +1103,8 @@ def export_and_send(task_id, run, node, options, work, resume=None):
             yield chunk
 
     node_options = {name: options[name] for name in NODE_OPTIONS if options.get(name) is not None}
+    if resume and "resume_steps" in node.check()["options"]:
+        node_options["resume_steps"] = resume  # LichtFeld Studio: the model's steps, so it trains only the rest
     ref = run if node.keeps_refs() else None
     try:
         node_job = node.create_job(body(), total, {**node_options, "ref": ref} if ref else node_options)["id"]
