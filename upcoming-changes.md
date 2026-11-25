@@ -28,8 +28,8 @@ joins older holes.
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
    2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
-   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the comparisons for default values (with 3g's two measurements: LichtFeld's `-i` against
-   `--steps-scaler`, and Ignore Sky's mask mode). The default
+   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the comparisons for default values: OpenSplat's growth swept on Brighton Beach and confirmed on the check
+   task ("24. OpenSplat's growth: the Brighton Beach sweep (planned 2026-11-25)"; LichtFeld keeps its own defaults). The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
@@ -4426,3 +4426,77 @@ https://github.com/m-schuetz/Splatshop, read through the GitHub API on 2026-11-2
 - E2: a sphere brush only, or a depth limit for every tool too.
 - E4: a selection model, or shortcuts on the edit list.
 - Which of E2 to E4 to build, and in what order.
+
+### 24. OpenSplat's growth: the Brighton Beach sweep (planned 2026-11-25)
+
+**Why.** High (30,000 steps) ends at 303,981 Gaussians on the check task; LichtFeld's default ends at 5,000,000.
+The user wants OpenSplat's presets nearer LichtFeld's counts (1 to 2 million at 30,000 steps), with OpenSplat's
+own options only (no change to OpenSplat), measured on Brighton Beach first and confirmed with scores on the
+check task.
+
+**What limits the count today** (the check task's 30,000-step log, `opensplat-30k`; OpenSplat at e33f9dd):
+turnover, not the number of rounds. The 28 growth rounds (every 500 steps, 1,000 to 14,500) each add 3,000 to
+21,000 (clones and splits of Gaussians with more than 5 badly rendered pixels at `--loss-thresh` 0.1 and a fixed
+gradient threshold) and remove 1,600 to 16,000 (half of those faded below 0.5% opacity, which the opacity reset
+every 3,000 steps multiplies): net +32,000 over the whole growth, 405,004 to a peak of 437,100. The final prune
+at step 18,000 (opacity under 10%) then removed 123,640 (28%), and three more took 9,000. Twice the rounds at
+this rate would not reach 600,000.
+
+**Decided with the user (2026-11-25):**
+- LichtFeld Studio keeps its own defaults (its authors' choice). The docs gain guidance that a lower Max Gaussians
+  gives smaller models that are easier to edit, and that, as with LichtFeld's desktop app, the GPU sets what a
+  training can hold.
+- Only OpenSplat's existing options are swept; its fixed constants (the gradient threshold, the 5-pixel rule,
+  halving the faded, the final prune's 10%) are out of scope.
+- GPU memory per preset waits for the numbers (this machine: RTX 5060 Laptop, 8 GB; under WSL a training that
+  outgrows it spills into the computer's memory and slows down rather than failing, so time is watched too).
+- Not in this sweep: Ignore Sky's mask mode for LichtFeld (3g's finding 3; no task with sky yet: tested when one
+  exists), and LichtFeld's `-i` against `--steps-scaler` (3g's finding 2; still open for its short trainings).
+
+**The options swept** (all OpenSplat CLI options; the node passes only `--densify-until` today, as Grow Until):
+- `--loss-thresh` (0.1): a pixel counts as badly rendered above it. Lower means more Gaussians qualify each
+  round: the one lever on what a round adds.
+- `--densify-until` (15,000 at 30,000 steps; at most steps - 3,000 in the node): growing until 27,000 adds 25
+  rounds and also skips the final prunes at 18,000 to 24,000 (they run only after growing).
+- `--refine-every` (500): more rounds, each also removing half of the faded; its effect is not predictable.
+- `--no-edge-guidance`, `--densify-from`, `--ssim-weight`: left at their defaults unless the first runs point at
+  them.
+
+**Dataset.** Brighton Beach (the ODM sample, 18 photos, `webodm-perf`'s `ignored/datasets/brighton_beach`)
+processed as a task on the dev stack (GPU processing node, default options), in a project kept for benchmarks;
+SplatMe's dataset built from it by the `trainer-benchmark` skill at Image Size 1,600, every 8th photo held out
+(3 photos, so its scores are indicative only: the check task's 28 decide). Its id goes in memory beside the
+check task's. A step costs about the same whatever the number of photos (it renders one photo), so a 30,000-step
+run on it is not much shorter than on the check task (about 25 minutes): the first run measures it.
+
+**Runs on Brighton Beach** (30,000 steps each, one at a time on a quiet GPU, the node's image
+`splatme-node:dev`; each records the time, peak GPU memory, the final count, the count after every round from the
+log, and the held-out scores):
+
+| Run | `--loss-thresh` | Grow Until | `--refine-every` | Answers |
+|---|---|---|---|---|
+| B0 | 0.1 | 15,000 | 500 | the baseline on this dataset |
+| B1 to B3 | 0.05, 0.03, 0.02 | 15,000 | 500 | what a round adds as the threshold drops |
+| B4 | 0.1 | 27,000 | 500 | Grow Until alone, with the final prunes skipped |
+| B5, B6 | the best two of B1 to B3 | 27,000 | 500 | the two together |
+| B7 | B5/B6's best | 27,000 | 250 | more rounds |
+
+A run that passes 2,500,000 Gaussians or doubles B0's time ends the series in that direction (the next lower
+threshold is not run). About 3 to 4 hours in all, measured as it goes.
+
+**Confirmation on the check task**: the best two or three settings (by count within 1 to 2 million and Brighton's
+LPIPS and SSIM) trained at 30,000 steps and scored against `opensplat-30k` (PSNR 27.01, SSIM 0.753, LPIPS
+0.340) and `lichtfeld-30k` (24.45, 0.767, 0.257). PSNR already favours OpenSplat; LPIPS and SSIM (sharpness) are
+where more Gaussians should show.
+
+**Tooling** (the `trainer-benchmark` skill, on a branch `growth-sweep`): `record.py` gains `--results <file>`
+(Brighton's runs go to `dev/benchmarks/brighton-beach.json`, the check task's to `check-task.json` as today) and
+`--growth` (the count after every round, parsed from OpenSplat's log against `ignored/spike-lichtfeld/samples/
+opensplat-30k.log`'s lines); the skill's text says how to sweep OpenSplat's options. Models, photos and logs stay
+in the scratchpad and are deleted afterwards.
+
+**Then, with the user** (after the numbers, not before): each preset's values (High first; Fine and Standard
+scaled the same way, Draft probably left as it is), the GPU memory a preset may need, and how the node passes the
+new values: as options in `/info` (a node change, `splatnode.py` and its tests; 0.3.0 is not yet published, so no
+new `VERSION`) or fixed in the presets the plugin sends. The presets' hints (time and GPU memory) and How It Works
+follow the measured numbers.
