@@ -27,8 +27,9 @@ joins older holes.
    (2026-11-24, branch `lichtfeld-spike`: `dev/lichtfeld/Dockerfile`, results in "19. Other trainers (research)").
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
-   2026-11-24 (section 21, branch `trainer-neutral`). Next: plan phase 3 (the LichtFeld node, with the exposure
-   correction baked into its `.ply`) with the user.
+   2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
+   LichtFeld node (planned)"; next, build it, starting with 3a (how to read the exposure correction). The default
+   values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
 
@@ -4181,6 +4182,78 @@ OpenSplat training (3,000 steps) and a Continue (to 4,000) on node 0.3.0, Edit S
 SplatMe → Settings and Administration → SplatMe with the node's answer replaced by a LichtFeld node's. The "log"
 of a skipped option is WebODM's log (`app.logger`): the trainer's log is the node's. The plugin still asks for
 node 0.2.3 at least (`CURRENT_VERSION`): 0.3.0 adds nothing an OpenSplat user sees.
+
+### 22. The LichtFeld node (planned 2026-11-24)
+
+Phase 3 of section 19: a second node image that trains with LichtFeld Studio, chosen when the node is installed
+(one trainer per node, section 19's decisions), on phase 2's adapter (section 21). The default values for
+OpenSplat and LichtFeld are set from comparisons with the `trainer-benchmark` skill before the release (the user,
+2026-11-24), not in this phase.
+
+**Decided with the user (2026-11-24):**
+- SplatMe's forms offer, for a LichtFeld node: **Steps**, **Max Gaussians** (`--max-cap`), **Strategy**
+  (`mrnf`, `mcmc`, `igs+`), **Exposure Correction** (on or off; on bakes it into the model) and **SH Degree**.
+- A bake that fails keeps the model as LichtFeld exported it; the training completes and its summary says the
+  correction could not be baked, and why.
+- The release workflow builds and pushes the second image (`ghcr.io/winuxnomacs/splatme-node-lichtfeld`) under the
+  same rules as the OpenSplat one: on a tag, only for a node version not yet published, its inputs' hash checked,
+  `latest` moving only forward; a run by hand builds it without pushing.
+
+**Found while planning (LichtFeld's code at the pin, not run):** its exposure correction's parameters (a brightness
+and a colour correction per photo, vignetting per camera) are kept only in its project file (`project.licht`, a
+binary container); the standalone `.ppisp` file is a legacy import and is not written by a headless run, and its
+Python API exposes the settings, not the learned values. Its binary needs about 90 shared libraries (its own
+`liblfs_*`, vcpkg's, CUDA's runtime and cuRAND); its progress prints only to a terminal.
+
+**Steps** (each on its own branch, tested, then merged):
+
+- **3a. Reading the exposure correction** (first: it decides how the bake is built). Find the least fragile way
+  to get each photo's brightness and colour correction out of a finished run, and choose with the evidence:
+  (1) a small C++ program built in the image against LichtFeld's own libraries that loads the run's project and
+  writes the parameters as JSON; (2) reading `project.licht` in Python, against samples captured from the pinned
+  version; (3) asking LichtFeld upstream for an export with the appearance applied (slow; a follow-up whatever is
+  chosen). Then the bake itself, in Python with NumPy (pinned, in the LichtFeld image only): the photos' mean
+  brightness is an exact gain on every colour coefficient; the mean colour correction is fitted as a 3 x 3 matrix
+  over the model's colours and applied to every coefficient (the DC term's 0.5 offset kept); vignetting, a lens
+  artefact, is dropped. Scored on the check task: the baked `.ply` with `LichtFeld-Studio eval` against LichtFeld's
+  own corrected evaluation and the unbaked `.ply` (recorded in `dev/benchmarks/check-task.json`).
+- **3b. The image** (`node/lichtfeld.Dockerfile`): `dev/lichtfeld/Dockerfile`'s build as its first stage, then a
+  runtime stage from CUDA 12.8's runtime image with only the binary, its libraries (found with `ldd`), Python 3,
+  NumPy and `splatnode.py`; `SPLATNODE_TRAINER_KIND=lichtfeld`. Base images pinned by digest, LichtFeld and vcpkg
+  by commit. GPL-3.0: LichtFeld's licence in the image, its source offered (the pinned commit and this recipe) in
+  the image's labels and the docs. Its size measured.
+- **3c. The adapter** (`LichtFeld` in `splatnode.py`): `--headless -d <dataset> -o <out> --export ply --undistort
+  --log-level info`, plus `-i`, `--max-cap`, `--strategy`, `--sh-degree`, `--no-exposure-correction` from the
+  options; `--mask-mode ignore` when the zip has masks; `--init resume.ply` to continue (a new schedule: the
+  plugin sends the model's steps with the job, `resume_steps`, and the node trains `steps - resume_steps`). Run
+  under a pseudo-terminal (`pty`, standard library) so its progress prints, parsed against output captured from
+  the pinned build (progress, an out-of-memory retry, a failure); its exported `splat_<steps>.ply` becomes the
+  job's model. Then the bake, as a child process with a deadline. Options gain two kinds: a choice (Strategy) and
+  on/off (Exposure Correction), described in `/info`. A completed job's record says whether the correction was
+  baked (`baked`, or `bake_error`).
+- **3d. `splatnode.sh`**: `install --trainer lichtfeld` (default `opensplat`), kept in `~/splatnode/.env`;
+  `upgrade` keeps it; `status` names the trainer; another trainer is a new install. Tested against a throwaway
+  WebODM, as the script's other commands are.
+- **3e. The plugin**: the forms' new fields (Strategy a select, Exposure Correction a checkbox, SH Degree and Max
+  Gaussians numbers), shown when the node has them (phase 2's rule), in OptionsFields and `options.html`; the
+  options' new kinds checked in `parse_options` and `optionsFromForm`; the trained summary's bake note.
+- **3f. The release**: `release.yml`'s node job for both images (the second's inputs: `node/lichtfeld.Dockerfile`
+  and `splatnode.py`), with room made on the runner; its time measured on the first run by hand.
+
+**How it can fail, unattended, and what then** (each with a test that makes it happen, against the stand-in
+trainer and a stand-in baker):
+- The bake hangs: stopped at its deadline (SIGTERM, then SIGKILL), the model kept uncorrected, `bake_error` says so.
+- The bake fails or can't read the parameters (a changed format after a pin): the same, with its reason.
+- LichtFeld runs out of memory: it retries an iteration itself; a run that still fails exits 1, and the node's
+  out-of-memory pattern (from the captured sample) words the error.
+- It goes silent (a hung GPU, or a pseudo-terminal that stops being read): the stall deadline stops it, as today.
+- It exits 0 without a model, or with one named otherwise: the job fails with that reason.
+- A full disk while exporting or baking: the job fails (or, in the bake, keeps the model) with the reason.
+- The pseudo-terminal can't be opened: the job fails with the reason (no silent fall back to a pipe without
+  progress).
+
+**Docs**: Getting Started and the node's page (choosing the trainer at install, the image, the GPU it needs, the
+source offer), Using SplatMe (the new options), How It Works (the bake), the API page, the changelog.
 
 ### 20. Steps from the number of photos (research, later)
 
