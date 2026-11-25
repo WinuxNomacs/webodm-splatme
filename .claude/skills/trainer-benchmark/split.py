@@ -16,7 +16,8 @@ zipfile.ZipFile("dataset.zip").extractall("full")
 
 def read_images(path):
     """COLMAP images.bin as (name, raw record) pairs."""
-    b = open(path, "rb").read()
+    with open(path, "rb") as f:
+        b = f.read()
     (n,) = struct.unpack_from("<Q", b, 0)
     o, out = 8, []
     for _ in range(n):

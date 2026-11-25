@@ -39,8 +39,8 @@ def per_photo(folder):
     out = {"psnr": [], "ssim": [], "lpips": []}
     for name in sorted(photos):
         last = photos[name]["evaluations"][-1]
-        for key in out:
-            out[key].append(round(last[key], 4))
+        for key, values in out.items():
+            values.append(round(last[key], 4))
     return out
 
 
@@ -76,7 +76,7 @@ def main():
     p.add_argument("--corrected")
     p.add_argument("--notes", default="")
     a = p.parse_args()
-    path = lambda rel: os.path.join(a.work, rel)  # noqa: E731
+    path = lambda rel: os.path.join(a.work, rel)
     seconds, mib = timing(a.work, a.name)
     options = json.loads(a.options)
     today = datetime.date.today().isoformat()

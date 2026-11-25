@@ -23,6 +23,5 @@ archive = splats.export_zip(export_dir)
 for path, name in masks:
     archive.add_path(path, f"masks/{name}.png")
 with open(os.path.join(work, "dataset.zip"), "wb") as f:
-    for chunk in archive:
-        f.write(chunk)
+    f.writelines(archive)
 print("images", len(images), "masks", len(masks), "zip", os.path.getsize(os.path.join(work, "dataset.zip")))
