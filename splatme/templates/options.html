@@ -77,7 +77,8 @@ shared (the admin page) the administrators', for users who saved none, which onl
             <div class="checkbox"><label><input type="checkbox" id="splatme-auto-exposure"> Exposure Correction</label></div>
             <span class="help-block">The trainer learns each photo's brightness and colour apart from the model, so light
                 that changed between photos does not end up in it. The 3D view shows the model without them: it can
-                look a little brighter than the photos' edges.</span>
+                look a little brighter than the photos' edges. On by default with MRNF, off with MCMC and IGS+, as in
+                LichtFeld Studio.</span>
         </div>
     </div>
     <div class="form-group" id="splatme-auto-grow-row">
@@ -222,6 +223,12 @@ shared (the admin page) the administrators', for users who saved none, which onl
     var sh = document.getElementById("splatme-auto-sh");
     var strategy = document.getElementById("splatme-auto-strategy");
     var exposure = document.getElementById("splatme-auto-exposure");
+    var exposureTouched = false;
+    function exposureDefault(key){ return !key || key === "mrnf"; }  // LichtFeld Studio's: on for MRNF only
+    exposure.addEventListener("change", function(){ exposureTouched = true; });
+    strategy.addEventListener("change", function(){
+        if (!exposureTouched) exposure.checked = exposureDefault(strategy.value);
+    });
     var sky = document.getElementById("splatme-auto-sky");
     var crop = document.getElementById("splatme-auto-crop");
     var palette = document.getElementById("splatme-auto-palette");  // as public/trainingView.js's THERMAL_PALETTES
@@ -271,7 +278,9 @@ shared (the admin page) the administrators', for users who saved none, which onl
         gaussians.value = options.max_gaussians == null ? "" : options.max_gaussians;
         grow.value = options.densify_until == null ? "" : options.densify_until;
         sh.value = options.sh_degree == null ? "" : options.sh_degree;
-        exposure.checked = options.exposure_correction !== false;  // on: the trainer's own default
+        // Exposure Correction follows the strategy's default (public/trainingView.js's exposureDefault) until changed
+        exposure.checked = typeof options.exposure_correction === "boolean" ? options.exposure_correction : exposureDefault(options.strategy);
+        exposureTouched = exposure.checked !== exposureDefault(options.strategy);
         strategy.dataset.saved = options.strategy || "";
         sky.checked = !!options.ignore_sky;
         crop.checked = options.crop !== false;
@@ -319,7 +328,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
             // A field the node's trainer lacks is hidden, and saving clears it
             max_gaussians: has("max_gaussians") ? gaussians.value : "", densify_until: has("densify_until") ? grow.value : "",
             sh_degree: has("sh_degree") ? sh.value : "", strategy: has("strategy") ? strategy.value : "",
-            exposure_correction: has("exposure_correction") && !exposure.checked ? false : "",
+            exposure_correction: has("exposure_correction") && exposure.checked !== exposureDefault(strategy.value) ? exposure.checked : "",
             ignore_sky: masks() && sky.checked, crop: crop.checked, palette: palette.value});
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });

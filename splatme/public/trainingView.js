@@ -226,8 +226,9 @@ export function optionsFromForm(form, ranges, node){
         if (choices.indexOf(form.strategy) < 0) return {error: "Strategy is one of " + choices.map(strategyLabel).join(", ") + "."};
         options.strategy = form.strategy;
     }
-    // On is the trainer's own default: only Off is sent
-    if (view.has("exposure_correction") && form.exposure_correction === false) options.exposure_correction = false;
+    // Sent only when it is not the strategy's own default (LichtFeld Studio: on for MRNF only)
+    const exposure = exposureChecked(form);
+    if (view.has("exposure_correction") && exposure !== exposureDefault(form.strategy)) options.exposure_correction = exposure;
     if (form.ignore_sky && view.masks) options.ignore_sky = true;
     if (form.crop === false) options.crop = false;
     if (form.palette && form.palette !== DEFAULT_PALETTE) options.palette = form.palette;
@@ -237,7 +238,17 @@ export function optionsFromForm(form, ranges, node){
 // The help of the trainer options OpenSplat's schedule does not describe (options.html has the same words)
 export const SH_DEGREE_HINT = "How much a gaussian's colour may change with the direction it is seen from: 0 the same from every side, 3 the most (shine, reflections), for a larger model and more GPU memory.";
 export const STRATEGY_HINT = "How the trainer adds, moves and removes gaussians. MCMC keeps the model within Max Gaussians, moving them to where the photos need detail.";
-export const EXPOSURE_HINT = "The trainer learns each photo's brightness and colour apart from the model, so light that changed between photos does not end up in it. The 3D view shows the model without them: it can look a little brighter than the photos' edges.";
+export const EXPOSURE_HINT = "The trainer learns each photo's brightness and colour apart from the model, so light that changed between photos does not end up in it. The 3D view shows the model without them: it can look a little brighter than the photos' edges. On by default with MRNF, off with MCMC and IGS+, as in LichtFeld Studio.";
+
+// Exposure Correction's default, LichtFeld Studio's own: on for MRNF (its default strategy), off for MCMC and IGS+
+export function exposureDefault(strategy){
+    return !strategy || strategy === "mrnf";
+}
+
+// Whether the form's Exposure Correction is ticked: what the user chose, or the strategy's default (null)
+export function exposureChecked(form){
+    return typeof form.exposure_correction === "boolean" ? form.exposure_correction : exposureDefault(form.strategy);
+}
 
 // LichtFeld Studio's strategies (how it adds, moves and removes gaussians), as the forms name them
 export const STRATEGY_LABELS = {mrnf: "MRNF", mcmc: "MCMC", "igs+": "IGS+"};
@@ -326,7 +337,7 @@ export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
     // Image Size 0 (the photos as they are) shows as blank, with the placeholder "Full size"
-    return {steps: text(options.steps, 30000), image_size: options.image_size === 0 ? "" : text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), sh_degree: text(options.sh_degree, ""), densify_until: text(options.densify_until, ""), strategy: options.strategy || "", exposure_correction: options.exposure_correction !== false, ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    return {steps: text(options.steps, 30000), image_size: options.image_size === 0 ? "" : text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), sh_degree: text(options.sh_degree, ""), densify_until: text(options.densify_until, ""), strategy: options.strategy || "", exposure_correction: typeof options.exposure_correction === "boolean" && options.exposure_correction !== exposureDefault(options.strategy) ? options.exposure_correction : null, ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"

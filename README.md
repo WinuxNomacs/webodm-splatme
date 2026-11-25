@@ -3,7 +3,7 @@
 [![SplatMe: a drone's photos becoming a trained splat model](docs/assets/splash/splash-medium.jpg)](docs/assets/splash/splash.jpg)
 
 A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically via
-[OpenSplat](https://github.com/WebODM/OpenSplat).
+[OpenSplat](https://github.com/WebODM/OpenSplat) or [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio).
 
 WebODM can export a task's training data and display a trained splat model, but the training itself is done by
 hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
@@ -26,7 +26,8 @@ SplatMe is built on these projects:
 - **[WebODM](https://github.com/WebODM/WebODM)** and its creator, **[Piero Toffanin](https://piero.dev/)**:
   SplatMe is a WebODM plugin, and reuses WebODM's export of a task's training data, its splat conversion and
   its 3D view.
-- **[OpenSplat](https://github.com/WebODM/OpenSplat)**: the trainer in the splat node.
+- **[OpenSplat](https://github.com/WebODM/OpenSplat)** and **[LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio)**:
+  the trainers in the splat node.
 - **[ODX](https://github.com/WebODM/ODX)**: the sky model Ignore Sky uses.
 - **[Splat-Tools](https://github.com/uav4geo/Splat-Tools)**: the conversion WebODM runs on a trained model for its
   3D view.

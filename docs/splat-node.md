@@ -21,12 +21,8 @@ it again with the other.
 | [OpenSplat](https://github.com/WebODM/OpenSplat) 1.2.2 | `ghcr.io/winuxnomacs/splatme-node` |
 | [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) v0.5.4.3 | `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, about a seventh of OpenSplat's size on disk |
 
-LichtFeld Studio's first training on a GPU starts about 2 minutes late: it builds its GPU code for that GPU, then
-keeps it in the node's volume for the next ones. LichtFeld Studio is GPL-3.0-or-later; its image is built from the
-source at its pinned commit by
-[node/lichtfeld.Dockerfile](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/lichtfeld.Dockerfile),
-and its `splatme.trainer.source` label links to that commit.
-`node/compose.yml` runs OpenSplat's node only.
+LichtFeld Studio's first training on a GPU starts about 2 minutes late: it builds its GPU code for that GPU, then keeps it in the node's volume for the next ones.
+[How It Works](how-it-works.md) describes how each trainer trains. `node/compose.yml` runs OpenSplat's node only.
 
 ## Jobs
 
@@ -44,12 +40,27 @@ Its API ([node/splatnode.py](https://github.com/WinuxNomacs/webodm-splatme/blob/
 | Request | Does |
 |---|---|
 | `GET /health` | Whether the node works (no token needed): 503 when its worker has stopped |
-| `GET /info` | The node, its trainer (`trainer`, its version; `trainer_kind`, `opensplat`; `supports`, whether it takes `masks` and can `continue` a model: node 0.3.0), its GPU, its queue and the options a job accepts |
-| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`, `densify_until` (node 0.2.3: OpenSplat's `--densify-until`, at most `steps` - 3,000). Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total. `ref=<name>` (up to 64 letters, digits, `-` or `_`) is kept with the job |
+| `GET /info` | The node, its trainer (`trainer`, its version; `trainer_kind`, `opensplat` or `lichtfeld`; `supports`, whether it takes `masks` and can `continue` a model: node 0.3.0), its GPU, its queue and the options a job accepts, each with its default and its `min` and `max`, its `choices`, or `"type": "bool"` |
+| `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options, those of the node's trainer only (another is refused): OpenSplat's `steps`, `max_gaussians`, `sh_degree`, `downscale`, `densify_until` (node 0.2.3: OpenSplat's `--densify-until`, at most `steps` - 3,000); LichtFeld Studio's `steps`, `max_gaussians`, `sh_degree`, `strategy` (`mrnf`, `mcmc` or `igs+`), `exposure_correction` (`true` or `false`). Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total; LichtFeld Studio's also needs `resume_steps`, the model's steps, and trains those between. `ref=<name>` (up to 64 letters, digits, `-` or `_`) is kept with the job |
 | `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error, and once completed `trained_steps`, the steps its model was trained to (node 0.3.0); `GET /jobs?ref=<name>` lists the jobs with that ref |
 | `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
 | `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
 | `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |
+
+## Licences and Source
+
+Each image holds its trainer's licence beside the trainer, and its `splatme.trainer.source` label links to the
+trainer's source at the commit it was built from. The node's own code (`splatnode.py`) is SplatMe's, AGPL-3.0.
+Both images are built by a Dockerfile in this repository, at the release's tag, which pins every source they are
+built from. This is where to find them, not legal advice.
+
+| Image | Licences (in the image) | Built from |
+| --- | --- | --- |
+| `splatme-node` | OpenSplat: AGPL-3.0 (`/opt/opensplat/LICENSE.txt`) | [OpenSplat](https://github.com/WebODM/OpenSplat) at the commit of [node/Dockerfile](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/Dockerfile)'s `OPENSPLAT_COMMIT`, and PyTorch's libtorch (2.7.1 for CUDA 12.8, by checksum) |
+| `splatme-node-lichtfeld` | LichtFeld Studio: GPL-3.0-or-later with its NVIDIA GPU library exception (`/opt/lichtfeld/LICENSE`, `LICENSE-EXCEPTION.txt`); the libraries built with it, each with its licence (`/opt/lichtfeld/THIRD-PARTY-LICENSES.md`) | [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) at the commit of [node/lichtfeld.Dockerfile](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/lichtfeld.Dockerfile)'s `LFS_COMMIT`, its libraries from [vcpkg](https://github.com/microsoft/vcpkg) at `VCPKG_COMMIT` |
+
+Both run on NVIDIA's CUDA base image, under NVIDIA's terms; LichtFeld Studio's image also holds the CUDA runtime,
+cuRAND and nvJPEG libraries it loads.
 
 ## HTTPS to a node on another machine
 

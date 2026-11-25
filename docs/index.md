@@ -3,7 +3,7 @@
 [![SplatMe: a drone's photos becoming a trained splat model](assets/splash/splash-medium.jpg)](assets/splash/splash.jpg)
 
 A [WebODM](https://github.com/WebODM/WebODM) plugin that trains a task's Gaussian splats automatically via
-[OpenSplat](https://github.com/WebODM/OpenSplat).
+[OpenSplat](https://github.com/WebODM/OpenSplat) or [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio).
 
 WebODM can export a task's training data and display a trained splat model, but the training itself is done by
 hand in other software. SplatMe does that step: one button on its Tasks page trains a task's splats on a GPU and
@@ -35,9 +35,10 @@ and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-
   downloading it.
 - [Editing the 3D Model](editing-model.md): cleaning up and repairing WebODM's textured model: removing floating
   pieces and objects, filling holes, flattening, smoothing, straightening and moving surfaces, and cloning texture.
-- [The Splat Node](splat-node.md): the GPU container, its settings and API, and HTTPS to a node on another
+- [The Splat Node](splat-node.md): the GPU container, its trainers, settings, API, licences and source, and HTTPS to a node on another
   machine.
-- [How It Works](how-it-works.md): what SplatMe takes from WebODM, and how OpenSplat trains a model from it.
+- [How It Works](how-it-works.md): what SplatMe takes from WebODM, and how OpenSplat and LichtFeld Studio train a model
+  from it.
 - [The Plugin's API](api.md) and [Development](development.md).
 
 ## Thanks
@@ -47,7 +48,8 @@ SplatMe is built on these projects:
 - **[WebODM](https://github.com/WebODM/WebODM)** and its creator, **[Piero Toffanin](https://piero.dev/)**:
   SplatMe is a WebODM plugin, and reuses WebODM's export of a task's training data, its splat conversion and
   its 3D view.
-- **[OpenSplat](https://github.com/WebODM/OpenSplat)**: the trainer in the splat node.
+- **[OpenSplat](https://github.com/WebODM/OpenSplat)** and **[LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio)**:
+  the trainers in the splat node.
 - **[ODX](https://github.com/WebODM/ODX)**: the sky model Ignore Sky uses.
 - **[Splat-Tools](https://github.com/uav4geo/Splat-Tools)**: the conversion WebODM runs on a trained model for its
   3D view.
