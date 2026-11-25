@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST, trainerView } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST, trainerView, strategyChoices, strategyLabel, SH_DEGREE_HINT, STRATEGY_HINT, EXPOSURE_HINT } from './trainingView';
 import StagesTable from './StagesTable';
 import ImageSizeTable from './ImageSizeTable';
 
@@ -18,7 +18,7 @@ export default class OptionsFields extends React.Component {
         showCrop: PropTypes.bool,              // false for a task known to have no boundary
         thermal: PropTypes.bool,               // a thermal task: Thermal Colours, and no Ignore Sky
         photoSizes: PropTypes.array,           // the task's photo sizes, [[width, height]], when known: the Image Size table
-        node: PropTypes.object                 // the splat node's trainer (trainerView), when it answered
+        node: PropTypes.object                 // the splat node's trainer (trainerView: its ranges too), when it answered
     };
 
     constructor(props){
@@ -109,6 +109,28 @@ export default class OptionsFields extends React.Component {
                             this.numberField("steps", _("Steps"), _("How long the trainer works on the model.") + " " + general, "")}
                         {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. Larger photos are scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost. GPU memory depends on it most: lower it when the GPU runs out of memory. Blank keeps the photos as they are."), _("Full size"), <ImageSizeTable photoSizes={this.props.photoSizes} imageSize={form.image_size} />)}
                         {view.has("max_gaussians") ? this.numberField("max_gaussians", _("Max Gaussians"), _("The most gaussians the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit")) : ""}
+                        {view.has("sh_degree") ? this.numberField("sh_degree", _("SH Degree"), _(SH_DEGREE_HINT), _("The trainer's own")) : ""}
+                        {view.has("strategy") ?
+                            <div className="form-group">
+                                <label className="col-sm-4 control-label" htmlFor={this.uid + "strategy"}>{_("Strategy")}</label>
+                                <div className="col-sm-8">
+                                    <select className="form-control splatme-strategy" id={this.uid + "strategy"} value={form.strategy || ""} onChange={e => this.props.onChange("strategy", e.target.value)}>
+                                        <option value="">{_("The trainer's own")}</option>
+                                        {strategyChoices((this.props.node || {}).ranges).map(key => <option key={key} value={key}>{strategyLabel(key)}</option>)}
+                                    </select>
+                                    <span className="help-block">{_(STRATEGY_HINT)}</span>
+                                </div>
+                            </div> : ""}
+                        {view.has("exposure_correction") ?
+                            <div className="form-group">
+                                <div className="col-sm-8 col-sm-offset-4">
+                                    <div className="checkbox"><label>
+                                        <input type="checkbox" className="splatme-exposure" checked={form.exposure_correction !== false}
+                                               onChange={e => this.props.onChange("exposure_correction", e.target.checked)} /> {_("Exposure Correction")}
+                                    </label></div>
+                                    <span className="help-block">{_(EXPOSURE_HINT)}</span>
+                                </div>
+                            </div> : ""}
                         {view.has("densify_until") ? this.numberField("densify_until", _("Grow Until"), _(GROW_UNTIL_HINT), _("Half the steps, at most 15,000")) : ""}
                     </React.Fragment> : ""}
             </React.Fragment>

@@ -196,6 +196,7 @@ export function optionsFromForm(form, ranges, node){
         {name: "steps", label: "Steps", required: true},
         {name: "image_size", label: "Image Size", required: false, zero: true, blank: 0},  // blank: full size
         {name: "max_gaussians", label: "Max Gaussians", required: false, optional: true},
+        {name: "sh_degree", label: "SH Degree", required: false, optional: true},
         {name: "densify_until", label: "Grow Until", required: false, optional: true, range: {min: GROW_AT_LEAST, max: 200000}}
     ];
     const view = trainerView(node);
@@ -220,10 +221,32 @@ export function optionsFromForm(form, ranges, node){
         if (options.steps < GROW_AT_LEAST + AFTER_GROWING) return {error: "Grow Until needs Steps of " + (GROW_AT_LEAST + AFTER_GROWING) + " or more."};
         return {error: "Grow Until is at most " + (options.steps - AFTER_GROWING) + ": " + AFTER_GROWING + " less than Steps."};
     }
+    if (view.has("strategy") && form.strategy){
+        const choices = strategyChoices(ranges);
+        if (choices.indexOf(form.strategy) < 0) return {error: "Strategy is one of " + choices.map(strategyLabel).join(", ") + "."};
+        options.strategy = form.strategy;
+    }
+    // On is the trainer's own default: only Off is sent
+    if (view.has("exposure_correction") && form.exposure_correction === false) options.exposure_correction = false;
     if (form.ignore_sky && view.masks) options.ignore_sky = true;
     if (form.crop === false) options.crop = false;
     if (form.palette && form.palette !== DEFAULT_PALETTE) options.palette = form.palette;
     return {options};
+}
+
+// The help of the trainer options OpenSplat's schedule does not describe (options.html has the same words)
+export const SH_DEGREE_HINT = "How much a gaussian's colour may change with the direction it is seen from: 0 the same from every side, 3 the most (shine, reflections), for a larger model and more GPU memory.";
+export const STRATEGY_HINT = "How the trainer adds, moves and removes gaussians. MCMC keeps the model within Max Gaussians, moving them to where the photos need detail.";
+export const EXPOSURE_HINT = "The trainer learns each photo's brightness and colour apart from the model, so light that changed between photos does not end up in it. The 3D view shows the model without them: it can look a little brighter than the photos' edges.";
+
+// LichtFeld Studio's strategies (how it adds, moves and removes gaussians), as the forms name them
+export const STRATEGY_LABELS = {mrnf: "MRNF", mcmc: "MCMC", "igs+": "IGS+"};
+export const strategyLabel = key => STRATEGY_LABELS[key] || key;
+
+// The strategies the node offers (ranges: as for optionsFromForm), or those SplatMe knows when it did not answer
+export function strategyChoices(ranges){
+    const range = (ranges || {}).strategy;
+    return range && Array.isArray(range.choices) ? range.choices : Object.keys(STRATEGY_LABELS);
 }
 
 // The trainers a splat node may run (its trainer_kind), as the pages name them
@@ -303,7 +326,7 @@ export function formFromOptions(options){
     options = options || {};
     const text = (value, fallback) => String(value == null ? fallback : value);
     // Image Size 0 (the photos as they are) shows as blank, with the placeholder "Full size"
-    return {steps: text(options.steps, 30000), image_size: options.image_size === 0 ? "" : text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), densify_until: text(options.densify_until, ""), ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
+    return {steps: text(options.steps, 30000), image_size: options.image_size === 0 ? "" : text(options.image_size, 1600), max_gaussians: text(options.max_gaussians, ""), sh_degree: text(options.sh_degree, ""), densify_until: text(options.densify_until, ""), strategy: options.strategy || "", exposure_correction: options.exposure_correction !== false, ignore_sky: !!options.ignore_sky, crop: options.crop !== false, palette: options.palette || DEFAULT_PALETTE};
 }
 
 // A task's automatic training in a few words: "On: Standard" or "Off"

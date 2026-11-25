@@ -4,7 +4,7 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, continueState, trainerView, DEFAULT_PALETTE } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, continueState, trainerView, formFromOptions } from './trainingView';
 import StagesTable from './StagesTable';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
@@ -20,7 +20,8 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "", growUntil: "",
-                      form: {steps: "30000", image_size: "1600", max_gaussians: "", densify_until: "", ignore_sky: false, crop: true, palette: DEFAULT_PALETTE}};
+                      form: formFromOptions(null)};
+        this.touched = new Set();  // the form's fields the user changed
     }
 
     componentDidMount(){
@@ -29,7 +30,10 @@ export default class TrainDialog extends React.Component {
             if (!this._mounted) return;
             const defaults = check.defaults || {};
             const trained = continueState(check).can ? check.trained_steps : 0;
-            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
+            // The defaults, but not over a field typed in while the check was being answered
+            const form = {steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)};
+            for (const name of this.touched) delete form[name];
+            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, ...form}});
         }).catch(e => {
             if (this._mounted) this.setState({check: {}, error: e.message});
         });
@@ -40,6 +44,7 @@ export default class TrainDialog extends React.Component {
     }
 
     setField = (name, value) => {
+        this.touched.add(name);
         this.setState({form: {...this.state.form, [name]: value}, error: null});
     };
 

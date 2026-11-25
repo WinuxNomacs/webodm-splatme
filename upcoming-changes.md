@@ -4271,7 +4271,18 @@ LichtFeld's model looks a little brighter than the photos' edges.
   The Splat Node (a Trainers section), the admin page's setup text. Planned as: `install --trainer lichtfeld`
   (default `opensplat`), kept in `~/splatnode/.env`; `upgrade` keeps it; `status` names the trainer; another
   trainer is a new install.
-- **3e. The plugin**: the forms' new fields (Strategy a select, Exposure Correction a checkbox, SH Degree and Max
+- **3e. The plugin**, built 2026-11-25 (branch `lichtfeld-forms`): `training.py` knows two more option kinds
+  (Strategy a choice, checked against the node's `choices`, or only its form when the node does not answer;
+  Exposure Correction on/off) and sends `resume_steps` (the model's steps) on Continue when the node lists it,
+  asking the node's `/info` as the job is sent. The forms (OptionsFields, `options.html`) gained SH Degree (for
+  either trainer: phase 2's rule shows a field whenever the node has its option, and OpenSplat has 1 to 3),
+  Strategy (the node's choices) and Exposure Correction (checked by default, LichtFeld's own; only Off is sent).
+  The stand-in node now refuses an option its trainer lacks, as the real one does. Live, with a LichtFeld node
+  beside the dev stack and a copy of the check task: the Train dialog's fields (no Grow Until, no steps table), a
+  500-step training sent as `strategy=mcmc&exposure_correction=False&sh_degree=2&max_gaussians=300000`, Continue
+  to 800 sent `resume_steps=500`, Settings' save and reload. Found and fixed: the Train dialog's check, answered
+  after the user typed, reset Steps and Image Size to the defaults (a live run trained 30,000 steps for it).
+  Planned as: the forms' new fields (Strategy a select, Exposure Correction a checkbox, SH Degree and Max
   Gaussians numbers), shown when the node has them (phase 2's rule), in OptionsFields and `options.html`; the
   options' new kinds checked in `parse_options` and `optionsFromForm`.
 - **3f. The release**: `release.yml`'s node job for both images (the second's inputs: `node/lichtfeld.Dockerfile`

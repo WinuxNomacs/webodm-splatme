@@ -1162,7 +1162,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         node = self.client.get(f"{API}/task/{task.id}/check").data["node"]
         self.assertEqual(node, {"trainer_kind": "opensplat", "supports": {"masks": True, "continue": True},
-                                "ranges": {name: OPTIONS[name] for name in training.NODE_OPTIONS}})
+                                "ranges": OPTIONS})
         self.node.trainer_kind, self.node.supports = "lichtfeld", {"masks": True, "continue": False}
         del self.node.options["densify_until"]
         node = self.client.get(f"{API}/task/{task.id}/check").data["node"]
@@ -1207,14 +1207,50 @@ class TestSplatMe(BootTestCase):
                                             "LichtFeld Studio. Start the training over.")
         self.assertEqual(len(self.node.jobs), 1)
 
+        self.node.run_lichtfeld()
         self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)  # over, on LichtFeld
         self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
         self.assertEqual(self.node.jobs["job3"]["resume"], trained_lichtfeld(10))
+        # LichtFeld trains the steps after the model's: the node is told them
+        self.assertEqual(self.node.jobs["job3"]["options"], {"steps": 15, "resume_steps": 10})
         self.assertEqual(training.trained_steps(task), 15)
         self.node.supports = {"masks": True, "continue": False}
         res = self.train(task, resume="true", steps=5)
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.data["error"], "LichtFeld Studio cannot continue a model. Start the training over.")
+
+    def test_a_lichtfeld_nodes_choice_and_on_off_options_are_checked_and_sent(self):
+        task = make_task(self.user)
+        self.node.run_lichtfeld()
+        res = self.train(task, steps=10, image_size=16, strategy="mcmc", exposure_correction="false", sh_degree=0,
+                         max_gaussians=300000)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 10, "strategy": "mcmc", "exposure_correction": False,
+                                                            "sh_degree": 0, "max_gaussians": 300000})
+        self.assertEqual(training.trained_options(task)["strategy"], "mcmc")
+        for given, message in (({"strategy": "fast"}, "strategy must be one of mrnf, mcmc, igs+."),
+                               ({"exposure_correction": "maybe"}, "exposure_correction must be true or false.")):
+            res = self.train(task, steps=10, **given)
+            self.assertEqual((res.status_code, res.data["error"]), (400, message))
+        # Saved without the node's answer, only their form is checked
+        with mock.patch.object(training, "get_node", side_effect=training.NodeError("down")):
+            self.assertEqual(training.clean_options({"strategy": "mcmc", "exposure_correction": True}),
+                             {**training.DEFAULTS, "strategy": "mcmc", "exposure_correction": True})
+            with self.assertRaises(training.TrainingError):
+                training.clean_options({"strategy": "a strategy; rm"})
+
+    def test_lichtfeld_options_are_left_out_and_named_on_an_opensplat_node(self):
+        task = make_task(self.user)
+        res = self.train(task, steps=10, image_size=16, strategy="mcmc", exposure_correction=False)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 10})
+        self.assertEqual(self.status(task)["skipped"], ["Strategy", "Exposure Correction"])
+
+    def test_continuing_on_an_opensplat_node_sends_no_resume_steps(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 15})
 
     def test_continuing_may_set_grow_until_after_the_models_steps_or_keep_the_models(self):
         task = make_task(self.user)

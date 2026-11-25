@@ -1,4 +1,4 @@
-import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink, trainerView, continueState } from "../trainingView";
+import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink, trainerView, continueState, strategyChoices } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -201,9 +201,9 @@ describe("a task's automatic training", () => {
 
     test("saved options fill the form, and the form gives them back", () => {
         const form = formFromOptions({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(form).toEqual({steps: "2000", image_size: "", max_gaussians: "500000", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(form).toEqual({steps: "2000", image_size: "", max_gaussians: "500000", sh_degree: "", densify_until: "", strategy: "", exposure_correction: true, ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(form, null).options).toEqual({steps: 2000, image_size: 0, max_gaussians: 500000});
-        expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", densify_until: "", ignore_sky: false, crop: true, palette: "gray"});
+        expect(formFromOptions(null)).toEqual({steps: "30000", image_size: "1600", max_gaussians: "", sh_degree: "", densify_until: "", strategy: "", exposure_correction: true, ignore_sky: false, crop: true, palette: "gray"});
         expect(optionsFromForm(formFromOptions({steps: 30000, image_size: 1600, densify_until: 20000}), null).options)
             .toEqual({steps: 30000, image_size: 1600, densify_until: 20000});
     });
@@ -501,5 +501,41 @@ describe("the splat node's trainer", () => {
         expect(resultText({state: "failed", error: "x", skipped: ["Max Gaussians", "Grow Until"]})).toBe(
             "Training failed: x Left out, as the splat node's trainer does not have them: Max Gaussians, Grow Until.");
         expect(resultText({...job, skipped: []})).not.toMatch(/Left out/);
+    });
+});
+
+describe("a LichtFeld Studio node's options", () => {
+    const node = {trainer_kind: "lichtfeld", supports: {masks: true, continue: true}, ranges: {
+        steps: {min: 1, max: 200000}, max_gaussians: {min: 1000, max: 50000000}, sh_degree: {min: 0, max: 3},
+        strategy: {choices: ["mrnf", "mcmc", "igs+"]}, exposure_correction: {type: "bool"}}};
+
+    test("a strategy, SH Degree 0 and Exposure Correction off are sent; on, the trainer's default, is not", () => {
+        const form = {...formFromOptions(null), strategy: "mcmc", sh_degree: "0", exposure_correction: false};
+        expect(optionsFromForm(form, node.ranges, node).options).toEqual(
+            {steps: 30000, image_size: 1600, sh_degree: 0, strategy: "mcmc", exposure_correction: false});
+        expect(optionsFromForm(formFromOptions(null), node.ranges, node).options).toEqual({steps: 30000, image_size: 1600});
+    });
+
+    test("a strategy the node does not offer, or an SH Degree out of its range, is refused", () => {
+        const form = formFromOptions(null);
+        expect(optionsFromForm({...form, strategy: "fast"}, node.ranges, node).error).toBe("Strategy is one of MRNF, MCMC, IGS+.");
+        expect(optionsFromForm({...form, sh_degree: "4"}, node.ranges, node).error).toBe("SH Degree is between 0 and 3.");
+    });
+
+    test("saved options come back into the form", () => {
+        const form = formFromOptions({steps: 30000, strategy: "igs+", exposure_correction: false, sh_degree: 2});
+        expect([form.strategy, form.exposure_correction, form.sh_degree]).toEqual(["igs+", false, "2"]);
+        expect(formFromOptions({steps: 30000}).exposure_correction).toBe(true);
+    });
+
+    test("an OpenSplat node gets none of LichtFeld's options", () => {
+        const opensplat = {trainer_kind: "opensplat", ranges: {steps: {min: 1, max: 200000}, sh_degree: {min: 1, max: 3}}};
+        const form = {...formFromOptions(null), strategy: "mcmc", exposure_correction: false, sh_degree: "2"};
+        expect(optionsFromForm(form, opensplat.ranges, opensplat).options).toEqual({steps: 30000, image_size: 1600, sh_degree: 2});
+    });
+
+    test("the strategies are the node's, or SplatMe's own when it did not answer", () => {
+        expect(strategyChoices({strategy: {choices: ["mcmc"]}})).toEqual(["mcmc"]);
+        expect(strategyChoices(null)).toEqual(["mrnf", "mcmc", "igs+"]);
     });
 });

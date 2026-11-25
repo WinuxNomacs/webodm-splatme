@@ -7,12 +7,22 @@ import json
 import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote
 
 OPTIONS = {
     "steps": {"min": 1, "max": 200000, "default": 7000},
     "max_gaussians": {"min": 0, "max": 50000000, "default": None},
     "sh_degree": {"min": 1, "max": 3, "default": None},
     "densify_until": {"min": 1000, "max": 200000, "default": None},
+}
+# A LichtFeld Studio node's, as its /info describes them (node/splatnode.py's LichtFeld.options)
+LICHTFELD_OPTIONS = {
+    "steps": {"min": 1, "max": 200000, "default": 30000},
+    "max_gaussians": {"min": 1000, "max": 50000000, "default": None},
+    "sh_degree": {"min": 0, "max": 3, "default": None},
+    "strategy": {"choices": ["mrnf", "mcmc", "igs+"], "default": None},
+    "exposure_correction": {"type": "bool", "default": None},
+    "resume_steps": {"min": 1, "max": 199999, "default": None},
 }
 MODEL = b"RAD model from the fake node"
 
@@ -70,7 +80,11 @@ class FakeNode:
                 if parts == ["jobs"] and self.command == "POST":
                     job_id = f"job{len(node.jobs) + 1}"
                     ref = params.pop("ref", None)
-                    options = {k: int(v) for k, v in params.items()}
+                    unknown = [k for k in params if k not in node.options]
+                    if unknown:  # as the node refuses an option its trainer does not have
+                        return self.send(400, {"error": f"Unknown option: {unknown[0]}"})
+                    options = {k: int(v) if v.isdigit() else {"True": True, "False": False}.get(v, unquote(v))
+                               for k, v in params.items()}
                     with zipfile.ZipFile(io.BytesIO(body)) as z:
                         names = z.namelist()
                         resume = z.read("resume.ply") if "resume.ply" in names else None
@@ -108,6 +122,10 @@ class FakeNode:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def run_lichtfeld(self):
+        """Makes it a LichtFeld Studio node: its kind, what it supports and its options."""
+        self.trainer_kind, self.supports, self.options = "lichtfeld", {"masks": True, "continue": True}, dict(LICHTFELD_OPTIONS)
 
     def info(self):
         info = {
