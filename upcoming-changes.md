@@ -4500,3 +4500,22 @@ scaled the same way, Draft probably left as it is), the GPU memory a preset may 
 new values: as options in `/info` (a node change, `splatnode.py` and its tests; 0.3.0 is not yet published, so no
 new `VERSION`) or fixed in the presets the plugin sends. The presets' hints (time and GPU memory) and How It Works
 follow the measured numbers.
+
+**Brighton Beach, stage one (run 2026-11-25; `dev/benchmarks/brighton-beach.json`, branch `growth-sweep`):**
+
+| Run | Gaussians | Peak while growing | Seconds | GPU MiB above idle | LPIPS (3 held out) |
+|---|---|---|---|---|---|
+| defaults | 823,327 | 1,109,638 | 1,727 | 3,171 | 0.510 |
+| Grow Until 27,000 | 1,105,721 | 1,121,083 | 1,765 | 3,687 | 0.504 |
+| `--loss-thresh` 0.05 | 1,148,076 | 1,541,264 | 1,801 | 4,402 | 0.502 |
+| `--loss-thresh` 0.03 | 1,232,225 | 1,659,455 | 1,786 | 4,781 | 0.504 |
+| `--loss-thresh` 0.02 | 1,301,245 | 1,737,974 | 2,178 | 4,811 | 0.496 |
+
+The dataset does not show the check task's problem: OpenSplat's defaults grow its 76,203 starting points about
+11-fold (splits outrun prunes each round, the opposite of the check task) until growth stops on its own near step
+13,000, so Grow Until 27,000 gains only by skipping the final prune at 18,000 (265,312 removed with the defaults).
+A lower threshold raises the count, flattening below 0.05; 0.02 took 26% longer. Its 3 held-out photos (PSNR
+about 16 for every run) cannot tell the runs' quality apart. Not yet tested: with 189 photos each part of the scene
+is seen only a few times between growth rounds (every 500 steps), against about 33 times with 15, which would
+leave few Gaussians with enough pull to split. **Decided with the user (2026-11-25):** B5 to B7 are not run; the
+sweep moves to the check task (Grow Until 27,000; `--loss-thresh` 0.05; both), scored on its 28 held-out photos.
