@@ -50,6 +50,12 @@ joins older holes.
    "6. Steps for an Image Size (proposed)".
 4. Research, after the trainer spike and the feature work (asked 2026-11-24): estimating a training's steps from
    its number of photos. See "20. Steps from the number of photos (research, later)".
+5. libtorch's licence in the OpenSplat image (found 2026-11-25 in 3g; the user: for a future release, not this
+   one). libtorch's download holds no licence file, so `splatme-node` ships libtorch (BSD-3-Clause, with NVIDIA's
+   cuDNN and cuBLAS under NVIDIA's terms) without its notices. `node/Dockerfile` fetches PyTorch's `LICENSE` (and
+   `NOTICE`, if its v2.7.1 tag has one) from that tag, pinned by checksum, into `/opt/libtorch/`; The Splat
+   Node's Licences and Source table names it. Needs a new node `VERSION` once 0.3.0 is published, and a rebuild
+   (about 30 minutes) to check it.
 
 **Dropped**
 
