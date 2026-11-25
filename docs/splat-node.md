@@ -24,7 +24,8 @@ it again with the other.
 LichtFeld Studio's first training on a GPU starts about 2 minutes late: it builds its GPU code for that GPU, then
 keeps it in the node's volume for the next ones. LichtFeld Studio is GPL-3.0-or-later; its image is built from the
 source at its pinned commit by
-[node/lichtfeld.Dockerfile](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/lichtfeld.Dockerfile).
+[node/lichtfeld.Dockerfile](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/lichtfeld.Dockerfile),
+and its `splatme.trainer.source` label links to that commit.
 `node/compose.yml` runs OpenSplat's node only.
 
 ## Jobs

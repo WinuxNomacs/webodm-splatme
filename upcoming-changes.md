@@ -28,7 +28,7 @@ joins older holes.
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
    2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
-   LichtFeld node (planned)"; 3a to 3e built and merged; next, 3f (the release, planned). The default
+   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the docs (How It Works) and the comparisons for default values. The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
@@ -4285,7 +4285,7 @@ LichtFeld's model looks a little brighter than the photos' edges.
   Planned as: the forms' new fields (Strategy a select, Exposure Correction a checkbox, SH Degree and Max
   Gaussians numbers), shown when the node has them (phase 2's rule), in OptionsFields and `options.html`; the
   options' new kinds checked in `parse_options` and `optionsFromForm`.
-- **3f. The release** (planned 2026-11-25; decided with the user: a matrix, a shared version, both must build):
+- **3f. The release**, built 2026-11-25 (branch `release-lichtfeld`), as planned below except the trainer source label is on both images (OpenSplat's commit too, from its Dockerfile's `ARG`). Checked here: the YAML parses, its shell steps pass `shellcheck`, the naming step gives both images' names, version 0.3.0 (not yet on ghcr.io, so both build), inputs hashes and source links, and a local build with the LichtFeld labels shows them. Still to measure: the first run by hand on GitHub. Planned 2026-11-25 (decided with the user: a matrix, a shared version, both must build):
   `release.yml`'s node job becomes a matrix over the two images (`opensplat`: `node/Dockerfile`,
   `splatme-node`; `lichtfeld`: `node/lichtfeld.Dockerfile`, `splatme-node-lichtfeld`), `fail-fast: false`, every
   step as today per image: the tag's version check, the published version skipped, its inputs' hash compared
