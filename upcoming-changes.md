@@ -4205,6 +4205,20 @@ binary container); the standalone `.ppisp` file is a legacy import and is not wr
 Python API exposes the settings, not the learned values. Its binary needs about 90 shared libraries (its own
 `liblfs_*`, vcpkg's, CUDA's runtime and cuRAND); its progress prints only to a terminal.
 
+**3a's finding (2026-11-24, from LichtFeld's code at the pin and the spike's own log; nothing new trained):**
+LichtFeld already keeps its model at the photos' average appearance. During training it subtracts the mean over
+the photos from every photo's exposure and colour correction (`PPISP::project_mean`, called from `trainer.cpp`),
+and its log at both evaluations says so: "PPISP drift: mean_exposure_ev=-0.000000 max_abs_color_offset_mean=
+0.000000". Baking the average exposure and colour into the `.ply` would change nothing. What makes the exported
+model brighter than the photos is the **vignetting** it learned per camera (the lens darkening towards the edges,
+which it applies to its renders when comparing them with the photos): the spike's final values (alpha0 about
+-0.48, alpha1 -0.48, alpha2 -0.14 per channel, `ppisp_math.cuh`'s falloff) darken a 1,600 x 1,200 photo by 7.5% on
+average (factor 0.925; 0.74 in the corners, 1.0 in the middle). At the photos' typical brightness that is the
++0.024 bias measured, so the model is the scene without the lens's vignetting, and the 2.4% is the photos'
+artefact, not the model's. The per-photo part of the correction (each photo's own exposure and colour, which lifts
+LichtFeld's evaluation from PSNR 24.45 to 27.76) is by nature per photo: no viewer can show it for a new view.
+Its tone curve was not trained (identity). Asked the user how to go on (2026-11-24).
+
 **Steps** (each on its own branch, tested, then merged):
 
 - **3a. Reading the exposure correction** (first: it decides how the bake is built). Find the least fragile way
