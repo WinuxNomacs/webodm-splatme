@@ -1,0 +1,8 @@
+Crash diagnostics: /home/ubuntu/.lichtfeld/logs/lichtfeld-studio-crash-2026-11-25-014452-1.log
+[01:44:52.516] [32m[info][0m logger.cpp:724  Log file: /home/ubuntu/.lichtfeld/logs/lichtfeld.log
+[01:44:52.516] [32m[info][0m main.cpp:213  LichtFeld Studio
+[01:44:52.516] [32m[info][0m main.cpp:214  version 06c9a04 | tag 06c9a04
+[01:44:52.571] [32m[info][0m application.cpp:1474  CUDA driver version: 13.1
+[01:44:52.571] [32m[info][0m application.cpp:1497  GPU: NVIDIA GeForce RTX 5060 Laptop GPU (SM 12.0, 8150 MB)
+[01:44:54.589] [32m[info][0m training_setup.cpp:992  Loading dataset from: /data/nonexistent
+[01:44:54.589] [31m[error][0m application.cpp:1170  Failed to load training data: Failed to load dataset: [Path not found] /data/nonexistent

@@ -1,0 +1,28 @@
+Crash diagnostics: /home/ubuntu/.lichtfeld/logs/lichtfeld-studio-crash-2026-11-25-014114-1.log
+[01:41:14.141] [32m[info][0m logger.cpp:724  Log file: /home/ubuntu/.lichtfeld/logs/lichtfeld.log
+[01:41:14.141] [32m[info][0m main.cpp:213  LichtFeld Studio
+[01:41:14.141] [32m[info][0m main.cpp:214  version 06c9a04 | tag 06c9a04
+[01:41:14.226] [32m[info][0m application.cpp:1474  CUDA driver version: 13.1
+[01:41:14.226] [32m[info][0m application.cpp:1497  GPU: NVIDIA GeForce RTX 5060 Laptop GPU (SM 12.0, 8150 MB)
+[01:41:16.532] [32m[info][0m training_setup.cpp:992  Loading dataset from: /data/full
+[01:41:24.588] [32m[info][0m colmap.cpp:3356  Training with 217 images (217 camera records)
+[01:41:25.336] [32m[info][0m colmap_loader.cpp:331  Loaded 405004 points from COLMAP
+[01:41:25.344] [32m[info][0m training_setup.cpp:1102  Loaded dataset 'full' into scene: 217 train cameras
+[01:42:07.456] [32m[info][0m splat_data.cpp:3095  Scene scale: 21.360474
+[01:42:07.476] [32m[info][0m training_setup.cpp:1360  Created training model with 405004 gaussians
+[01:42:13.511] [32m[info][0m trainer.cpp:3189  Initializing trainer with 300 iterations
+[01:42:13.520] [32m[info][0m trainer.cpp:3324  Using all 217 images for training (no evaluation)
+[01:42:13.528] [32m[info][0m mrnf.cpp:541  MRNF: pre-allocating capacity for 5000000 Gaussians (current: 405004, utilization: 8.1%)
+[01:42:14.691] [32m[info][0m trainer.cpp:1408  Bilateral grid initialized: 16x16x8 for 217 camera slots (217 train images)
+[01:42:14.872] [32m[info][0m trainer.cpp:1457  PPISP initialized: 1 cameras (physical), 217 frames, lr=2.00e-03, warmup=500, train_crf=false
+[01:42:14.896] [32m[info][0m trainer.cpp:3417  Prepared undistortion for 217 cameras
+[01:42:14.896] [32m[info][0m trainer.cpp:3602  Strategy: mrnf
+[01:42:15.260] [32m[info][0m nvcodec_image_loader.cpp:1253  JPEG decoding runs on the GPU (nvImageCodec)
+[36m[1mTraining [                                        ] 33% [00m:00s<00m:00s] Initializing...[36m[1mTraining [█████████░░░░ ] 66% [00m:29s<00m:15s] 100/300 | Loss: 0.4481 | Splats: 405004 [36m[1mTraining [█████████████ ] 100% [00m:35s<00m:00s] 200/300 | Loss: 0.4789 | Splats: 453604 [00m
+[01:44:48.717] [32m[info][0m trainer.cpp:10161  Saving final project at iteration 300...
+[01:44:48.909] [32m[info][0m trainer.cpp:5957  Background .licht append complete: /out/ok/project.licht generation=1 snapshot=0dd8d1af-e512-4d36-a8c5-03d478064b44 rewritten=12 reused=0 final_drain=16.139ms
+
+✓ Training completed in 154.028s (avg 1.9 iter/s)
+✓ Final splats: 453604
+[01:44:48.923] [32m[info][0m trainer.cpp:10366  Training completed successfully
+[01:44:50.384] [32m[info][0m training_setup.cpp:1889  Exported final splat: /out/ok/splat_300.ply

@@ -278,7 +278,7 @@ class TestSplatNode(NodeTestCase):
             splatnode.main()
         self.assertEqual(stopped.exception.code, 2)
         made.assert_not_called()
-        self.assertEqual(said, ["SPLATNODE_TRAINER_KIND='brush' is not a trainer this node has (opensplat)"])
+        self.assertEqual(said, ["SPLATNODE_TRAINER_KIND='brush' is not a trainer this node has (lichtfeld, opensplat)"])
 
     def test_info_asks_the_trainer_its_version_once_and_answers_while_the_jobs_are_locked(self):
         node = self.server.node
@@ -679,3 +679,176 @@ class TestSettings(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class TestLichtFeldOutput(unittest.TestCase):
+    """LichtFeld Studio's own words, as a terminal gets them (colours, carriage returns), from real runs of the
+    pinned commit in the node's image on the check task (217 photos at 1,600 px, 2026-11-25): lichtfeld-output.txt a
+    300-step training, lichtfeld-failure.txt a missing dataset, lichtfeld-stopped.txt the end of a training stopped
+    with SIGTERM at step 5,326. lichtfeld-out-of-memory.txt is composed from its two allocation failure messages
+    (core/memory_pressure.cpp at the pin), in its log's form: this GPU, under WSL, spills into the computer's memory
+    instead of running out (two trainings at once, and 4,032 px photos with a 50,000,000 cap, only slowed down).
+    Capture them again when the pin changes."""
+
+    adapter = splatnode.TRAINERS["lichtfeld"]
+
+    def read(self, name):
+        with open(os.path.join(os.path.dirname(__file__), name), "rb") as f:
+            data = f.read()
+        chunks = iter([data, b""])
+        return lambda: next(chunks)
+
+    def lines(self, name):
+        return [(splatnode.ANSI.sub(b"", line), done) for line, done in splatnode.segments(self.read(name))]
+
+    def test_a_real_runs_progress_gives_its_steps(self):
+        found = [self.adapter.step_of(line, {"options": {}}) for line, _ in self.lines("lichtfeld-output.txt")]
+        self.assertEqual([s for s in found if s], [(100, 33), (200, 66)])
+
+    def test_a_continued_runs_steps_count_from_its_models(self):
+        job = {"options": {"resume_steps": 7000}, "resume": True}
+        found = [self.adapter.step_of(line, job) for line, _ in self.lines("lichtfeld-stopped.txt")]
+        self.assertIn((12300, 17), [s for s in found if s])
+
+    def test_every_redraw_of_its_progress_bar_is_a_line_and_looks_like_a_step(self):
+        lines = [line for line, _ in self.lines("lichtfeld-output.txt") if self.adapter.looks_like_a_step(line)]
+        self.assertEqual(len(lines), 3)  # "Initializing...", then steps 100 and 200
+        self.assertTrue(lines[0].endswith(b"Initializing..."))
+
+    def test_a_real_failure_is_named_by_its_error_line_and_not_out_of_memory(self):
+        tail = b"\n".join(line for line, _ in self.lines("lichtfeld-failure.txt")).decode()
+        error = splatnode.explain(1, tail, self.adapter)
+        self.assertTrue(error.startswith("The trainer ended with code 1: ["), error)
+        self.assertIn("Failed to load training data: Failed to load dataset: [Path not found] /data/nonexistent", error)
+
+    def test_its_out_of_memory_failure_says_so(self):
+        tail = b"\n".join(line for line, _ in self.lines("lichtfeld-out-of-memory.txt")).decode()
+        self.assertEqual(splatnode.explain(1, tail, self.adapter),
+                         "The GPU ran out of memory. Try a smaller image size or fewer gaussians.")
+
+    def test_a_stopped_run_is_not_out_of_memory(self):
+        tail = b"\n".join(line for line, _ in self.lines("lichtfeld-stopped.txt")).decode()
+        self.assertNotIn("out of memory", splatnode.explain(-15, tail, self.adapter))
+
+FAKE_LICHTFELD = os.path.join(os.path.dirname(__file__), "fake_lichtfeld.py")
+WITH_MASKS = splatnode.REQUIRED_FILES + ("images/a.jpg", "masks/a.jpg.png")
+
+
+class TestLichtFeld(NodeTestCase):
+    """The node with LichtFeld Studio's adapter, against its stand-in (which refuses to run without a terminal)."""
+
+    def start(self):
+        self.server = splatnode.make_server("127.0.0.1", 0, self.data, FAKE_LICHTFELD, self.token, kind="lichtfeld")
+        self.port = self.server.server_address[1]
+        self.server.node.grace = 1
+        self.server.node.stall_seconds = 60
+        self.worker_deaths = []
+        self.server.node.on_worker_death = lambda: self.worker_deaths.append(True)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.stop)
+
+    def result(self, job):
+        return self.request("GET", "/jobs/{}/result".format(job["id"]))[1]
+
+    def test_info_names_lichtfeld_and_its_options_kinds(self):
+        info = self.request("GET", "/info")[1]
+        self.assertEqual((info["trainer_kind"], info["supports"]), ("lichtfeld", {"masks": True, "continue": True}))
+        self.assertEqual(info["options"]["strategy"], {"choices": ["mrnf", "mcmc", "igs+"], "default": None})
+        self.assertEqual(info["options"]["exposure_correction"], {"type": "bool", "default": None})
+        self.assertEqual(info["options"]["max_gaussians"], {"min": 1000, "max": 50000000, "default": None})
+        self.assertNotIn("densify_until", info["options"])
+
+    def test_a_job_trains_in_a_terminal_and_its_exported_model_is_the_result(self):
+        job = self.wait(self.create("steps=40")["id"])
+        self.assertEqual((job["state"], job["step"], job["progress"], job["trained_steps"]), ("completed", 40, 100, 40), job["error"])
+        model = self.result(job)
+        self.assertTrue(model.startswith(b'ply\ncomment lichtfeld_provenance {"iteration":40}'))
+        args = model.split(b"\n")[2].decode()
+        self.assertIn("--headless", args)
+        self.assertIn("--export ply --undistort --log-level info -i 40", args)
+        self.assertNotIn("--mask-mode", args)
+        # Only the result and the log are kept: not its output folder, its project nor its home's logs
+        self.assertEqual(self.files(job["id"]), ["job.json", "log.txt", "model.ply"])
+
+    def test_its_log_has_each_progress_redraw_on_a_line_without_colours(self):
+        job = self.wait(self.create("steps=30")["id"])
+        log = self.request("GET", "/jobs/{}/log".format(job["id"]))[1].decode()
+        self.assertNotIn("\x1b", log)
+        self.assertNotIn("\r", log)
+        lines = [line for line in log.splitlines() if line.startswith("Training [")]
+        self.assertEqual([line.split("] ")[2].split(" |")[0] for line in lines[1:]], ["10/30", "20/30", "30/30"])
+
+    def test_options_become_its_flags(self):
+        query = "steps=40&max_gaussians=300000&sh_degree=2&strategy=mcmc&exposure_correction=false"
+        args = self.result(self.wait(self.create(query)["id"])).split(b"\n")[2].decode()
+        self.assertIn("--max-cap 300000 --sh-degree 2 --strategy mcmc --no-exposure-correction", args)
+        args = self.result(self.wait(self.create("steps=40&exposure_correction=true")["id"])).split(b"\n")[2].decode()
+        self.assertTrue(args.endswith("--exposure-correction"))
+
+    def test_masks_in_the_zip_are_ignored_where_black(self):
+        job = self.wait(self.create("steps=20", body=training_zip(WITH_MASKS))["id"])
+        self.assertIn(b"--mask-mode ignore", self.result(job))
+
+    def test_info_names_lichtfeld_once_from_its_version(self):
+        self.server.node.trainer = os.path.join(os.path.dirname(__file__), "fake_lichtfeld_version.sh")
+        self.assertEqual(self.request("GET", "/info")[1]["trainer"], "LichtFeld Studio 06c9a04 (06c9a04)")
+
+    def test_wrong_option_values_are_refused(self):
+        for query, message in (("steps=20&strategy=fast", "strategy must be one of mrnf, mcmc, igs+"),
+                               ("steps=20&exposure_correction=maybe", "exposure_correction must be true or false"),
+                               ("steps=20&densify_until=9000", "Unknown option: densify_until"),
+                               ("steps=20&resume_steps=10", "resume_steps is only for a job that continues")):
+            response, data = self.request("POST", "/jobs?" + query, body=training_zip())
+            self.assertEqual(response.status, 400, query)
+            self.assertIn(message, data["error"])
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+
+    def test_continuing_trains_the_steps_after_the_models_from_it_with_init(self):
+        model = b'ply\ncomment lichtfeld_provenance {"iteration":30}\n'
+        job = self.wait(self.create("steps=50&resume_steps=30", body=training_zip(resume=model))["id"])
+        self.assertEqual((job["state"], job["step"], job["trained_steps"]), ("completed", 50, 50), job["error"])
+        args = self.result(job).split(b"\n")[2].decode()
+        self.assertIn("-i 20 --init ", args)
+        self.assertIn("resume.ply", args)
+        for query, message in (("steps=50", "needs resume_steps"), ("steps=30&resume_steps=30", "more than resume_steps")):
+            response, data = self.request("POST", "/jobs?" + query, body=training_zip(resume=model))
+            self.assertEqual(response.status, 400, query)
+            self.assertIn(message, data["error"])
+
+    def test_its_failure_is_named_by_its_last_line_without_colours(self):
+        os.environ["FAKE_TRAINER"] = "fail"
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["state"], "failed")
+        self.assertTrue(job["error"].startswith("The trainer ended with code 1: [02:00:00.000] [error] application.cpp:1170"), job["error"])
+        self.assertIn("Failed to load training data", job["error"])
+
+    def test_running_out_of_gpu_memory_says_so(self):
+        os.environ["FAKE_TRAINER"] = "oom"
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["error"], "The GPU ran out of memory. Try a smaller image size or fewer gaussians.")
+
+    def test_exiting_without_a_model_fails_the_job(self):
+        os.environ["FAKE_TRAINER"] = "nomodel"
+        job = self.wait(self.create()["id"])
+        self.assertEqual((job["state"], job["error"]), ("failed", "LichtFeld Studio exited without writing a model"))
+
+    def test_a_terminal_that_cannot_be_opened_fails_the_job_and_the_node_goes_on(self):
+        with mock.patch.object(splatnode.pty, "openpty", side_effect=OSError(24, "Too many open files")):
+            job = self.wait(self.create()["id"])
+        self.assertEqual((job["state"], job["error"]), ("failed", "The splat node could not open a terminal for the trainer: [Errno 24] Too many open files"))
+        self.assertEqual(self.wait(self.create()["id"])["state"], "completed")
+
+    def test_it_is_stopped_when_it_goes_silent_in_its_terminal(self):
+        os.environ["FAKE_TRAINER"] = "silent"
+        self.server.node.stall_seconds = 2
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["state"], "failed")
+        self.assertIn("printed nothing for", job["error"])
+
+    def test_a_cancel_stops_it_in_its_terminal(self):
+        os.environ["FAKE_TRAINER"] = "slow"
+        job = self.create("steps=40")
+        self.wait_for_a_step(job["id"])
+        self.request("POST", "/jobs/{}/cancel".format(job["id"]))
+        self.assertEqual(self.wait(job["id"])["state"], "canceled")

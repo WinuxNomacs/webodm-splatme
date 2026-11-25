@@ -1,0 +1,7 @@
+[36m[1mTraining [                                        ] 17% [11m:06s<54m:15s] 5300/30000 | Loss: 0.1168 | Splats: 5000000 [36m[1mTraining [                                        ] 17% [11m:06s<54m:15s] Stopped by user at 5326/30000[00m
+
+
+Training stopped by user at iteration 5326 (checkpoint saved)
+* Final splats: 5000000
+[01:57:04.052] [32m[info][0m trainer.cpp:10366  Training stopped by user
+[01:57:06.428] [32m[info][0m training_setup.cpp:1889  Exported final splat: /out/a/splat_5326.ply
