@@ -54,6 +54,10 @@ $T $W lichtfeld-30k-cap300k -t -e HOME=/home/lfs -v $W/lfshome:/home/lfs \
 $T $W opensplat-30k --entrypoint /opt/opensplat/opensplat splatme-node:dev /data/train -o /out/opensplat-30k.ply -n 30000
 ```
 
+OpenSplat's growth options are its own flags after the dataset (`--loss-thresh 0.05 --densify-until 27000
+--refine-every 250`; `ignored/OpenSplat/opensplat.cpp` lists them). A sweep names each run after what it changes
+(`os-lt005-gu27k`) and runs them one after another in one background script, so the GPU is never shared.
+
 LichtFeld's `--eval` evaluates at steps 7,000 and 30,000 (minutes each, included in the seconds), and its last
 evaluation is the model with its exposure correction applied. `-t` makes its progress print. Its first run builds
 its GPU code (about 2 minutes, counted in the seconds): add `-e CUDA_CACHE_PATH=/out/cuda-cache` to every run of a
@@ -68,6 +72,10 @@ docker run --rm -t --gpus all --user $(id -u):$(id -g) -e HOME=/home/lfs -v $W/l
   -v $W/data:/data:ro -v $W/out:/out --entrypoint /opt/lichtfeld/bin/LichtFeld-Studio splatme-node-lichtfeld:dev \
   eval /out/<model>.ply -d /data/full --undistort --eval --test-every 8 -o /out/eval-<name>
 ```
+
+Another dataset (Brighton Beach, a sweep's quick runs) keeps its own results file: start it with `about` and
+`dataset` as in `check-task.json` and pass `--results dev/benchmarks/<dataset>.json`. For OpenSplat, `--growth`
+records the count after every growth round and final prune, from the run's log.
 
 Then add the run to the results (the timings line, the model's Gaussians and size, the mean and per-photo
 scores; `--corrected` takes LichtFeld's own last evaluation as a second entry):
