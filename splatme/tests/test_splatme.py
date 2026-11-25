@@ -29,7 +29,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from .. import crop, edits, meshes, sky, thermal, training
-from .fake_node import MODEL, OPTIONS, FakeNode, trained
+from .fake_node import MODEL, OPTIONS, FakeNode, trained, trained_lichtfeld
 
 API = "/api/plugins/splatme"
 CONVERT = training.convert  # the real one: the tests replace it, as WebODM's converter does not take their models
@@ -1133,13 +1133,88 @@ class TestSplatMe(BootTestCase):
             self.assertIn(message, res.data["error"])
         self.assertEqual(self.node.jobs, {})
 
-    def test_grow_until_needs_a_node_that_has_it_and_blank_does_not(self):
+    def test_an_option_the_node_does_not_have_is_left_out_and_named(self):
+        # Saved for another trainer (or an older node): the training runs without it and says so
         task = make_task(self.user)
         del self.node.options["densify_until"]
-        res = self.train(task, steps=30000, densify_until=20000)
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("Update the node", res.data["error"])
+        with self.assertLogs("app.logger", "INFO") as logged:
+            res = self.train(task, steps=30000, image_size=16, densify_until=20000)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 30000})
+        status = self.status(task)
+        self.assertEqual((status["state"], status["skipped"]), ("completed", ["Grow Until"]))
+        self.assertNotIn("densify_until", status["options"])
+        self.assertIn("leaves out what the splat node does not have: Grow Until", "\n".join(logged.output))
         self.assertEqual(self.train(task, steps=30000, densify_until="").status_code, 200)
+        self.assertEqual(self.status(task)["skipped"], [])
+
+    def test_ignore_sky_is_left_out_on_a_node_whose_trainer_takes_no_masks(self):
+        task = make_task(self.user)
+        self.node.trainer_kind, self.node.supports = "lichtfeld", {"masks": False, "continue": True}
+        with mock.patch.object(training.sky, "make_masks") as masks:
+            self.assertEqual(self.train(task, steps=10, image_size=16, ignore_sky="true").status_code, 200)
+        masks.assert_not_called()
+        status = self.status(task)
+        self.assertEqual((status["state"], status["skipped"]), ("completed", ["Ignore Sky"]))
+        self.assertNotIn("ignore_sky", status["options"])
+
+    def test_the_check_says_the_nodes_trainer_and_an_old_node_counts_as_opensplat(self):
+        task = make_task(self.user)
+        node = self.client.get(f"{API}/task/{task.id}/check").data["node"]
+        self.assertEqual(node, {"trainer_kind": "opensplat", "supports": {"masks": True, "continue": True},
+                                "ranges": {name: OPTIONS[name] for name in training.NODE_OPTIONS}})
+        self.node.trainer_kind, self.node.supports = "lichtfeld", {"masks": True, "continue": False}
+        del self.node.options["densify_until"]
+        node = self.client.get(f"{API}/task/{task.id}/check").data["node"]
+        self.assertEqual((node["trainer_kind"], node["supports"]), ("lichtfeld", {"masks": True, "continue": False}))
+        self.assertNotIn("densify_until", node["ranges"])
+        for url in (f"{API}/automation?ranges=1", f"{API}/automation/shared?ranges=1"):
+            self.assertEqual(self.client.get(url).data["node"], node, url)
+        self.assertNotIn("node", self.client.get(f"{API}/automation").data)
+
+    def test_saving_automatic_options_clears_those_the_node_does_not_have(self):
+        del self.node.options["densify_until"]
+        res = self.client.post(f"{API}/automation", {"steps": 20000, "image_size": 16, "densify_until": 9000}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["options"], {"steps": 20000, "image_size": 16})
+
+    def test_a_models_steps_come_from_its_options_or_from_either_trainers_header(self):
+        task = make_task(self.user)
+        self.node.trainer_kind = "lichtfeld"
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(self.converted, [trained_lichtfeld(10)])
+        self.assertEqual(training.trained_steps(task), 10)
+        self.assertEqual(training.trained_kind(task), "lichtfeld")
+        self.assertNotIn(training.TRAINER, training.trained_options(task))  # kept beside them, not trained with
+        self.assertIsNone(self.client.get(f"{API}/task/{task.id}/edits").data["editable"])
+        os.remove(training.trained_options_file(task))  # as SplatMe 0.1 kept a model: its header says
+        self.assertEqual(training.trained_steps(task), 10)
+        self.assertEqual(training.trained_kind(task), "opensplat")
+        with open(training.trained_model(task), "wb") as f:
+            f.write(trained(25))
+        self.assertEqual(training.trained_steps(task), 25)
+
+    def test_a_model_is_continued_only_on_a_node_whose_trainer_made_it(self):
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)
+        self.assertEqual(training.trained_kind(task), "opensplat")
+        self.node.trainer_kind = "lichtfeld"
+        check = self.client.get(f"{API}/task/{task.id}/check").data
+        self.assertEqual((check["trained_steps"], check["trained_kind"]), (10, "opensplat"))
+        res = self.train(task, resume="true", steps=5)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["error"], "This task's model was trained with OpenSplat, and the splat node trains with "
+                                            "LichtFeld Studio. Start the training over.")
+        self.assertEqual(len(self.node.jobs), 1)
+
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)  # over, on LichtFeld
+        self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
+        self.assertEqual(self.node.jobs["job3"]["resume"], trained_lichtfeld(10))
+        self.assertEqual(training.trained_steps(task), 15)
+        self.node.supports = {"masks": True, "continue": False}
+        res = self.train(task, resume="true", steps=5)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["error"], "LichtFeld Studio cannot continue a model. Start the training over.")
 
     def test_continuing_may_set_grow_until_after_the_models_steps_or_keep_the_models(self):
         task = make_task(self.user)

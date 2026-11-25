@@ -26,8 +26,9 @@ joins older holes.
 2. LichtFeld Studio as a second trainer: plan phase 2 (the trainer-neutral node) with the user. The spike is done
    (2026-11-24, branch `lichtfeld-spike`: `dev/lichtfeld/Dockerfile`, results in "19. Other trainers (research)").
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
-   continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 planned
-   2026-11-24: "21. A trainer-neutral node (planned)"; next, build it.
+   continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
+   2026-11-24 (section 21, branch `trainer-neutral`). Next: plan phase 3 (the LichtFeld node, with the exposure
+   correction baked into its `.ply`) with the user.
 
 **Then**
 
@@ -4130,7 +4131,7 @@ default.
   OpenSplat's is. It is part of phase 3 (the LichtFeld node), with its result scored as the spike scored the
   others (the baked `.ply` against LichtFeld's own corrected evaluation).
 
-### 21. A trainer-neutral node (planned 2026-11-24)
+### 21. A trainer-neutral node (built 2026-11-24, branch trainer-neutral)
 
 Phase 2 of section 19: the node and the plugin stop assuming OpenSplat, with no change for an OpenSplat node's
 users. LichtFeld's own adapter, image and presets are phases 3 and 4.
@@ -4170,6 +4171,16 @@ options and from each comment; Continue refused across trainers; skipped options
 node 0.3.0, and the pages with a stand-in node whose `/info` says another trainer.
 
 **Docs**: the API page (`/info`, the job record), Using SplatMe (Continue's rule), the node's page (the kind).
+
+Built as planned: `node/splatnode.py` (the `OpenSplat` adapter, `TRAINERS`, node 0.3.0), `training.py`
+(`trained_steps`, `trained_kind`, `node_view`, `skipped_options`), `api.py` (`check`'s and `automation`'s `node`),
+`trainingView.js` (`trainerView`, `continueState`), the forms and `options.html`. Tests: node (kind, `/info`,
+`trained_steps`, an unknown kind), Django (7: skipped options and Ignore Sky, the check's node, saved options
+cleared, steps from options and either header, Continue across trainers), Jest (5). Live on the dev stack: an
+OpenSplat training (3,000 steps) and a Continue (to 4,000) on node 0.3.0, Edit Splats offered; the Train dialog,
+SplatMe → Settings and Administration → SplatMe with the node's answer replaced by a LichtFeld node's. The "log"
+of a skipped option is WebODM's log (`app.logger`): the trainer's log is the node's. The plugin still asks for
+node 0.2.3 at least (`CURRENT_VERSION`): 0.3.0 adds nothing an OpenSplat user sees.
 
 ### 20. Steps from the number of photos (research, later)
 

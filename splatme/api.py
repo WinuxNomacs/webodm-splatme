@@ -3,7 +3,9 @@ The plugin's API, under /api/plugins/splatme/.
 
     POST task/<id>/train     starts training; options steps, image_size, max_gaussians, sh_degree, densify_until
     GET  task/<id>/status    the task's job, and whether the task has a splat model
-    GET  task/<id>/check     before training: why the task or the node cannot train, warnings, the options' ranges
+    GET  task/<id>/check     before training: why the task or the node cannot train, warnings, the options' ranges,
+                             the node's trainer (node: trainer_kind, supports, ranges) and the trainer of the task's
+                             model (trained_kind)
     POST task/<id>/cancel    stops the task's job
     GET  task/<id>/log       the trainer's output from ?offset= on (the next offset is in X-Log-Offset)
     GET  node                the splat node's state and its address (for administrators also whether a token is set)
@@ -12,10 +14,10 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/auto      whether the task is trained when it completes, and with which options
     POST task/<id>/auto      sets that for the task (enabled and the options)
     GET  automation          the options SplatMe's panel starts with for the user's new task: their own (own true)
-                             or the administrators'; with ?ranges=1 also the node's range of each option (the
-                             panel is filled before the task exists)
+                             or the administrators'; with ?ranges=1 also the node's range of each option and its
+                             trainer (node, as check has it; the panel is filled before the task exists)
     POST automation          saves the user's own options; with reset true, drops them
-    GET  automation/shared   the administrators' options, for users who saved none of their own
+    GET  automation/shared   the administrators' options, for users who saved none of their own (?ranges=1 as above)
     POST automation/shared   sets them (administrators)
     GET  task/<id>/edits     the task's splat edits (edits.py) in its trained model's frame, why it cannot be edited
                              (editable), its last Apply Edits, whether its model was made with them (applied) and, for
@@ -64,7 +66,7 @@ logger = logging.getLogger("app.logger")
 # What a page may know of a job: not its run id, nor the node's job
 PUBLIC = (
     "state", "progress", "status", "error", "options", "user", "auto", "started", "finished", "sky_masks", "cropped",
-    "time_left", "thermal", "edited", "edits_error", "times", "earlier_training", "resume",
+    "time_left", "thermal", "edited", "edits_error", "times", "earlier_training", "resume", "skipped",
 )  # fmt: skip
 # What a page may know of an Apply Edits
 APPLY_PUBLIC = ("state", "status", "error", "user", "started", "finished", "cropped", "edited")
@@ -154,17 +156,19 @@ class Check(TaskView):
     def get(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
         out = {
-            "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None,
+            "problem": training.problem(task), "warnings": [], "node_error": None, "ranges": None, "node": None,
             "defaults": training.DEFAULTS, "has_splats": "splats.rad" in task.available_assets,
-            "trained_steps": training.trained_steps(task), "boundary": bool(crop.boundary(task)),
+            "trained_steps": training.trained_steps(task), "trained_kind": training.trained_kind(task),
+            "boundary": bool(crop.boundary(task)),
             "trained_grow_until": (training.trained_options(task) or {}).get("densify_until"),
             "thermal": thermal.is_thermal(task), "photo_sizes": training.photo_sizes(task),
         }  # fmt: skip
         if out["problem"] is None:
             out["warnings"] = training.warnings(task)
         try:
-            info = training.get_node().check()
-            out["ranges"] = {name: info["options"][name] for name in training.NODE_OPTIONS if name in info["options"]}
+            # The node's trainer: what the form shows, and whether the task's model can be continued on it
+            out["node"] = training.node_view(training.get_node().check())
+            out["ranges"] = out["node"]["ranges"]
         except NodeError as e:
             # Only an administrator can fix the node, and its address is theirs to know
             out["node_error"] = str(e) if request.user.is_superuser else UNAVAILABLE
@@ -420,6 +424,14 @@ class ModelApply(TaskView):
                          "applied": meshes.shown_current(task.id)})
 
 
+def with_node(request, out):
+    """With ?ranges=1, the node's trainer and range of each option added to an answer (None when it does not answer)."""
+    if is_true(request.query_params.get("ranges")):
+        out["node"] = training.node_trainer()
+        out["ranges"] = out["node"]["ranges"] if out["node"] else None
+    return out
+
+
 class Automation(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -431,10 +443,7 @@ class Automation(APIView):
         return out
 
     def get(self, request):
-        out = self.describe(request)
-        if is_true(request.query_params.get("ranges")):
-            out["ranges"] = training.node_ranges()
-        return Response(out)
+        return Response(with_node(request, self.describe(request)))
 
     def post(self, request):
         if is_true(request.data.get("reset")):
@@ -456,7 +465,7 @@ class SharedAutomation(APIView):
         return out
 
     def get(self, request):
-        return Response(self.describe(request))
+        return Response(with_node(request, self.describe(request)))
 
     def post(self, request):
         if not request.user.is_superuser:

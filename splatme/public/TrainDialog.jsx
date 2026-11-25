@@ -4,7 +4,7 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, DEFAULT_PALETTE } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, continueState, trainerView, DEFAULT_PALETTE } from './trainingView';
 import StagesTable from './StagesTable';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
@@ -28,7 +28,7 @@ export default class TrainDialog extends React.Component {
         request("GET", "task/" + this.props.taskId + "/check").then(check => {
             if (!this._mounted) return;
             const defaults = check.defaults || {};
-            const trained = check.trained_steps || 0;
+            const trained = continueState(check).can ? check.trained_steps : 0;
             this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)}});
         }).catch(e => {
             if (this._mounted) this.setState({check: {}, error: e.message});
@@ -50,7 +50,7 @@ export default class TrainDialog extends React.Component {
         const check = known;
         const { options, error } = this.state.resume ?
             continueFromForm(this.state.more, check.trained_steps, check.ranges, this.state.growUntil) :
-            optionsFromForm(this.state.form, check.ranges);
+            optionsFromForm(this.state.form, check.ranges, check.node);
         if (error){
             this.setState({error: _(error), advanced: !this.state.resume});
             return;
@@ -66,7 +66,9 @@ export default class TrainDialog extends React.Component {
     render(){
         const { check, error, starting, advanced, form, resume, more, growUntil } = this.state;
         const blocked = !check || !!check.problem || !!check.node_error;
-        const trained = (check || {}).trained_steps || 0;
+        const cont = continueState(check);
+        const trained = cont.can ? check.trained_steps : 0;  // a model that cannot be continued here starts over
+        const view = trainerView((check || {}).node);
         const total = trained + (/^\d+$/.test(String(more).trim()) ? parseInt(more, 10) : 0);
         const modelGrowUntil = (check || {}).trained_grow_until;  // the model's Grow Until, when it was set
         const growRange = growUntilRange(trained, total - trained);
@@ -87,6 +89,7 @@ export default class TrainDialog extends React.Component {
                     <div key={i} className="alert alert-warning"><i className="fa fa-exclamation-triangle"></i> {warning}</div>)}
                 {check && check.has_splats && !blocked && !resume ?
                     <div className="alert alert-info">{_("This task already has a splat model. The new one replaces it when the training succeeds.")}</div> : ""}
+                {cont.note && !blocked ? <div className="alert alert-info">{_(cont.note)}</div> : ""}
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleStart(); }}>
                     {trained > 0 && !blocked ?
@@ -106,7 +109,7 @@ export default class TrainDialog extends React.Component {
                             <div className="col-sm-8">
                                 <input type="number" min="1" className="form-control splatme-more-steps" id="splatme-more-steps" value={more}
                                        onChange={e => this.setState({more: e.target.value, error: null})} />
-                                {stepsGrow(total, trained, String(growUntil).trim() || modelGrowUntil) ?
+                                {!view.opensplat ? "" : stepsGrow(total, trained, String(growUntil).trim() || modelGrowUntil) ?
                                     <StagesTable total={total} from={trained} growUntil={String(growUntil).trim() || modelGrowUntil} /> :
                                     <p className="help-block">{_("The model grows no more in these steps: they refine it. Grow Until makes it grow again.")}</p>}
                                 <span className="help-block">
@@ -114,7 +117,7 @@ export default class TrainDialog extends React.Component {
                                 </span>
                             </div>
                         </div> : ""}
-                    {resume && !blocked ?
+                    {resume && !blocked ? !view.has("densify_until") ? "" :
                         <div className="form-group">
                             <label className="col-sm-4 control-label" htmlFor="splatme-grow-until">{_("Grow Until")}</label>
                             <div className="col-sm-8">
@@ -128,7 +131,7 @@ export default class TrainDialog extends React.Component {
                                 </span>
                             </div>
                         </div> :
-                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} photoSizes={(check || {}).photo_sizes} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
+                        <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} photoSizes={(check || {}).photo_sizes} node={(check || {}).node} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>
         );

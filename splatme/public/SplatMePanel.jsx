@@ -15,6 +15,7 @@ export default class SplatMePanel extends React.Component {
         showCrop: PropTypes.bool,               // false for a task known to have no boundary
         thermal: PropTypes.bool,                // the photos picked are TIFFs (DJI Thermal Analyzer's)
         photoSizes: PropTypes.array,            // the first photo's size, [[width, height]], once read
+        node: PropTypes.object,                 // the splat node's trainer, once it answered (OptionsFields)
         onEnabled: PropTypes.func.isRequired,   // (enabled)
         onChange: PropTypes.func.isRequired,    // (name, value)
         onAdvanced: PropTypes.func.isRequired   // (open)
@@ -34,7 +35,7 @@ export default class SplatMePanel extends React.Component {
                     </label>
                 </div>
                 {enabled ?
-                    <OptionsFields form={form} advanced={advanced} showCrop={this.props.showCrop} thermal={!!this.props.thermal} photoSizes={this.props.photoSizes}
+                    <OptionsFields form={form} advanced={advanced} showCrop={this.props.showCrop} thermal={!!this.props.thermal} photoSizes={this.props.photoSizes} node={this.props.node}
                                    onChange={this.props.onChange} onAdvanced={this.props.onAdvanced} /> : ""}
             </div>
         );

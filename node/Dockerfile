@@ -41,6 +41,7 @@ ENV LD_LIBRARY_PATH=/opt/libtorch/lib \
     PYTHONUNBUFFERED=1 \
     SPLATNODE_DATA=/var/splatnode \
     SPLATNODE_TRAINER=/opt/opensplat/opensplat \
+    SPLATNODE_TRAINER_KIND=opensplat \
     SPLATNODE_PORT=3100
 # The image's own unprivileged user (ubuntu, 1000)
 RUN mkdir -p /var/splatnode && chown ubuntu:ubuntu /var/splatnode

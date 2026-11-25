@@ -22,9 +22,9 @@ Its API ([node/splatnode.py](https://github.com/WinuxNomacs/webodm-splatme/blob/
 | Request | Does |
 |---|---|
 | `GET /health` | Whether the node works (no token needed): 503 when its worker has stopped |
-| `GET /info` | The node, its trainer, its GPU, its queue and the options a job accepts |
+| `GET /info` | The node, its trainer (`trainer`, its version; `trainer_kind`, `opensplat`; `supports`, whether it takes `masks` and can `continue` a model: node 0.3.0), its GPU, its queue and the options a job accepts |
 | `POST /jobs?steps=7000` | Starts a job; the body is a WebODM splats training zip. Options: `steps`, `max_gaussians`, `sh_degree`, `downscale`, `densify_until` (node 0.2.3: OpenSplat's `--densify-until`, at most `steps` - 3,000). Masks in the zip (`masks/<image's name>.png`, black is ignored) are applied. A zip that also holds `resume.ply` (an earlier job's result) continues that model: `steps` is then the total. `ref=<name>` (up to 64 letters, digits, `-` or `_`) is kept with the job |
-| `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error; `GET /jobs?ref=<name>` lists the jobs with that ref |
+| `GET /jobs`, `GET /jobs/<id>` | State (`queued`, `running`, `completed`, `failed`, `canceled`), progress, error, and once completed `trained_steps`, the steps its model was trained to (node 0.3.0); `GET /jobs?ref=<name>` lists the jobs with that ref |
 | `GET /jobs/<id>/log?offset=<bytes>` | The trainer's output from that byte on |
 | `GET /jobs/<id>/result` | The trained model (`.ply`, which WebODM converts for its viewer) |
 | `POST /jobs/<id>/cancel`, `DELETE /jobs/<id>` | Stops a job; deletes it |

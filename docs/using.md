@@ -63,7 +63,8 @@
     again, or fewer, adds no gaussians (the dialog says so in place of the steps table). To grow it again, set
     **Grow Until** from 1,000 steps after the model's to 3,000 before the new total (4,000 more steps at least). A model that lacks detail everywhere is still better
     started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
-    be continued. A task processed again while its splats train has that training canceled (its model would not
+    be continued, and so does a splat node that trains with another trainer than the one that made the model: the
+    dialog then says so and starts over. A task processed again while its splats train has that training canceled (its model would not
     fit the new results), and is trained again on the new results when it is set to Train Splats When Completed.
 
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
