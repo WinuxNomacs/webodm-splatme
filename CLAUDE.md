@@ -75,6 +75,8 @@ it short; edit in place.
   can't survive exits the process for Docker to restart. Keep it so: a change to it adds a test in `node/tests`
   that makes its failure happen. OpenSplat's output is parsed against `node/tests/opensplat-output.txt` (a real
   run) and `opensplat-out-of-memory.txt` (from the pinned libtorch): capture both again when the pin changes.
+  `lichtfeld.Dockerfile` is the same node with LichtFeld Studio (its own build at a pinned commit, its install
+  rules, then a runtime stage; `docker build -f node/lichtfeld.Dockerfile -t splatme-node-lichtfeld:dev node`).
 - **Every release is reviewed first, unless the user says otherwise for that release**: the code for bugs and
   weak areas to harden, and the documentation for accuracy and for saying only what helps its reader. The
   `release-review` skill in `.claude/skills` has the procedure; its findings go to the user, who decides which
