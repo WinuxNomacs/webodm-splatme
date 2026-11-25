@@ -33,7 +33,9 @@ joins older holes.
 
 **Then**
 
-(nothing yet)
+1. Editing ideas from LichtFeld Studio and Splatshop (asked 2026-11-24), after phase 3 (the LichtFeld node) is
+   built and merged; planned with the user then. First: clone patches that fill holes (E1). See "23. Editing ideas
+   from LichtFeld Studio and Splatshop (proposed)".
 
 **Later**
 
@@ -4274,3 +4276,51 @@ What it builds on and must answer, when it is planned:
   (photos x Image Size x steps), scored on held-out photos as the spike does (LichtFeld's `eval` scores any `.ply`).
 - The answer may depend on the trainer, if section 19 adds one: the study is run per trainer.
 - What the user sees from it (a recommended Quality, a warning, a default) is decided after the numbers.
+
+### 23. Editing ideas from LichtFeld Studio and Splatshop (proposed)
+
+**Asked 2026-11-24**, from a research question (can LichtFeld Studio, Brush or nerfstudio's UI be used in or in
+place of SplatMe's editor): no. LichtFeld Studio (GPL-3.0, C++23 with RmlUi, NVIDIA and CUDA 12.8+) and Splatshop
+(MIT, C++ with ImGui and CUDA, an academic prototype, last commit 2025-06-21) are native apps; Brush (Apache-2.0,
+Rust with egui, WASM and WebGPU, Chrome and Edge only) has no editing tools; nerfstudio's viewer (viser,
+Apache-2.0) needs a Python websocket server and edits only an export's crop box. Their ideas are taken, not their
+code. Sources: the READMEs of https://github.com/MrNeRF/LichtFeld-Studio (v0.5.4.3, 2026-11-23) and
+https://github.com/m-schuetz/Splatshop, read through the GitHub API on 2026-11-24; the tools were not seen running.
+
+**Proposed phases** (the order is the user's: E1 first; the rest to be ordered when planned):
+
+- **E1. Clone patches that fill holes (first).** Splatshop's way (its README, "Delete and Duplicate"): select a good
+  patch, duplicate it, move it over the hole, repeat with varied patches until the hole is covered; overlapping
+  lighter and darker patches blend into a near-seamless transition. The copy itself covers the hole.
+  - Builds on: the model's Clone Texture stamp (section 14, R6), which retextures the triangles under it and fills
+    only the holes whose whole rim it covers; Fill Holes' detailed fills (R4), textured from a ring around the hole.
+    Edit Splats has no edit that adds splats: every edit removes, restores or recolours (`edits.py`).
+  - On the 3D model: a stamp that fills any hole it overlaps, partly covered or not, with a surface on the stamp's
+    plane textured from the source, later stamps blending into earlier ones across the feather. Copying the source's
+    triangles as they are would overlap the surface (z-fighting) where there is no hole.
+  - On the splats: a Clone tool on Edit Splats: a source shape (box, sphere or lasso), its splats copied and placed
+    (a move and a turn about the vertical, repeated), applied on the server after the removals, as the other edits
+    are. Overlapping splats blend on their own, as in Splatshop. A turn also has to turn each splat's rotation and
+    its spherical harmonics (f_rest): the first is simple; for the second, rotating the coefficients or dropping
+    them on the copies is to be measured.
+- **E2. A spherical brush on Edit Splats** (Splatshop, LichtFeld): a sphere on the surface under the pointer, so a
+  stroke takes a floater in front of a roof without the roof, or the walls and ground behind it. The Brush now is
+  a circle on the screen through to the back (`editShapes.js` `insideBrush`); the model's surface brush (R7) is the
+  same idea on the mesh. LichtFeld's depth box (any tool limited to a depth range, so the Lasso need not cut through
+  to the back) answers the same problem for the shapes.
+- **E3. Floaters by value** (LichtFeld): a ring selection for large, transparent Gaussians, and a histogram of
+  opacity and scale to choose them by value, beside Remove Floaters' fixed strengths (`edits.py`, `cKDTree`).
+- **E4. Selections combined** (LichtFeld): Shift adds, Ctrl removes, Alt intersects; colour and sphere selection.
+  SplatMe's edits are an ordered list of shapes (Remove, Restore, Keep Inside), not a selection: whether to add a
+  selection model, or map these to the list (an intersection has no equivalent there), is a design question.
+- **Not proposed: three-point alignment** (LichtFeld, Splatshop): for the reason Level Ground and Set North were
+  dropped (section 10, 2026-11-19): a task's splats are in its projection, already level and north-up, and turning
+  them would part them from the task's point cloud, mesh and boundary.
+
+**Open decisions (for the user, when planned):**
+
+- E1: on the 3D model, on the splats, or both, and which first.
+- E1 on the splats: the copies' spherical harmonics when turned (rotated, or dropped to the base colour).
+- E2: a sphere brush only, or a depth limit for every tool too.
+- E4: a selection model, or shortcuts on the edit list.
+- Which of E2 to E4 to build, and in what order.
