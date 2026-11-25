@@ -263,6 +263,22 @@ class TestSplatNode(NodeTestCase):
         info = self.request("GET", "/info")[1]
         self.assertEqual(info["trainer"], "OpenSplat 9.9.9")
         self.assertEqual(info["options"]["steps"], {"min": 1, "max": 200000, "default": 7000})
+        self.assertEqual(info["trainer_kind"], "opensplat")
+        self.assertEqual(info["supports"], {"masks": True, "continue": True})
+
+    def test_a_completed_job_says_the_steps_its_model_was_trained_to(self):
+        job = self.wait(self.create("steps=40")["id"])
+        self.assertEqual((job["state"], job["trained_steps"]), ("completed", 40))
+
+    def test_an_unknown_trainer_kind_stops_the_node_at_start_and_names_the_kinds(self):
+        said = []
+        with mock.patch.dict(os.environ, {"SPLATNODE_TRAINER_KIND": "brush", "SPLATNODE_DATA": self.data}), \
+                mock.patch.object(splatnode, "log", said.append), mock.patch.object(splatnode, "make_server") as made, \
+                self.assertRaises(SystemExit) as stopped:
+            splatnode.main()
+        self.assertEqual(stopped.exception.code, 2)
+        made.assert_not_called()
+        self.assertEqual(said, ["SPLATNODE_TRAINER_KIND='brush' is not a trainer this node has (opensplat)"])
 
     def test_info_asks_the_trainer_its_version_once_and_answers_while_the_jobs_are_locked(self):
         node = self.server.node

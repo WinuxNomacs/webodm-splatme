@@ -3,6 +3,19 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
+## Unreleased
+
+Ready for splat nodes that train with another trainer than OpenSplat (splat node 0.3.0 says which; an older node
+counts as OpenSplat, and nothing changes for it).
+
+- The forms show only the options the node's trainer has; Ignore Sky only when it takes masks; OpenSplat's steps
+  table and times only with OpenSplat. An option saved for another trainer (Grow Until, in SplatMe → Settings or a
+  task's Change dialog) is left out of a training, which names it, instead of refusing to start; saving the form
+  clears it.
+- **Continue From Step** is offered only when the node's trainer made the task's model.
+- A model's steps are read from what SplatMe keeps with it, not from OpenSplat's comment in the `.ply`: Edit Splats
+  takes any trainer's model.
+
 ## 0.4.0 (2026-11-23)
 
 Cleaning up WebODM's textured 3D model, and better splat training. Needs splat node 0.2.3 for Grow Until (an older

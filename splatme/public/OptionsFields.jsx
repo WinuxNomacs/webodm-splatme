@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST, trainerView } from './trainingView';
 import StagesTable from './StagesTable';
 import ImageSizeTable from './ImageSizeTable';
 
@@ -17,7 +17,8 @@ export default class OptionsFields extends React.Component {
         onAdvanced: PropTypes.func.isRequired, // (open)
         showCrop: PropTypes.bool,              // false for a task known to have no boundary
         thermal: PropTypes.bool,               // a thermal task: Thermal Colours, and no Ignore Sky
-        photoSizes: PropTypes.array            // the task's photo sizes, [[width, height]], when known: the Image Size table
+        photoSizes: PropTypes.array,           // the task's photo sizes, [[width, height]], when known: the Image Size table
+        node: PropTypes.object                 // the splat node's trainer (trainerView), when it answered
     };
 
     constructor(props){
@@ -47,8 +48,12 @@ export default class OptionsFields extends React.Component {
 
     render(){
         const { form, advanced } = this.props;
+        const view = trainerView(this.props.node);
         const key = presetOfSteps(form.steps);
         const preset = PRESETS.find(p => p.key === key);
+        // The presets' hints and the steps notes describe OpenSplat's times and schedule
+        const general = _("More steps give a sharper model and take longer.");
+        const qualityHint = !view.opensplat ? general : preset ? _(preset.hint) : _(stepsNote(form.steps) || "More steps give a sharper model and take longer.");
         return (
             <React.Fragment>
                 <div className="form-group">
@@ -58,7 +63,7 @@ export default class OptionsFields extends React.Component {
                             {PRESETS.map(p => <option key={p.key} value={p.key}>{_(p.label) + " (" + p.steps.toLocaleString() + " " + _("steps") + ")"}</option>)}
                             <option value="custom">{_("Custom")}</option>
                         </select>
-                        <span className="help-block">{preset ? _(preset.hint) : _(stepsNote(form.steps) || "More steps give a sharper model and take longer.")}</span>
+                        <span className="help-block">{qualityHint}</span>
                     </div>
                 </div>
                 {this.props.thermal ?
@@ -70,7 +75,7 @@ export default class OptionsFields extends React.Component {
                             </select>
                             <span className="help-block">{_("The colours the temperatures are drawn in, which the model shows. They run from the task's coldest to its hottest, the same in every photo.")}</span>
                         </div>
-                    </div> :
+                    </div> : !view.masks ? "" :
                 <div className="form-group">
                     <div className="col-sm-8 col-sm-offset-4">
                         <div className="checkbox"><label>
@@ -99,10 +104,12 @@ export default class OptionsFields extends React.Component {
                 </div>
                 {advanced ?
                     <React.Fragment>
-                        {this.numberField("steps", _("Steps"), _(STEPS_HINT), "", <StagesTable total={form.steps} growUntil={form.densify_until} />)}
+                        {view.opensplat ?
+                            this.numberField("steps", _("Steps"), _(STEPS_HINT), "", <StagesTable total={form.steps} growUntil={form.densify_until} />) :
+                            this.numberField("steps", _("Steps"), _("How long the trainer works on the model.") + " " + general, "")}
                         {this.numberField("image_size", _("Image Size"), _("The photos' longer side in pixels as the trainer sees them. Larger photos are scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost. GPU memory depends on it most: lower it when the GPU runs out of memory. Blank keeps the photos as they are."), _("Full size"), <ImageSizeTable photoSizes={this.props.photoSizes} imageSize={form.image_size} />)}
-                        {this.numberField("max_gaussians", _("Max Gaussians"), _("The most gaussians the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit"))}
-                        {this.numberField("densify_until", _("Grow Until"), _(GROW_UNTIL_HINT), _("Half the steps, at most 15,000"))}
+                        {view.has("max_gaussians") ? this.numberField("max_gaussians", _("Max Gaussians"), _("The most gaussians the model may grow to, a limit for very large scenes. When the GPU runs out of memory, lower Image Size first."), _("The trainer's own limit")) : ""}
+                        {view.has("densify_until") ? this.numberField("densify_until", _("Grow Until"), _(GROW_UNTIL_HINT), _("Half the steps, at most 15,000")) : ""}
                     </React.Fragment> : ""}
             </React.Fragment>
         );

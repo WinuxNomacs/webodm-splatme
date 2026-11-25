@@ -26,7 +26,7 @@ export default class AutoDialog extends React.Component {
         this._mounted = true;
         // The node's ranges, to name a wrong number before saving; without them the server still checks
         request("GET", "task/" + this.props.taskId + "/check").then(check => {
-            if (this._mounted) this.setState({ranges: check.ranges, showCrop: !!check.boundary, thermal: !!check.thermal, photoSizes: check.photo_sizes});
+            if (this._mounted) this.setState({ranges: check.ranges, node: check.node, showCrop: !!check.boundary, thermal: !!check.thermal, photoSizes: check.photo_sizes});
         }).catch(() => {});
     }
 
@@ -36,7 +36,7 @@ export default class AutoDialog extends React.Component {
 
     handleSave = () => {
         if (this.state.saving) return;  // Enter in a field submits the form too
-        const { options, error } = optionsFromForm(this.state.form, this.state.ranges);
+        const { options, error } = optionsFromForm(this.state.form, this.state.ranges, this.state.node);
         if (error && this.state.enabled){
             this.setState({error: _(error), advanced: true});
             return;
@@ -74,7 +74,7 @@ export default class AutoDialog extends React.Component {
                         </div>
                     </div>
                     {enabled ?
-                        <OptionsFields form={form} advanced={advanced} showCrop={showCrop} thermal={!!thermal} photoSizes={this.state.photoSizes}
+                        <OptionsFields form={form} advanced={advanced} showCrop={showCrop} thermal={!!thermal} photoSizes={this.state.photoSizes} node={this.state.node}
                                        onChange={(name, value) => this.setState({form: {...form, [name]: value}, error: null})}
                                        onAdvanced={open => this.setState({advanced: open})} /> : ""}
                 </form>

@@ -191,15 +191,17 @@ export function panelMode(status){
 
 // The dialog's fields as the options of a training request, or {error} naming the field that is wrong.
 // ranges: the splat node's {min, max} per option (api.py's check), when it is known
-export function optionsFromForm(form, ranges){
+export function optionsFromForm(form, ranges, node){
     const fields = [
         {name: "steps", label: "Steps", required: true},
         {name: "image_size", label: "Image Size", required: false, zero: true, blank: 0},  // blank: full size
-        {name: "max_gaussians", label: "Max Gaussians", required: false},
-        {name: "densify_until", label: "Grow Until", required: false, range: {min: GROW_AT_LEAST, max: 200000}}
+        {name: "max_gaussians", label: "Max Gaussians", required: false, optional: true},
+        {name: "densify_until", label: "Grow Until", required: false, optional: true, range: {min: GROW_AT_LEAST, max: 200000}}
     ];
+    const view = trainerView(node);
     const options = {};
     for (const field of fields){
+        if (field.optional && !view.has(field.name)) continue;  // hidden: the node's trainer has no such option
         const text = String(form[field.name] == null ? "" : form[field.name]).trim();
         if (text === ""){
             if (field.required) return {error: field.label + " is needed."};
@@ -218,10 +220,45 @@ export function optionsFromForm(form, ranges){
         if (options.steps < GROW_AT_LEAST + AFTER_GROWING) return {error: "Grow Until needs Steps of " + (GROW_AT_LEAST + AFTER_GROWING) + " or more."};
         return {error: "Grow Until is at most " + (options.steps - AFTER_GROWING) + ": " + AFTER_GROWING + " less than Steps."};
     }
-    if (form.ignore_sky) options.ignore_sky = true;
+    if (form.ignore_sky && view.masks) options.ignore_sky = true;
     if (form.crop === false) options.crop = false;
     if (form.palette && form.palette !== DEFAULT_PALETTE) options.palette = form.palette;
     return {options};
+}
+
+// The trainers a splat node may run (its trainer_kind), as the pages name them
+export const TRAINER_LABELS = {opensplat: "OpenSplat", lichtfeld: "LichtFeld Studio"};
+const trainerLabel = kind => TRAINER_LABELS[kind] || kind;
+
+// What the options forms show for the splat node's trainer. node: the "node" of task/<id>/check or automation
+// ({trainer_kind, supports, ranges}), or null when the node did not answer (everything shows; the server checks).
+// opensplat: OpenSplat's schedule is described (the presets' times, the stage table, the steps notes); has(name): the
+// node has that option; masks: Ignore Sky; continues: a model can be continued.
+export function trainerView(node){
+    const n = node || {};
+    const supports = n.supports || {};
+    return {
+        kind: n.trainer_kind || "opensplat",
+        opensplat: !n.trainer_kind || n.trainer_kind === "opensplat",
+        masks: supports.masks !== false,
+        continues: supports.continue !== false,
+        has: name => !n.ranges || Object.prototype.hasOwnProperty.call(n.ranges, name)
+    };
+}
+
+// Whether the task's model can be continued (check: task/<id>/check's answer): {can, note}, note saying why not when
+// it has a model the node cannot continue (made by another trainer, or a trainer that does not continue models)
+export function continueState(check){
+    const c = check || {};
+    if (!c.trained_steps) return {can: false, note: ""};
+    if (!c.node) return {can: true, note: ""};  // the node did not answer: the dialog says so, and nothing starts
+    const view = trainerView(c.node);
+    const made = c.trained_kind || "opensplat";
+    if (made !== view.kind){
+        return {can: false, note: "This task's model was trained with " + trainerLabel(made) + ", and the splat node trains with " + trainerLabel(view.kind) + ": the training starts over."};
+    }
+    if (!view.continues) return {can: false, note: trainerLabel(view.kind) + " cannot continue a model: the training starts over."};
+    return {can: true, note: ""};
 }
 
 // Continuing a trained model: the More Steps and Grow Until fields as a training request, or {error}.
@@ -304,6 +341,12 @@ export function thermalText(drawn, imperial){
         temperatureText(drawn.low, imperial) + " to " + temperatureText(drawn.high, imperial) + ".";
 }
 
+// The options a training left out, as the splat node's trainer does not have them (saved for another trainer)
+function skippedText(job){
+    const skipped = job.skipped || [];
+    return skipped.length ? " Left out, as the splat node's trainer does not have " + (skipped.length === 1 ? "it" : "them") + ": " + skipped.join(", ") + "." : "";
+}
+
 // How a finished job is summed up beside the button, or "" when there is nothing to say.
 // imperial: temperatures in Fahrenheit (WebODM's unit system)
 export function resultText(job, imperial){
@@ -315,7 +358,7 @@ export function resultText(job, imperial){
         const sky = job.sky_masks == null ? "" : job.sky_masks > 0 ?
             " Sky ignored in " + Number(job.sky_masks).toLocaleString("en-US") + (job.sky_masks === 1 ? " photo." : " photos.") :
             " No photo shows the sky.";
-        const rest = (job.cropped ? " Cropped to the task's boundary." : "") + (job.thermal ? " " + thermalText(job.thermal, imperial) : "");
+        const rest = (job.cropped ? " Cropped to the task's boundary." : "") + (job.thermal ? " " + thermalText(job.thermal, imperial) : "") + skippedText(job);
         const times = job.times;
         if (!times || times.training == null){
             // A record of SplatMe 0.3 or before: from the request to the end
@@ -336,7 +379,7 @@ export function resultText(job, imperial){
             (masking >= 1 ? " Finding the sky took " + duration(masking) + "." : "") +
             (other >= 1 ? " Preparing, transfers and waiting took " + duration(other) + "." : "") + rest;
     }
-    if (job.state === "failed") return "Training failed: " + (job.error || "see the log.");
+    if (job.state === "failed") return "Training failed: " + (job.error || "see the log.") + skippedText(job);
     // A training SplatMe stopped itself (the task was processed again) says why
     if (job.state === "canceled") return job.error ? "Training canceled: " + job.error : "Training canceled.";
     return "";

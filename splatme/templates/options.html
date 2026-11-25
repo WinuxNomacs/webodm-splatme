@@ -33,7 +33,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
                 <tbody><tr><td style="text-align: center;"></td><td style="text-align: center;"><span></span><br><small></small></td>
                     <td style="text-align: center;"></td><td style="text-align: center;"></td></tr></tbody>
             </table>
-            <span class="help-block">How long the trainer works on the model. It grows the model in the first half of
+            <span class="help-block" id="splatme-auto-steps-hint">How long the trainer works on the model. It grows the model in the first half of
                 the steps, up to step 15,000 unless Grow Until says otherwise, then refines it.</span>
         </div>
     </div>
@@ -47,7 +47,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
                 are.</span>
         </div>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="splatme-auto-gaussians-row">
         <label class="col-sm-3 control-label" for="splatme-auto-gaussians">Max Gaussians</label>
         <div class="col-sm-9">
             <input type="number" min="1" class="form-control" id="splatme-auto-gaussians" placeholder="The trainer's own limit">
@@ -55,7 +55,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
                 runs out of memory, lower Image Size first.</span>
         </div>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="splatme-auto-grow-row">
         <label class="col-sm-3 control-label" for="splatme-auto-grow">Grow Until</label>
         <div class="col-sm-9">
             <input type="number" min="1000" class="form-control" id="splatme-auto-grow" placeholder="Half the steps, at most 15,000">
@@ -70,7 +70,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
             <span class="help-block">For a task processed with a boundary (a GeoJSON file): the splats outside it are left out, as they are of the point cloud and the mesh.</span>
         </div>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="splatme-auto-sky-row">
         <div class="col-sm-9 col-sm-offset-3">
             <div class="checkbox"><label><input type="checkbox" id="splatme-auto-sky"> Ignore Sky</label></div>
             <span class="help-block">For photos that show the sky: the training leaves it out, so it does not become haze around the model. Finding it takes a few minutes more.</span>
@@ -147,8 +147,24 @@ shared (the admin page) the administrators', for users who saved none, which onl
         });
     }
 
+    // The splat node's trainer (api.py's node_view), once it answered: as public/trainingView.js's trainerView, the
+    // texts of OpenSplat's schedule only with OpenSplat, a field only when the node has its option
+    var node = null;
+    function opensplat(){ return !node || !node.trainer_kind || node.trainer_kind === "opensplat"; }
+    function has(name){ return !node || !node.ranges || node.ranges.hasOwnProperty(name); }
+    function masks(){ return !node || !node.supports || node.supports.masks !== false; }
+    function showFields(){
+        document.getElementById("splatme-auto-gaussians-row").style.display = has("max_gaussians") ? "" : "none";
+        document.getElementById("splatme-auto-grow-row").style.display = has("densify_until") ? "" : "none";
+        document.getElementById("splatme-auto-sky-row").style.display = masks() ? "" : "none";
+        document.getElementById("splatme-auto-stages").style.display = opensplat() ? "" : "none";
+        document.getElementById("splatme-auto-steps-hint").textContent = opensplat() ?
+            "How long the trainer works on the model. It grows the model in the first half of the steps, up to step 15,000 unless Grow Until says otherwise, then refines it." :
+            "How long the trainer works on the model. " + HINTS.custom;
+    }
+
     function showHint(){
-        document.getElementById("splatme-auto-hint").textContent =
+        document.getElementById("splatme-auto-hint").textContent = !opensplat() ? HINTS.custom :
             quality.value === "custom" ? (stepsNote(steps.value) || HINTS.custom) : HINTS[quality.value];
         var cells = document.querySelectorAll("#splatme-auto-stages td");
         stagesCells(steps.value, grow.value).forEach(function(cell, i){
@@ -218,6 +234,8 @@ shared (the admin page) the administrators', for users who saved none, which onl
         sky.checked = !!options.ignore_sky;
         crop.checked = options.crop !== false;
         palette.value = options.palette || "gray";
+        if (data.node !== undefined) node = data.node;  // a save's answer has none: the node's stays
+        showFields();
         qualityOfSteps();
     }
 
@@ -254,11 +272,13 @@ shared (the admin page) the administrators', for users who saved none, which onl
     form.addEventListener("submit", function(e){
         e.preventDefault();
         save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value.trim() === "" ? 0 : size.value,
-            max_gaussians: gaussians.value, densify_until: grow.value, ignore_sky: sky.checked, crop: crop.checked, palette: palette.value});
+            // A field the node's trainer lacks is hidden, and saving clears it
+            max_gaussians: has("max_gaussians") ? gaussians.value : "", densify_until: has("densify_until") ? grow.value : "",
+            ignore_sky: masks() && sky.checked, crop: crop.checked, palette: palette.value});
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });
 
-    $.getJSON(API).done(show).fail(function(xhr){
+    $.getJSON(API + "?ranges=1").done(show).fail(function(xhr){
         state.innerHTML = "";
         state.appendChild(box("danger", "fa fa-exclamation-triangle", reason(xhr)));
     });

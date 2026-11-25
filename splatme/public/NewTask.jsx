@@ -41,8 +41,9 @@ export default class NewTask extends React.Component {
         window.addEventListener("beforeunload", this.handleLeave);
         request("GET", "automation?ranges=1").then(answer => {
             this.ranges = answer.ranges;
+            this.node = answer.node;
             if (!this._mounted) return;
-            this.setState({listening: answer.listening});
+            this.setState({listening: answer.listening, node: answer.node});
             this.change(this.touched ? {} : {form: formFromOptions(answer.options)});
         }).catch(() => {});
         this.readPhotoSize();
@@ -94,14 +95,14 @@ export default class NewTask extends React.Component {
     change(values){
         const next = Object.assign({}, this.state, values);
         // Photos SplatMe cannot train: a task trained when it completes would only fail then
-        const error = optionsFromForm(next.form, this.ranges).error || photoProblem(this.props.files);
+        const error = optionsFromForm(next.form, this.ranges, this.node).error || photoProblem(this.props.files);
         this.setState(Object.assign(values, {formError: next.enabled ? error && _(error) : null}));
     }
 
     // What POST task/<id>/auto is given, or null for a task not trained by itself
     setting(){
         if (!this.state.enabled) return null;
-        const { options, error } = optionsFromForm(this.state.form, this.ranges);
+        const { options, error } = optionsFromForm(this.state.form, this.ranges, this.node);
         return error || photoProblem(this.props.files) ? undefined : Object.assign({enabled: true}, options);
     }
 
@@ -234,7 +235,7 @@ export default class NewTask extends React.Component {
                             <div ref={el => { this.splatmePanel = el; }}>
                                 <SplatMePanel enabled={enabled} form={form} advanced={advanced} error={formError}
                                               warning={enabled && listening === false ? _(NOT_LISTENING) : null}
-                                              thermal={files.some(f => /\.tiff?$/i.test(f.name))} photoSizes={this.state.photoSizes}
+                                              thermal={files.some(f => /\.tiff?$/i.test(f.name))} photoSizes={this.state.photoSizes} node={this.state.node}
                                               onEnabled={value => { this.touched = true; this.change({enabled: value}); }}
                                               onChange={(name, value) => { this.touched = true; this.change({form: Object.assign({}, form, {[name]: value})}); }}
                                               onAdvanced={open => this.setState({advanced: open})} />

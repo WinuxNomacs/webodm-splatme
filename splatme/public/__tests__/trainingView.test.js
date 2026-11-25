@@ -1,4 +1,4 @@
-import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink } from "../trainingView";
+import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink, trainerView, continueState } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -457,5 +457,49 @@ describe("a task that just completed", () => {
 describe("the link to a task on the Dashboard", () => {
     it("shows only the task's project, with the task's panel open", () => {
         expect(dashboardLink(12, "ab-cd")).toBe("/dashboard/?id=12&project_task_open=12&project_task_expanded=ab-cd");
+    });
+});
+
+describe("the splat node's trainer", () => {
+    const lichtfeld = {trainer_kind: "lichtfeld", supports: {masks: true, continue: true}, ranges: {steps: {min: 1, max: 200000}}};
+
+    test("without the node's answer, or from a node before 0.3.0, the forms show everything, as for OpenSplat", () => {
+        for (const node of [null, {ranges: {steps: {min: 1, max: 9}, densify_until: {min: 1000, max: 9}}}]){
+            const view = trainerView(node);
+            expect([view.kind, view.opensplat, view.masks, view.continues]).toEqual(["opensplat", true, true, true]);
+            expect(view.has("densify_until")).toBe(true);
+        }
+    });
+
+    test("another trainer hides OpenSplat's texts and the options its node does not have", () => {
+        const view = trainerView(lichtfeld);
+        expect([view.kind, view.opensplat]).toEqual(["lichtfeld", false]);
+        expect([view.has("steps"), view.has("max_gaussians"), view.has("densify_until")]).toEqual([true, false, false]);
+        expect(trainerView({...lichtfeld, supports: {masks: false}}).masks).toBe(false);
+    });
+
+    test("a form leaves out the options the node lacks and Ignore Sky when it takes no masks, so saving clears them", () => {
+        const form = {steps: "30000", image_size: "1600", max_gaussians: "1000", densify_until: "9000", ignore_sky: true};
+        expect(optionsFromForm(form, lichtfeld.ranges, lichtfeld).options).toEqual({steps: 30000, image_size: 1600, ignore_sky: true});
+        expect(optionsFromForm(form, lichtfeld.ranges, {...lichtfeld, supports: {masks: false}}).options).toEqual({steps: 30000, image_size: 1600});
+        expect(optionsFromForm(form, null, null).options).toEqual({steps: 30000, image_size: 1600, max_gaussians: 1000, densify_until: 9000, ignore_sky: true});
+    });
+
+    test("a model is continued only on a node whose trainer made it and continues models", () => {
+        expect(continueState({trained_steps: 0, node: lichtfeld})).toEqual({can: false, note: ""});
+        expect(continueState({trained_steps: 7000, node: null})).toEqual({can: true, note: ""});
+        expect(continueState({trained_steps: 7000, trained_kind: "lichtfeld", node: lichtfeld})).toEqual({can: true, note: ""});
+        expect(continueState({trained_steps: 7000, node: lichtfeld}).note).toBe(
+            "This task's model was trained with OpenSplat, and the splat node trains with LichtFeld Studio: the training starts over.");
+        expect(continueState({trained_steps: 7000, trained_kind: "lichtfeld", node: {...lichtfeld, supports: {continue: false}}}).note).toBe(
+            "LichtFeld Studio cannot continue a model: the training starts over.");
+    });
+
+    test("a finished training names the options it left out", () => {
+        const job = {state: "completed", options: {steps: 7000}, times: {training: 60}, finished: 0, skipped: ["Grow Until"]};
+        expect(resultText(job)).toMatch(/ Left out, as the splat node's trainer does not have it: Grow Until\.$/);
+        expect(resultText({state: "failed", error: "x", skipped: ["Max Gaussians", "Grow Until"]})).toBe(
+            "Training failed: x Left out, as the splat node's trainer does not have them: Max Gaussians, Grow Until.");
+        expect(resultText({...job, skipped: []})).not.toMatch(/Left out/);
     });
 });

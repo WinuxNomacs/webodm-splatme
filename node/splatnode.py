@@ -4,13 +4,14 @@
 Python's standard library only. One job trains at a time (one GPU); the others wait in a queue.
 
     GET    /health                whether the node works (no token): 503 when its worker has stopped
-    GET    /info                  the node, its trainer, its GPU and its queue
+    GET    /info                  the node, its trainer (trainer_kind, supports: masks, continue), its GPU,
+                                  its queue and its options
     POST   /jobs?steps=7000       the training zip as the body; answers the new job. A zip that also holds
                                   resume.ply (an earlier job's result) continues that model: steps is then
                                   the total, the model's own steps included. ref=<the client's name for it>
                                   is kept with the job, for a client whose answer was lost to find it
     GET    /jobs?ref=             every job, or those with that ref
-    GET    /jobs/<id>             one job: state, progress, error
+    GET    /jobs/<id>             one job: state, progress, error; once completed, trained_steps
     GET    /jobs/<id>/log?offset= the trainer's output from that byte on (X-Log-Offset: where it now ends)
     GET    /jobs/<id>/result      the trained model (.ply), once the job is completed
     POST   /jobs/<id>/cancel      stop a queued or running job
@@ -20,7 +21,8 @@ Every request but GET /health carries "Authorization: Bearer <token>" when SPLAT
 answers wherever GET does.
 
 Settings (environment): SPLATNODE_PORT (3100), SPLATNODE_TOKEN, SPLATNODE_DATA (/var/splatnode),
-SPLATNODE_TRAINER (/opt/opensplat/opensplat), SPLATNODE_KEEP_HOURS (48: a finished job is deleted after that),
+SPLATNODE_TRAINER (the trainer's program: its kind's own path by default), SPLATNODE_TRAINER_KIND (opensplat: the
+adapter in TRAINERS that runs it; an unknown kind stops the node at start), SPLATNODE_KEEP_HOURS (48: a finished job is deleted after that),
 SPLATNODE_STALL_MINUTES (STALL_MINUTES: a trainer that prints nothing for that long is stopped).
 
 How it stays up (each has a test in tests/test_splatnode.py that makes the failure happen):
@@ -58,9 +60,10 @@ import uuid
 import zipfile
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import MappingProxyType
 from urllib.parse import parse_qsl, urlsplit
 
-VERSION = "0.2.3"
+VERSION = "0.3.0"
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELED = "queued", "running", "completed", "failed", "canceled"
 FINISHED = (COMPLETED, FAILED, CANCELED)
@@ -98,6 +101,40 @@ DISK_FACTOR = 2.5
 STEP_LINE = re.compile(rb"^Step (\d+): \S+ \[(\d+)%\]")
 OUT_OF_MEMORY = re.compile(r"out of memory", re.IGNORECASE)
 
+
+class OpenSplat:
+    """What the node knows of one trainer: its options, command line and output. Another trainer is another such
+    class in TRAINERS; everything else in the node is the same for all."""
+
+    kind = "opensplat"
+    label = "OpenSplat"
+    program = "/opt/opensplat/opensplat"
+    options = OPTIONS
+    # What a job may hold for it: sky masks (masks/<image>.png) and a model to continue from (resume.ply)
+    supports = MappingProxyType({"masks": True, "continue": True})
+    step_line = STEP_LINE
+    out_of_memory = OUT_OF_MEMORY
+
+    def command(self, program, dataset, model, resume, options):
+        cmd = [program, dataset, "-o", model]
+        if resume:
+            cmd += ["--resume", resume]
+        for name, value in options.items():
+            cmd += [self.options[name][0], str(value)]
+        return cmd
+
+    def check_options(self, options):
+        """Refused when the options don't go together (each is already in its range)."""
+        grow_until = options.get("densify_until")
+        if grow_until is not None and options["steps"] < OPTIONS["densify_until"][2] + AFTER_GROWING:
+            raise Refused(400, f"Option densify_until needs steps of {OPTIONS['densify_until'][2] + AFTER_GROWING} or more")
+        if grow_until is not None and grow_until > options["steps"] - AFTER_GROWING:
+            raise Refused(400, f"Option densify_until must be at most {options['steps'] - AFTER_GROWING}: "
+                          f"{AFTER_GROWING} steps less than the steps")
+
+
+TRAINERS = {adapter.kind: adapter for adapter in (OpenSplat(),)}
+
 # Deadlines
 GRACE_SECONDS = 20  # SIGTERM to SIGKILL; inside compose's stop_grace_period (30 s)
 KILL_WAIT = 60  # SIGKILL to giving up on the trainer
@@ -129,13 +166,13 @@ def log(message):
     sys.stderr.flush()
 
 
-def parse_options(params):
+def parse_options(params, adapter=TRAINERS["opensplat"]):
     """The job's options from the request's query parameters; Refused when one is unknown or out of range."""
-    options = {name: spec[4] for name, spec in OPTIONS.items() if spec[4] is not None}
+    options = {name: spec[4] for name, spec in adapter.options.items() if spec[4] is not None}
     for name, value in params.items():
-        if name not in OPTIONS:
+        if name not in adapter.options:
             raise Refused(400, f"Unknown option: {name}")
-        _, kind, low, high, _ = OPTIONS[name]
+        _, kind, low, high, _ = adapter.options[name]
         try:
             value = kind(value)
         except ValueError:
@@ -143,12 +180,7 @@ def parse_options(params):
         if not low <= value <= high:
             raise Refused(400, f"Option {name} must be between {low} and {high}")
         options[name] = value
-    grow_until = options.get("densify_until")
-    if grow_until is not None and options["steps"] < OPTIONS["densify_until"][2] + AFTER_GROWING:
-        raise Refused(400, f"Option densify_until needs steps of {OPTIONS['densify_until'][2] + AFTER_GROWING} or more")
-    if grow_until is not None and grow_until > options["steps"] - AFTER_GROWING:
-        raise Refused(400, f"Option densify_until must be at most {options['steps'] - AFTER_GROWING}: "
-                      f"{AFTER_GROWING} steps less than the steps")
+    adapter.check_options(options)
     return options
 
 
@@ -190,15 +222,15 @@ def note(log_file, text):
         pass
 
 
-def step_of(line):
+def step_of(line, adapter=TRAINERS["opensplat"]):
     """(step, percent) from a line of the trainer's output, or None."""
-    match = STEP_LINE.match(line)
+    match = adapter.step_line.match(line)
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-def explain(code, tail):
+def explain(code, tail, adapter=TRAINERS["opensplat"]):
     """Why the trainer failed, from its exit code and the end of its output."""
-    if OUT_OF_MEMORY.search(tail):
+    if adapter.out_of_memory.search(tail):
         return "The GPU ran out of memory. Try a smaller image size or fewer gaussians."
     lines = [line.strip() for line in tail.splitlines() if line.strip()]
     how = "was killed by signal %s" % -code if code < 0 else f"ended with code {code}"
@@ -218,7 +250,7 @@ def gpu_info():
         return None
 
 
-def read_job(path, job_id):
+def read_job(path, job_id, adapter=TRAINERS["opensplat"]):
     """A job's saved record, checked; BadJobFile (or OSError, ValueError) when it can't be used."""
     with open(path) as f:
         job = json.load(f)
@@ -226,7 +258,7 @@ def read_job(path, job_id):
         FINISHED
     ):
         raise BadJobFile("not a job record")
-    if not isinstance(job.get("options"), dict) or set(job["options"]) - OPTIONS.keys():
+    if not isinstance(job.get("options"), dict) or set(job["options"]) - adapter.options.keys():
         raise BadJobFile("its options are not ones the node knows")
     if not isinstance(job.get("created"), (int, float)):
         raise BadJobFile("it has no creation time")
@@ -240,7 +272,8 @@ def read_job(path, job_id):
 class Node:
     HEARTBEAT_LIMIT = 300  # seconds without a beat from the worker before /health says it is stuck
 
-    def __init__(self, data_dir, trainer, keep_hours=48, stall_minutes=STALL_MINUTES):
+    def __init__(self, data_dir, trainer, keep_hours=48, stall_minutes=STALL_MINUTES, kind="opensplat"):
+        self.adapter = TRAINERS[kind]
         self.jobs_dir = os.path.join(data_dir, "jobs")
         self.trash_dir = os.path.join(data_dir, "trash")
         self.broken_dir = os.path.join(data_dir, "broken")
@@ -310,7 +343,7 @@ class Node:
                 self.discard(folder)  # an upload that never finished
                 continue
             try:
-                job = read_job(os.path.join(folder, "job.json"), job_id)
+                job = read_job(os.path.join(folder, "job.json"), job_id, self.adapter)
             except (OSError, ValueError, BadJobFile) as e:
                 log(f"Job {job_id}: its job.json can't be used ({e}); moved to broken/")
                 try:
@@ -351,7 +384,9 @@ class Node:
                 if name not in KEPT_FILES or (name == MODEL and state != COMPLETED):
                     self.discard(os.path.join(folder, name))
             if state == COMPLETED:
-                job.update(progress=100, size=os.path.getsize(self.path(job_id, MODEL)))
+                # The model's steps, as a client records them (it continues from them)
+                job.update(progress=100, size=os.path.getsize(self.path(job_id, MODEL)),
+                           trained_steps=job["options"]["steps"])
         self.lock.notify_all()
         self.save(job)
 
@@ -442,8 +477,9 @@ class Node:
             queued = len(self.queue)
         return {
             "name": "SplatMe splat node", "version": VERSION, "trainer": self.trainer_version(),
+            "trainer_kind": self.adapter.kind, "supports": dict(self.adapter.supports),
             "gpu": gpu_info(), "running": running[0] if running else None, "queued": queued,
-            "options": {n: {"min": s[2], "max": s[3], "default": s[4]} for n, s in OPTIONS.items()},
+            "options": {n: {"min": s[2], "max": s[3], "default": s[4]} for n, s in self.adapter.options.items()},
         }
 
     def health(self):
@@ -459,7 +495,7 @@ class Node:
                     [self.trainer, "--version"], capture_output=True, text=True, timeout=30, check=False
                 )
                 if out.returncode == 0 and out.stdout.strip():
-                    self.trainer_said = "OpenSplat " + out.stdout.strip()
+                    self.trainer_said = f"{self.adapter.label} {out.stdout.strip()}"
             except (OSError, subprocess.SubprocessError):
                 pass
         return self.trainer_said
@@ -542,12 +578,10 @@ class Node:
             log(f"Job {job_id} could not be marked failed:\n" + traceback.format_exc())
 
     def command(self, job):
-        cmd = [self.trainer, self.path(job["id"], DATASET), "-o", self.path(job["id"], MODEL)]
-        if job.get("resume"):
-            cmd += ["--resume", self.path(job["id"], RESUME)]
-        for name, value in job["options"].items():
-            cmd += [OPTIONS[name][0], str(value)]
-        return cmd
+        resume = self.path(job["id"], RESUME) if job.get("resume") else None
+        return self.adapter.command(
+            self.trainer, self.path(job["id"], DATASET), self.path(job["id"], MODEL), resume, job["options"]
+        )
 
     def run_job(self, job_id):
         with self.lock:
@@ -586,7 +620,7 @@ class Node:
             elif code == 0 and os.path.isfile(os.path.join(folder, MODEL)):
                 self.finish_job(job_id, COMPLETED)
             else:
-                self.finish_job(job_id, FAILED, explain(code, output["tail"].decode("utf-8", "replace")))
+                self.finish_job(job_id, FAILED, explain(code, output["tail"].decode("utf-8", "replace"), self.adapter))
 
     def unpack(self, job_id, log_file):
         """The job's zip unpacked into dataset/ for the trainer, then the zip deleted (its space is needed for the
@@ -696,10 +730,10 @@ class Node:
                     log_file.flush()
                 except OSError:
                     pass
-                step = step_of(line)
+                step = step_of(line, self.adapter)
                 if step is None:
                     if line.startswith(b"Step ") and not warned:
-                        # The trainer's wording changed (tests/opensplat-output.txt is from the pinned commit)
+                        # The trainer's wording changed (tests/ holds its output from the pinned commit)
                         log(f"Job {job_id}: a step line the node does not understand: {line[:200]!r}")
                         warned = True
                     continue
@@ -835,7 +869,7 @@ class Handler(BaseHTTPRequestHandler):
         ref = params.pop("ref", None)
         if ref is not None and not REF.match(ref):
             raise Refused(400, "ref must be 1 to 64 letters, digits, - or _")
-        options = parse_options(params)
+        options = parse_options(params, self.server.node.adapter)
         self.send_json(201, self.server.node.create(options, self.rfile, length, ref))
 
     def get_job(self, params, job_id):
@@ -890,10 +924,10 @@ class Handler(BaseHTTPRequestHandler):
                 shutil.copyfileobj(f, self.wfile, CHUNK)
 
 
-def make_server(host, port, data_dir, trainer, token="", keep_hours=48, stall_minutes=STALL_MINUTES):
+def make_server(host, port, data_dir, trainer, token="", keep_hours=48, stall_minutes=STALL_MINUTES, kind="opensplat"):
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
-    server.node = Node(data_dir, trainer, keep_hours, stall_minutes)
+    server.node = Node(data_dir, trainer, keep_hours, stall_minutes, kind)
     server.token = token
     return server
 
@@ -916,10 +950,15 @@ def setting(env, name, default, minimum):
 def main():
     env = os.environ
     token = env.get("SPLATNODE_TOKEN", "")
+    kind = env.get("SPLATNODE_TRAINER_KIND", "").strip() or "opensplat"
+    if kind not in TRAINERS:
+        # A setting no job could run with: stopping says so at once, where a running node would fail every job
+        log(f"SPLATNODE_TRAINER_KIND={kind!r} is not a trainer this node has ({', '.join(sorted(TRAINERS))})")
+        sys.exit(2)
     server = make_server(
         "0.0.0.0", int(env.get("SPLATNODE_PORT", "3100")), env.get("SPLATNODE_DATA", "/var/splatnode"),
-        env.get("SPLATNODE_TRAINER", "/opt/opensplat/opensplat"), token,
-        setting(env, "SPLATNODE_KEEP_HOURS", 48, 1), setting(env, "SPLATNODE_STALL_MINUTES", STALL_MINUTES, 1),
+        env.get("SPLATNODE_TRAINER", "").strip() or TRAINERS[kind].program, token,
+        setting(env, "SPLATNODE_KEEP_HOURS", 48, 1), setting(env, "SPLATNODE_STALL_MINUTES", STALL_MINUTES, 1), kind,
     )
     if not token:
         log("SPLATNODE_TOKEN is not set: anyone who can reach this port can use the GPU")
@@ -937,7 +976,7 @@ def main():
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    log(f"Splat node {VERSION} on port {server.server_address[1]}")
+    log(f"Splat node {VERSION} ({TRAINERS[kind].label}) on port {server.server_address[1]}")
     server.serve_forever()
     # The worker stops the trainer (SIGTERM, then SIGKILL) and finishes its job before the process ends
     server.node.worker.join(GRACE_SECONDS + 5)
