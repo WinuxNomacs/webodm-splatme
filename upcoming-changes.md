@@ -4225,7 +4225,16 @@ LichtFeld's model looks a little brighter than the photos' edges.
 **Steps** (each on its own branch, tested, then merged):
 
 - **3a. Reading the exposure correction**: done, no code (the finding and decision above).
-- **3b. The image** (`node/lichtfeld.Dockerfile`): `dev/lichtfeld/Dockerfile`'s build as its first stage, then a
+- **3b. The image**, built 2026-11-24 (branch `lichtfeld-image`): `node/lichtfeld.Dockerfile`, 1.4 GB (the
+  OpenSplat node's is 10.4 GB). The build stage ends with LichtFeld's own install rules (`cmake --install`) plus the
+  four libraries they leave behind (its RmlUi, OpenMesh, Vulkan) and CUDA's runtime, cuRAND and nvJPEG; the runtime
+  stage is the OpenSplat node's base (CUDA 12.8.2 base, pinned) with Python and GTK's libraries. Both stages fail the
+  build when `ldd` finds a library missing. Checked: a 1,000-step headless training in it as its unprivileged user,
+  and `LichtFeld-Studio eval` (the benchmark skill now uses this image; `dev/lichtfeld/Dockerfile` is gone). Its GPU
+  code is built on first run (207 s for 200 steps, 72 s with the cache kept), so `CUDA_CACHE_PATH` is on the node's
+  volume (200 MB). LichtFeld's licence and exception are in `/opt/lichtfeld`. Not yet: the node's adapter (3c), so
+  the image's node does not start until then. Planned as:
+  `node/lichtfeld.Dockerfile`: `dev/lichtfeld/Dockerfile`'s build as its first stage, then a
   runtime stage from CUDA 12.8's runtime image with only the binary, its libraries (found with `ldd`), Python 3
   and `splatnode.py`; `SPLATNODE_TRAINER_KIND=lichtfeld`. Base images pinned by digest, LichtFeld and vcpkg
   by commit. GPL-3.0: LichtFeld's licence in the image, its source offered (the pinned commit and this recipe) in

@@ -12,8 +12,10 @@ scratchpad and is deleted afterwards.
 
 ## 1. Before
 
-- The images: `splatme-lichtfeld:spike` (`docker build -t splatme-lichtfeld:spike dev/lichtfeld`, about 12 minutes
-  of compiling) and, for OpenSplat, `splatme-node:dev` (the dev stack builds it).
+- The images: the LichtFeld node's, `splatme-node-lichtfeld:dev` (`docker build -f node/lichtfeld.Dockerfile -t
+  splatme-node-lichtfeld:dev node`, about 12 minutes of compiling the first time), whose program trains and scores
+  (`--entrypoint /opt/lichtfeld/bin/LichtFeld-Studio`), and the OpenSplat node's, `splatme-node:dev` (the dev
+  stack builds it). Both run as the image's user (1000), so `W` must be writable by it.
 - The task: the check task (memory has its id). It is only read.
 - A timed run needs a quiet machine: list the GPU's users (`nvidia-smi`), the running stacks (`docker ps`) and the
   load (`uptime`), and tell the user. Stopping anything of theirs is their call. One run at a time.
@@ -44,7 +46,8 @@ others (for OpenSplat, which trains on all it is given). `held_out.txt` names th
 ```bash
 T=.claude/skills/trainer-benchmark/timed.sh
 # LichtFeld (its defaults plus what is being measured, e.g. --max-cap 300000)
-$T $W lichtfeld-30k-cap300k -t -e HOME=/home/lfs -v $W/lfshome:/home/lfs splatme-lichtfeld:spike \
+$T $W lichtfeld-30k-cap300k -t -e HOME=/home/lfs -v $W/lfshome:/home/lfs \
+  --entrypoint /opt/lichtfeld/bin/LichtFeld-Studio splatme-node-lichtfeld:dev \
   --headless -d /data/full -o /out/lichtfeld-30k-cap300k --export ply --undistort --eval --test-every 8 \
   -i 30000 --max-cap 300000 --log-level info
 # OpenSplat, the node's trainer
@@ -52,7 +55,9 @@ $T $W opensplat-30k --entrypoint /opt/opensplat/opensplat splatme-node:dev /data
 ```
 
 LichtFeld's `--eval` evaluates at steps 7,000 and 30,000 (minutes each, included in the seconds), and its last
-evaluation is the model with its exposure correction applied. `-t` makes its progress print.
+evaluation is the model with its exposure correction applied. `-t` makes its progress print. Its first run builds
+its GPU code (about 2 minutes, counted in the seconds): add `-e CUDA_CACHE_PATH=/out/cuda-cache` to every run of a
+series so only the first pays it, and say so in the run's notes.
 
 ## 4. Score and record
 
@@ -60,7 +65,7 @@ The exported model as a viewer shows it (no exposure correction), with the same 
 
 ```bash
 docker run --rm -t --gpus all --user $(id -u):$(id -g) -e HOME=/home/lfs -v $W/lfshome:/home/lfs \
-  -v $W/data:/data:ro -v $W/out:/out splatme-lichtfeld:spike \
+  -v $W/data:/data:ro -v $W/out:/out --entrypoint /opt/lichtfeld/bin/LichtFeld-Studio splatme-node-lichtfeld:dev \
   eval /out/<model>.ply -d /data/full --undistort --eval --test-every 8 -o /out/eval-<name>
 ```
 
