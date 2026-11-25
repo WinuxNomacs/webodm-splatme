@@ -1239,6 +1239,14 @@ class TestSplatMe(BootTestCase):
             with self.assertRaises(training.TrainingError):
                 training.clean_options({"strategy": "a strategy; rm"})
 
+    def test_exposure_correction_on_is_sent_to_a_lichtfeld_node(self):
+        # MCMC and IGS+ train without it unless told (LichtFeld Studio turns it on by default for MRNF only)
+        task = make_task(self.user)
+        self.node.run_lichtfeld()
+        res = self.train(task, steps=10, image_size=16, strategy="mcmc", exposure_correction=True)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 10, "strategy": "mcmc", "exposure_correction": True})
+
     def test_lichtfeld_options_are_left_out_and_named_on_an_opensplat_node(self):
         task = make_task(self.user)
         res = self.train(task, steps=10, image_size=16, strategy="mcmc", exposure_correction=False)

@@ -28,7 +28,8 @@ joins older holes.
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
    2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
-   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then 3g (the docs, planned) and the comparisons for default values. The default
+   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the comparisons for default values (with 3g's two measurements: LichtFeld's `-i` against
+   `--steps-scaler`, and Ignore Sky's mask mode). The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
@@ -4303,8 +4304,27 @@ LichtFeld's model looks a little brighter than the photos' edges.
   source on every run). If it is too slow or runs out of disk, a vcpkg binary cache is the follow-up, planned
   then. Docs: `CLAUDE.md`'s release rule names both images.
 
-- **3g. The docs** (planned 2026-11-25; decided with the user: one page, as deep as OpenSplat's, a Licences and
-  Source section), branch `lichtfeld-docs`:
+- **3g. The docs**, built 2026-11-25 (branch `lichtfeld-docs`), as planned below. LichtFeld's code was read at the
+  pin (`ignored/LichtFeld-Studio`), and the pages checked rendered. **Found in its code, and decided with the user
+  (2026-11-25):**
+  1. Exposure Correction is LichtFeld's default for MRNF only (MCMC and IGS+ start from defaults with it off), but
+     the forms showed it ticked for every strategy, and only Off was ever sent, so MCMC and IGS+ never had it.
+     Fixed here: the box follows the strategy's default until changed (`exposureDefault`, `exposureChecked` in
+     `trainingView.js`; `options.html` the same) and the value is sent when it differs from that default.
+     Checked live with a LichtFeld node beside the dev stack (writes intercepted, nothing saved): Settings and the
+     Train dialog untick for MCMC and IGS+, keep a changed box, and send `exposure_correction: true` for IGS+
+     ticked and `false` for MRNF unticked. Tests: Jest, Django.
+  2. `-i` keeps LichtFeld's 30,000-step schedule (growing until 15,000, refining until 28,500); only
+     `--steps-scaler` (which `-i` excludes) rescales it, so a 7,000-step training grows to its end. **To measure
+     in the comparisons before the release**: 7,000 steps with `-i` and with `--steps-scaler`, scored on held-out
+     photos; the docs describe `-i` until then.
+  3. `--mask-mode ignore` (Ignore Sky) drops the sky's pixels but, unlike OpenSplat, pushes nothing there towards
+     transparent; LichtFeld's `segment` modes do (`segment-and-ignore` reads a three-band mask). **To measure in
+     the comparisons**: ignore against a segment mode on the check task, the sky and the scores.
+  4. Not LichtFeld's: libtorch's download holds no licence file, so the OpenSplat image ships libtorch (BSD-3, with
+     NVIDIA's cuDNN and cuBLAS) without its notices. For the user to decide (a `node/Dockerfile` change; 0.3.0 is
+     not yet published, so no new VERSION).
+  Planned 2026-11-25 (decided with the user: one page, as deep as OpenSplat's, a Licences and Source section):
   - **How It Works**: one page. Its shared parts stay (1. What Comes From WebODM; the result and what SplatMe
     does with it), then **With OpenSplat** (today's sections 2 to 5) and **With LichtFeld Studio**, as deep:
     preparing the scene, the starting model, one step, the schedule, each strategy (MRNF, the default; MCMC; IGS+),

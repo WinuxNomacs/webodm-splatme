@@ -14,7 +14,8 @@ counts as OpenSplat, and nothing changes for it).
   clears it.
 - **Continue From Step** is offered only when the node's trainer made the task's model.
 - With a LichtFeld Studio node, the forms (Train Splats, Change, SplatMe's panel, SplatMe → Settings and the
-  admin page) offer **Strategy** and **Exposure Correction**; continuing a model trains only the steps after its
+  admin page) offer **Strategy** and **Exposure Correction** (ticked by default for MRNF, unticked for MCMC and IGS+, as
+  LichtFeld Studio's own defaults); continuing a model trains only the steps after its
   own. **SH Degree** is now in the forms for either trainer.
 - Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
 - `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio (its image,

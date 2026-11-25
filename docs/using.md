@@ -43,7 +43,8 @@
 
     - **Strategy** (blank: LichtFeld Studio's own, MRNF): how the trainer adds, moves and removes gaussians.
       **MCMC** keeps the model within **Max Gaussians**, moving gaussians to where the photos need detail.
-    - **Exposure Correction** (on by default): the trainer learns each photo's brightness and colour apart from
+      [How It Works](how-it-works.md#3-with-lichtfeld-studio) compares them.
+    - **Exposure Correction** (on by default with MRNF, off with MCMC and IGS+, as in LichtFeld Studio): the trainer learns each photo's brightness and colour apart from
       the model, so light that changed between photos does not end up in it. The 3D view shows the model without
       them, so it can look a little brighter than the photos' edges. Off, the model takes the photos' brightness
       itself.

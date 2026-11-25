@@ -1,7 +1,7 @@
 import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
-import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST, trainerView, strategyChoices, strategyLabel, SH_DEGREE_HINT, STRATEGY_HINT, EXPOSURE_HINT } from './trainingView';
+import { PRESETS, presetOfSteps, stepsNote, STEPS_HINT, GROW_UNTIL_HINT, THERMAL_PALETTES, GROW_AT_LEAST, trainerView, strategyChoices, strategyLabel, SH_DEGREE_HINT, STRATEGY_HINT, EXPOSURE_HINT, exposureChecked } from './trainingView';
 import StagesTable from './StagesTable';
 import ImageSizeTable from './ImageSizeTable';
 
@@ -125,7 +125,7 @@ export default class OptionsFields extends React.Component {
                             <div className="form-group">
                                 <div className="col-sm-8 col-sm-offset-4">
                                     <div className="checkbox"><label>
-                                        <input type="checkbox" className="splatme-exposure" checked={form.exposure_correction !== false}
+                                        <input type="checkbox" className="splatme-exposure" checked={exposureChecked(form)}
                                                onChange={e => this.props.onChange("exposure_correction", e.target.checked)} /> {_("Exposure Correction")}
                                     </label></div>
                                     <span className="help-block">{_(EXPOSURE_HINT)}</span>
