@@ -17,7 +17,8 @@ counts as OpenSplat, and nothing changes for it).
   admin page) offer **Strategy** and **Exposure Correction**; continuing a model trains only the steps after its
   own. **SH Degree** is now in the forms for either trainer.
 - Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
-- `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio; `status`
+- `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio (its image,
+  `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, is published with each release beside OpenSplat's); `status`
   names a node's trainer.
 - A model's steps are read from what SplatMe keeps with it, not from OpenSplat's comment in the `.ply`: Edit Splats
   takes any trainer's model.

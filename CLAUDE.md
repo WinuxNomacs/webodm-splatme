@@ -86,10 +86,11 @@ it short; edit in place.
   WebODM (the last release installed, upgraded to the new zip and node), run again if shipped code changes after.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
-  `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's image to `ghcr.io/winuxnomacs/splatme-node` (its own version and `latest`), before the release
-  is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation";
-  a run by hand builds the node's image too, without pushing it, before the docs deploy: about 30 minutes). A change to `node/Dockerfile` or `node/splatnode.py` needs a new `VERSION` there: a version's image is built
-  once, and carries a hash of those two files, so a release whose node changed under a published version fails. Never add a
+  `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's two images, `ghcr.io/winuxnomacs/splatme-node` (OpenSplat) and `splatme-node-lichtfeld`
+  (a matrix in one job; both carry the node's own version, and `latest`), before the release is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation";
+  a run by hand builds both images too, without pushing them, before the docs deploy: OpenSplat's about 30
+  minutes). A change to either Dockerfile or `node/splatnode.py` needs a new `VERSION` there: a version's image is built
+  once, and carries a hash of its Dockerfile and `splatnode.py`, so a release whose node changed under a published version fails. Never add a
   push or pull-request trigger.
 - **Each release's entry in WebODM's plugin directory** (the release zip's URL and SHA-256 appended to
   WebODM-Plugins' `directory.json`) is a branch pushed to the user's fork, `WinuxNomacs/WebODM-Plugins`, from
