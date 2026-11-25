@@ -5,8 +5,10 @@
 #   docker build -f node/lichtfeld.Dockerfile -t splatme-node-lichtfeld:dev node
 FROM nvidia/cuda:12.8.0-devel-ubuntu24.04@sha256:9a8fffc32a955361aa66d754e7a0cda2513052eaf5aaf8f3ba69b80578d1c6a9 AS build
 
-# v0.5.4.3 (2026-11-23)
+# v0.5.4.3 (2026-11-23); the tag is fetched too, as LichtFeld names its version after it (git describe), or after
+# the commit alone
 ARG LFS_COMMIT=06c9a040677c0f302dc0e169ff5d5641a9f9c88a
+ARG LFS_TAG=v0.5.4.3
 # vcpkg's master on 2026-11-24: it must hold every port version LichtFeld's vcpkg.json pins
 ARG VCPKG_COMMIT=2f8bf7a5bad48aaef99d80b221fca712f016ab8f
 
@@ -38,7 +40,8 @@ RUN git clone -q https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT" \
 
 WORKDIR /src
 RUN git init -q . && git fetch -q --depth 1 https://github.com/MrNeRF/LichtFeld-Studio "$LFS_COMMIT" \
-    && git checkout -q FETCH_HEAD && git submodule update -q --init --recursive --depth 1 \
+        "+refs/tags/$LFS_TAG:refs/tags/$LFS_TAG" \
+    && git checkout -q "$LFS_COMMIT" && test "$(git describe --tags)" = "$LFS_TAG" && git submodule update -q --init --recursive --depth 1 \
     && mkdir -p "$VCPKG_ROOT/downloads" && cp .github/vcpkg-downloads/*.patch "$VCPKG_ROOT/downloads/"
 
 RUN python3 tools/ci_retry_configure.py -- cmake -B build -S . -G Ninja \

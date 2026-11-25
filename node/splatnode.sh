@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Installs, upgrades and uninstalls SplatMe's splat node: the GPU container that trains WebODM tasks' splats.
 #
-#   splatnode.sh install [--webodm <container> | --standalone] [--port <port>]
+#   splatnode.sh install [--trainer opensplat|lichtfeld] [--webodm <container> | --standalone] [--port <port>]
 #   splatnode.sh upgrade [--force] | status | connect [--webodm <container>] [--force] | uninstall [--yes]
 #
 # Or without a checkout:
 #   curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
 #
 # install: checks Docker, Compose and the GPU, writes a compose file and a token to $SPLATNODE_DIR, pulls the image
-#   and starts it. When WebODM runs on this machine (its webapp container is found, or named with --webodm), the
-#   node joins WebODM's Docker network, listens on this machine only, and SplatMe's settings get its address and
-#   token; otherwise (or with --standalone) it listens on every address, and the address and token are printed to
-#   enter on SplatMe's page in WebODM's Administration.
+#   and starts it. --trainer picks the image: OpenSplat's (the default) or LichtFeld Studio's; another trainer later
+#   is a new install (uninstall, then install). When WebODM runs on this machine (its webapp container is found,
+#   or named with --webodm), the node joins WebODM's Docker network, listens on this machine only, and SplatMe's
+#   settings get its address and token; otherwise (or with --standalone) it listens on every address, and the
+#   address and token are printed to enter on SplatMe's page in WebODM's Administration.
 #   A failed install is undone, so it can be run again.
 # upgrade: pulls the newest image, writes the compose file again and restarts the node, then deletes the previous
 #   image; its jobs, token and port stay. While the node trains it asks first (the restart fails that training);
@@ -22,13 +23,21 @@
 # uninstall: stops and removes the node and its folder; asks before deleting its jobs' data and the image, and
 #   before removing the node from SplatMe's settings (--yes says yes to all).
 #
-# Settings (environment): SPLATNODE_DIR (~/splatnode), SPLATNODE_IMAGE (the published image, latest),
+# Settings (environment): SPLATNODE_DIR (~/splatnode), SPLATNODE_IMAGE (the trainer's published image, latest),
 # SPLATNODE_PROJECT (the Compose project and container name, splatnode). SPLATNODE_IMAGE may name a local image,
 # which is then not pulled.
 set -euo pipefail
 
 DIR="${SPLATNODE_DIR:-$HOME/splatnode}"
-IMAGE="${SPLATNODE_IMAGE:-ghcr.io/winuxnomacs/splatme-node:latest}"
+IMAGE="${SPLATNODE_IMAGE:-}"  # empty: the published image of the trainer chosen (install --trainer)
+# Each trainer's published image
+image_of() {
+    case "$1" in
+        opensplat) echo "ghcr.io/winuxnomacs/splatme-node:latest" ;;
+        lichtfeld) echo "ghcr.io/winuxnomacs/splatme-node-lichtfeld:latest" ;;
+        *) return 1 ;;
+    esac
+}
 PROJECT="${SPLATNODE_PROJECT:-splatnode}"
 ALIAS="splat-node"  # the node's name on WebODM's network
 # How to run this script again, for the messages: its path, or the curl command when it was piped to bash
@@ -92,7 +101,7 @@ pull_image() {
     if local_image; then
         say "Using the local image $IMAGE"
     else
-        say "Downloading $IMAGE (several GB the first time)"
+        say "Downloading $IMAGE (the first time: up to several GB)"
         [ -n "$(image_id "$IMAGE")" ] || PULLED=1
         docker pull "$IMAGE" || fail "Could not download $IMAGE."
     fi
@@ -173,6 +182,8 @@ write_files() {
     cat > "$DIR/.env" <<EOF
 # The splat node's settings, read by compose.yml. The token is a secret: anyone who has it can use the GPU.
 SPLATNODE_IMAGE=$IMAGE
+# The trainer chosen at install (for status; the image decides which runs)
+SPLATNODE_TRAINER_KIND=$TRAINER
 SPLATNODE_CONTAINER=$PROJECT
 SPLATNODE_TOKEN=$token
 SPLATNODE_PORT=$port
@@ -242,6 +253,25 @@ node_version() {
         | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' || true  # nothing when the node does not answer
 }
 
+# The trainer the node says it runs (its /info's trainer), or what install chose when it does not answer
+node_trainer() {
+    local said
+    said="$(curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
+        | sed -n 's/.*"trainer": *"\([^"]*\)".*/\1/p' || true)"
+    [ -n "$said" ] || case "$(installed_trainer)" in lichtfeld) said="LichtFeld Studio" ;; *) said="OpenSplat" ;; esac
+    printf '%s\n' "$said"
+}
+
+# The trainer chosen at install; a node installed before trainers could be chosen runs OpenSplat
+installed_trainer() {
+    local kind
+    kind="$(env_value SPLATNODE_TRAINER_KIND)"
+    printf '%s\n' "${kind:-opensplat}"
+}
+
+# An image's size on disk, in GB
+image_size() { docker image inspect -f '{{.Size}}' "$1" 2>/dev/null | awk 'NF { printf "%.1f GB", $1 / 1e9 }' || true; }
+
 # Whether the node trains a job now (its /info names the running job, or says null)
 node_training() {
     curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
@@ -301,6 +331,7 @@ connect() {
         fi
         say "Moving the node to $webapp's network $wanted"
         IMAGE="$(env_value SPLATNODE_IMAGE)"
+        TRAINER="$(installed_trainer)"
         write_files "$wanted" "$(env_value SPLATNODE_PORT)" "$(env_value SPLATNODE_TOKEN)"
         compose up -d
         wait_healthy "$(env_value SPLATNODE_PORT)"
@@ -319,8 +350,10 @@ connect() {
 
 cmd_install() {
     local webodm="" standalone=0 port=3100
+    TRAINER=opensplat
     while [ $# -gt 0 ]; do
         case "$1" in
+            --trainer) TRAINER="${2:?--trainer needs opensplat or lichtfeld}"; shift 2 ;;
             --webodm) webodm="${2:?--webodm needs a container name}"; shift 2 ;;
             --standalone) standalone=1; shift ;;
             --port) port="${2:?--port needs a number}"; shift 2 ;;
@@ -328,6 +361,8 @@ cmd_install() {
         esac
     done
     [ -f "$DIR/compose.yml" ] && fail "A splat node is already installed in $DIR: use upgrade, or uninstall first."
+    image_of "$TRAINER" >/dev/null || fail "--trainer is opensplat or lichtfeld, not $TRAINER."
+    [ -n "$IMAGE" ] || IMAGE="$(image_of "$TRAINER")"
     case "$port" in ''|*[!0-9]*) fail "--port needs a number." ;; esac
     port_in_use "$port" && fail "Port $port is already in use on this machine: choose another with --port."
     check_docker
@@ -353,7 +388,7 @@ cmd_install() {
     compose up -d
     wait_healthy "$port"
     INSTALLING=0
-    say "The splat node $(node_version) runs (folder $DIR)."
+    say "The splat node $(node_version) runs with $(node_trainer) (folder $DIR)."
     if [ -n "$webapp" ]; then connect "$webapp"; else print_settings; fi
     say ""
     say "Upgrade: $SELF upgrade    Uninstall: $SELF uninstall"
@@ -377,6 +412,7 @@ cmd_upgrade() {
     local before old
     before="$(node_version)"
     IMAGE="$(env_value SPLATNODE_IMAGE)"
+    TRAINER="$(installed_trainer)"
     old="$(image_id "$IMAGE")"
     if local_image; then say "Using the local image $IMAGE"; else compose pull || fail "Could not download $IMAGE."; fi
     # This script's compose file, with the node's settings as they are
@@ -395,9 +431,9 @@ cmd_status() {
     local version
     version="$(node_version)"
     if [ -n "$version" ]; then
-        say "Answering: version $version"
+        say "Answering: version $version, trainer $(node_trainer)"
     else
-        say "Not answering on port $(env_value SPLATNODE_PORT)."
+        say "Not answering on port $(env_value SPLATNODE_PORT). Installed with $(node_trainer)."
         if [ -z "$(compose ps -q --status running 2>/dev/null)" ]; then
             say "It is not running. Start it with: docker compose -p $PROJECT --project-directory $DIR -f $DIR/compose.yml up -d"
         fi
@@ -445,7 +481,9 @@ cmd_uninstall() {
         compose down
         say "The jobs are kept in the Docker volume ${PROJECT}_jobs."
     fi
-    if yes_to "Delete the image $image (6.6 GB or more on disk)?"; then
+    local size
+    size="$(image_size "$image")"
+    if yes_to "Delete the image $image${size:+ ($size on disk)}?"; then
         if docker image rm "$image" >/dev/null 2>&1; then say "Image deleted."; else say "The image is in use by another container: kept."; fi
     fi
     rm -f -- "${DIR:?}/compose.yml" "${DIR:?}/.env"

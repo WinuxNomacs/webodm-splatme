@@ -31,6 +31,9 @@ By a WebODM administrator, in this order:
     Every request to the node needs its token, but the connection is plain HTTP: let only WebODM's machine reach
     that port, or put an HTTPS proxy in front of it ([below](splat-node.md#https-to-a-node-on-another-machine)).
 
+    `--trainer lichtfeld` installs a node that trains with LichtFeld Studio instead of OpenSplat
+    ([Trainers](splat-node.md#trainers)).
+
     These steps, each command with a **Copy** button, are also on **Administration → SplatMe**: in place of the
     node's state while no node is set, and behind **How to Install a Splat Node** under it once one is.
 
