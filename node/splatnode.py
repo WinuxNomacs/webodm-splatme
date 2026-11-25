@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The splat node: an HTTP service that trains Gaussian splats from a WebODM training zip with OpenSplat.
+"""The splat node: an HTTP service that trains Gaussian splats from a WebODM training zip with OpenSplat or
+LichtFeld Studio (one per node: SPLATNODE_TRAINER_KIND, an adapter in TRAINERS).
 
 Python's standard library only. One job trains at a time (one GPU); the others wait in a queue.
 
@@ -8,7 +9,8 @@ Python's standard library only. One job trains at a time (one GPU); the others w
                                   its queue and its options
     POST   /jobs?steps=7000       the training zip as the body; answers the new job. A zip that also holds
                                   resume.ply (an earlier job's result) continues that model: steps is then
-                                  the total, the model's own steps included. ref=<the client's name for it>
+                                  the total, the model's own steps included (LichtFeld's also needs
+                                  resume_steps, the model's). ref=<the client's name for it>
                                   is kept with the job, for a client whose answer was lost to find it
     GET    /jobs?ref=             every job, or those with that ref
     GET    /jobs/<id>             one job: state, progress, error; once completed, trained_steps
@@ -21,8 +23,9 @@ Every request but GET /health carries "Authorization: Bearer <token>" when SPLAT
 answers wherever GET does.
 
 Settings (environment): SPLATNODE_PORT (3100), SPLATNODE_TOKEN, SPLATNODE_DATA (/var/splatnode),
-SPLATNODE_TRAINER (the trainer's program: its kind's own path by default), SPLATNODE_TRAINER_KIND (opensplat: the
-adapter in TRAINERS that runs it; an unknown kind stops the node at start), SPLATNODE_KEEP_HOURS (48: a finished job is deleted after that),
+SPLATNODE_TRAINER (the trainer's program: its kind's own path by default), SPLATNODE_TRAINER_KIND (opensplat or
+lichtfeld: the adapter in TRAINERS that runs it; an unknown kind stops the node at start), SPLATNODE_KEEP_HOURS (48:
+a finished job is deleted after that),
 SPLATNODE_STALL_MINUTES (STALL_MINUTES: a trainer that prints nothing for that long is stopped).
 
 How it stays up (each has a test in tests/test_splatnode.py that makes the failure happen):
@@ -41,18 +44,25 @@ How it stays up (each has a test in tests/test_splatnode.py that makes the failu
 - Every request is answered, an unexpected error included (500, or 507 for a full disk).
 - A job's zip is unpacked by the node, between entries checking for a cancel or a stop; a zip that can't be unpacked
   (a damaged entry, a full disk) fails its job with the reason, and the trainer never sees it.
+- A trainer that prints its progress only to a terminal (LichtFeld) is given a pseudo-terminal; one that can't be
+  opened fails the job with the reason, never a silent fall back to a pipe. A trainer that exits 0 without the model
+  it should write fails its job. LichtFeld's home (its logs of every run) is in the job's folder, which goes with it.
 """
 
 import errno
+import fcntl
 import hmac
 import json
 import math
 import os
+import pty
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 import traceback
@@ -70,7 +80,8 @@ FINISHED = (COMPLETED, FAILED, CANCELED)
 # The only changes of state there are
 TRANSITIONS = {QUEUED: (RUNNING, CANCELED), RUNNING: FINISHED}
 
-# The options a job accepts: name -> (the trainer's flag, type, minimum, maximum, default)
+# The options a job accepts: name -> (the trainer's flag, type, minimum, maximum, default). A type of str is a choice
+# (minimum: the choices, maximum: None); bool is on or off (minimum and maximum None).
 OPTIONS = {
     "steps": ("--num-iters", int, 1, 200000, 7000),
     "max_gaussians": ("--max-gaussians", int, 0, 50000000, None),
@@ -115,13 +126,35 @@ class OpenSplat:
     step_line = STEP_LINE
     out_of_memory = OUT_OF_MEMORY
 
-    def command(self, program, dataset, model, resume, options):
-        cmd = [program, dataset, "-o", model]
-        if resume:
-            cmd += ["--resume", resume]
-        for name, value in options.items():
+    # Its output goes to a pipe; a trainer that prints its progress only to a terminal is given one
+    uses_terminal = False
+
+    def command(self, program, folder, job):
+        cmd = [program, os.path.join(folder, DATASET), "-o", os.path.join(folder, MODEL)]
+        if job.get("resume"):
+            cmd += ["--resume", os.path.join(folder, RESUME)]
+        for name, value in job["options"].items():
             cmd += [self.options[name][0], str(value)]
         return cmd
+
+    def environment(self, folder):
+        """The trainer's environment: the node's own."""
+        return
+
+    def step_of(self, line, job):
+        """(step, percent) from a line of its output, or None; a continued model's steps count from its own."""
+        match = self.step_line.match(line)
+        return (int(match.group(1)), int(match.group(2))) if match else None
+
+    def looks_like_a_step(self, line):
+        return line.startswith(b"Step ")
+
+    def collect(self, folder):
+        """After it exits 0: why there is no model to keep, or None. OpenSplat writes model.ply itself."""
+        return
+
+    def check_job(self, options, resume):
+        """Refused when a new job can't train (with the zip's model to continue from, or not)."""
 
     def check_options(self, options):
         """Refused when the options don't go together (each is already in its range)."""
@@ -133,7 +166,98 @@ class OpenSplat:
                           f"{AFTER_GROWING} steps less than the steps")
 
 
-TRAINERS = {adapter.kind: adapter for adapter in (OpenSplat(),)}
+# LichtFeld Studio's output, as tests/lichtfeld-output.txt holds it from a real run of the pinned commit (through a
+# terminal: carriage returns and colours): "Training [bar] 66% [00m:29s<00m:15s] 100/300 | Loss ...". Its own
+# percentage is not the steps' share: the step and the total are.
+ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
+LICHTFELD_STEP = re.compile(rb"^Training \[.*?\] +\d+% \[[^\]]*\] (\d+)/(\d+)")
+LICHTFELD_OUT = "lichtfeld"  # its output folder in the job's
+LICHTFELD_MODEL = re.compile(r"^splat_(\d+)\.ply$")
+
+
+class LichtFeld(OpenSplat):
+    """LichtFeld Studio, headless. It continues from a .ply with a new schedule (--init): a continued job says the
+    model's steps (resume_steps) and it trains the steps between."""
+
+    kind = "lichtfeld"
+    label = "LichtFeld Studio"
+    program = "/opt/lichtfeld/bin/LichtFeld-Studio"
+    options = MappingProxyType({
+        "steps": ("-i", int, 1, 200000, 30000),
+        "max_gaussians": ("--max-cap", int, 1000, 50000000, None),
+        "sh_degree": ("--sh-degree", int, 0, 3, None),
+        "strategy": ("--strategy", str, ("mrnf", "mcmc", "igs+"), None, None),
+        "exposure_correction": (None, bool, None, None, None),
+        # The steps of the model in resume.ply, which a continued job needs (not shown to users)
+        "resume_steps": (None, int, 1, 199999, None),
+    })
+    supports = MappingProxyType({"masks": True, "continue": True})
+    uses_terminal = True
+    out_of_memory = re.compile(r"out of memory|cudaErrorMemoryAllocation|CUDA_ERROR_OUT_OF_MEMORY", re.IGNORECASE)
+
+    def command(self, program, folder, job):
+        options = job["options"]
+        dataset = os.path.join(folder, DATASET)
+        start = (options.get("resume_steps") or 0) if job.get("resume") else 0
+        steps = options["steps"] - start
+        cmd = [program, "--headless", "-d", dataset, "-o", os.path.join(folder, LICHTFELD_OUT), "--export", "ply",
+               "--undistort", "--log-level", "info", "-i", str(steps)]
+        if job.get("resume"):
+            cmd += ["--init", os.path.join(folder, RESUME)]
+        if os.path.isdir(os.path.join(dataset, "masks")):
+            cmd += ["--mask-mode", "ignore"]  # white is kept, black ignored, as SplatMe's masks are
+        for name in ("max_gaussians", "sh_degree", "strategy"):
+            if options.get(name) is not None:
+                cmd += [self.options[name][0], str(options[name])]
+        if options.get("exposure_correction") is not None:
+            cmd.append("--exposure-correction" if options["exposure_correction"] else "--no-exposure-correction")
+        return cmd
+
+    def environment(self, folder):
+        # Its home holds the logs it writes on every run: in the job's folder, they go with it
+        return dict(os.environ, HOME=os.path.join(folder, "home"))
+
+    def step_of(self, line, job):
+        match = LICHTFELD_STEP.match(ANSI.sub(b"", line).strip())
+        if not match:
+            return None
+        done, total = int(match.group(1)), int(match.group(2))
+        start = (job["options"].get("resume_steps") or 0) if job.get("resume") else 0
+        return start + done, min(100, done * 100 // max(total, 1))
+
+    def looks_like_a_step(self, line):
+        return ANSI.sub(b"", line).strip().startswith(b"Training [")
+
+    def collect(self, folder):
+        out = os.path.join(folder, LICHTFELD_OUT)
+        try:
+            found = sorted((int(m.group(1)), name) for name in os.listdir(out) if (m := LICHTFELD_MODEL.match(name)))
+        except OSError as e:
+            return f"LichtFeld Studio wrote no model: {e}"
+        if not found:
+            return "LichtFeld Studio exited without writing a model"
+        try:
+            os.replace(os.path.join(out, found[-1][1]), os.path.join(folder, MODEL))
+        except OSError as e:
+            return f"LichtFeld Studio's model could not be kept: {e}"
+        return None
+
+    def check_job(self, options, resume):
+        if not resume:
+            if options.get("resume_steps") is not None:
+                raise Refused(400, "Option resume_steps is only for a job that continues a model")
+            return
+        start = options.get("resume_steps")
+        if start is None:
+            raise Refused(400, "A job that continues a model needs resume_steps, the model's steps")
+        if options["steps"] <= start:
+            raise Refused(400, f"Option steps must be more than resume_steps ({start}): it is the total")
+
+    def check_options(self, options):
+        pass
+
+
+TRAINERS = {adapter.kind: adapter for adapter in (OpenSplat(), LichtFeld())}
 
 # Deadlines
 GRACE_SECONDS = 20  # SIGTERM to SIGKILL; inside compose's stop_grace_period (30 s)
@@ -173,6 +297,16 @@ def parse_options(params, adapter=TRAINERS["opensplat"]):
         if name not in adapter.options:
             raise Refused(400, f"Unknown option: {name}")
         _, kind, low, high, _ = adapter.options[name]
+        if kind is bool:
+            if value.lower() not in ("true", "false", "1", "0"):
+                raise Refused(400, f"Option {name} must be true or false")
+            options[name] = value.lower() in ("true", "1")
+            continue
+        if kind is str:
+            if value not in low:
+                raise Refused(400, f"Option {name} must be one of {', '.join(low)}")
+            options[name] = value
+            continue
         try:
             value = kind(value)
         except ValueError:
@@ -222,10 +356,37 @@ def note(log_file, text):
         pass
 
 
-def step_of(line, adapter=TRAINERS["opensplat"]):
+def step_of(line, adapter=TRAINERS["opensplat"], job=None):
     """(step, percent) from a line of the trainer's output, or None."""
-    match = adapter.step_line.match(line)
-    return (int(match.group(1)), int(match.group(2))) if match else None
+    return adapter.step_of(line, job or {"options": {}})
+
+
+def describe_option(spec):
+    """An option as /info describes it."""
+    _, kind, low, high, default = spec
+    if kind is bool:
+        return {"type": "bool", "default": default}
+    if kind is str:
+        return {"choices": list(low), "default": default}
+    return {"min": low, "max": high, "default": default}
+
+
+def segments(read):
+    """The trainer's output as (line, complete) pairs, split at a newline or a carriage return (a terminal's progress
+    bar redraws its line with one), from read() giving bytes and b"" at the end. A line still being written when
+    read() returns comes too, not complete: a progress bar prints no line end until its next redraw."""
+    pending = b""
+    while True:
+        data = read()
+        if not data:
+            break
+        parts = re.split(rb"[\r\n]", pending + data)
+        pending = parts.pop()
+        yield from ((part, True) for part in parts if part)
+        if pending:
+            yield pending, False
+    if pending:
+        yield pending, True
 
 
 def explain(code, tail, adapter=TRAINERS["opensplat"]):
@@ -385,8 +546,9 @@ class Node:
                     self.discard(os.path.join(folder, name))
             if state == COMPLETED:
                 # The model's steps, as a client records them (it continues from them)
+                # (a trainer may print no progress for its last steps)
                 job.update(progress=100, size=os.path.getsize(self.path(job_id, MODEL)),
-                           trained_steps=job["options"]["steps"])
+                           trained_steps=job["options"]["steps"], step=job["options"]["steps"])
         self.lock.notify_all()
         self.save(job)
 
@@ -422,6 +584,7 @@ class Node:
                     f.write(data)
                     left -= len(data)
             resume = check_dataset(dataset)
+            self.adapter.check_job(options, resume)
             if resume:
                 extract_resume(dataset, self.path(job_id, RESUME))
             job = {
@@ -479,7 +642,7 @@ class Node:
             "name": "SplatMe splat node", "version": VERSION, "trainer": self.trainer_version(),
             "trainer_kind": self.adapter.kind, "supports": dict(self.adapter.supports),
             "gpu": gpu_info(), "running": running[0] if running else None, "queued": queued,
-            "options": {n: {"min": s[2], "max": s[3], "default": s[4]} for n, s in self.adapter.options.items()},
+            "options": {n: describe_option(s) for n, s in self.adapter.options.items()},
         }
 
     def health(self):
@@ -495,7 +658,9 @@ class Node:
                     [self.trainer, "--version"], capture_output=True, text=True, timeout=30, check=False
                 )
                 if out.returncode == 0 and out.stdout.strip():
-                    self.trainer_said = f"{self.adapter.label} {out.stdout.strip()}"
+                    said = out.stdout.strip().splitlines()[0]
+                    # OpenSplat prints its version alone; LichtFeld its name and version
+                    self.trainer_said = said if said.startswith(self.adapter.label) else f"{self.adapter.label} {said}"
             except (OSError, subprocess.SubprocessError):
                 pass
         return self.trainer_said
@@ -578,10 +743,7 @@ class Node:
             log(f"Job {job_id} could not be marked failed:\n" + traceback.format_exc())
 
     def command(self, job):
-        resume = self.path(job["id"], RESUME) if job.get("resume") else None
-        return self.adapter.command(
-            self.trainer, self.path(job["id"], DATASET), self.path(job["id"], MODEL), resume, job["options"]
-        )
+        return self.adapter.command(self.trainer, self.path(job["id"]), job)
 
     def run_job(self, job_id):
         with self.lock:
@@ -597,20 +759,9 @@ class Node:
             why = self.unpack(job_id, log_file)
             if why is None:
                 output["last"] = time.monotonic()
-                # Its own process group: a stop reaches whatever the trainer started
-                process = subprocess.Popen(
-                    self.command(job), cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
-                with self.lock:
-                    self.process = process
-                reader = threading.Thread(
-                    target=self.read_output, args=(job_id, process, log_file, output), daemon=True
-                )
-                reader.start()
-                why = self.supervise(job_id, process, output)
-                reader.join(10)
-                code = process.returncode
+                why, code = self.train(job_id, job, folder, log_file, output)
+            if why is None and code == 0:
+                why = self.adapter.collect(folder)
         with self.lock:
             self.process = None
             if why == CANCELED:
@@ -621,6 +772,43 @@ class Node:
                 self.finish_job(job_id, COMPLETED)
             else:
                 self.finish_job(job_id, FAILED, explain(code, output["tail"].decode("utf-8", "replace"), self.adapter))
+
+    def train(self, job_id, job, folder, log_file, output):
+        """Runs the trainer until it ends or is stopped: (why it was stopped, or None; its exit code)."""
+        terminal = None
+        if self.adapter.uses_terminal:
+            try:
+                terminal = pty.openpty()
+                # Wide enough that its progress line never wraps
+                fcntl.ioctl(terminal[1], termios.TIOCSWINSZ, struct.pack("HHHH", 50, 250, 0, 0))
+            except OSError as e:
+                for fd in terminal or ():
+                    os.close(fd)
+                return f"The splat node could not open a terminal for the trainer: {e}", None
+        try:
+            out = terminal[1] if terminal else subprocess.PIPE
+            # Its own process group: a stop reaches whatever the trainer started
+            process = subprocess.Popen(
+                self.command(job), cwd=folder, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                start_new_session=True, env=self.adapter.environment(folder),
+            )
+        finally:
+            if terminal:
+                os.close(terminal[1])  # the trainer has it; the master sees the end once it exits
+        source = terminal[0] if terminal else process.stdout.fileno()
+        with self.lock:
+            self.process = process
+        reader = threading.Thread(target=self.read_output, args=(job_id, job, source, log_file, output), daemon=True)
+        reader.start()
+        try:
+            why = self.supervise(job_id, process, output)
+            reader.join(10)
+        finally:
+            if terminal:
+                os.close(terminal[0])
+            elif process.stdout:
+                process.stdout.close()
+        return why, process.returncode
 
     def unpack(self, job_id, log_file):
         """The job's zip unpacked into dataset/ for the trainer, then the zip deleted (its space is needed for the
@@ -718,41 +906,51 @@ class Node:
         except (ProcessLookupError, PermissionError):
             pass
 
-    def read_output(self, job_id, process, log_file, output):
+    def read_output(self, job_id, job, source, log_file, output):
         """The trainer's output into its log, its progress into the job; never raises (a full disk included)."""
         last_saved, understood, warned = 0, False, False
+
+        def read():
+            try:
+                return os.read(source, 65536)
+            except OSError as e:
+                if e.errno == errno.EIO:
+                    return b""  # a terminal whose trainer has exited
+                raise
+
         try:
-            for line in process.stdout:
+            for line, complete in segments(read):
+                # A terminal's line comes with its colours and padded to its width
+                line = ANSI.sub(b"", line).rstrip() if self.adapter.uses_terminal else line
                 output["last"] = time.monotonic()
-                output["tail"] = (output["tail"] + line)[-4096:]
-                try:
-                    log_file.write(line)
-                    log_file.flush()
-                except OSError:
-                    pass
-                step = step_of(line, self.adapter)
+                if complete:
+                    output["tail"] = (output["tail"] + line + b"\n")[-4096:]
+                    try:
+                        log_file.write(line + b"\n")
+                        log_file.flush()
+                    except OSError:
+                        pass
+                step = self.adapter.step_of(line, job)
                 if step is None:
-                    if line.startswith(b"Step ") and not warned:
+                    if complete and self.adapter.looks_like_a_step(line) and not warned:
                         # The trainer's wording changed (tests/ holds its output from the pinned commit)
                         log(f"Job {job_id}: a step line the node does not understand: {line[:200]!r}")
                         warned = True
                     continue
                 understood = True
                 with self.lock:
-                    job = self.jobs.get(job_id)
-                    if job is None or job["state"] != RUNNING:
+                    job_now = self.jobs.get(job_id)
+                    if job_now is None or job_now["state"] != RUNNING:
                         continue
-                    job["step"], job["progress"] = step
+                    job_now["step"], job_now["progress"] = step
                     if time.monotonic() - last_saved > 5:
                         last_saved = time.monotonic()
                         try:
-                            self.save(job)
+                            self.save(job_now)
                         except OSError as e:
                             log(f"Job {job_id}: its progress could not be saved ({e})")
         except Exception:  # noqa: BLE001
             log(f"Job {job_id}: its output could not be read:\n" + traceback.format_exc())
-        finally:
-            process.stdout.close()
         if not understood:
             log(f"Job {job_id}: the trainer printed no step the node understands (no progress was shown)")
 

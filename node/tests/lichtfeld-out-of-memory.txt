@@ -1,0 +1,2 @@
+[02:15:15.698] [31m[error][0m trainer.cpp:7275  CUDA out of memory: failed to allocate 2.00 GiB for 'densify' (op 'mrnf.grow', device 0, native 2)
+[02:15:15.700] [31m[error][0m application.cpp:1170  Training failed: CUDA allocation failed with cudaErrorMemoryAllocation (out of memory): requested_bytes=2147483648, label='densify', operation='mrnf.grow'

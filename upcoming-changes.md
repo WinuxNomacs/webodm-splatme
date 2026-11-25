@@ -4239,7 +4239,17 @@ LichtFeld's model looks a little brighter than the photos' edges.
   and `splatnode.py`; `SPLATNODE_TRAINER_KIND=lichtfeld`. Base images pinned by digest, LichtFeld and vcpkg
   by commit. GPL-3.0: LichtFeld's licence in the image, its source offered (the pinned commit and this recipe) in
   the image's labels and the docs. Its size measured.
-- **3c. The adapter** (`LichtFeld` in `splatnode.py`): `--headless -d <dataset> -o <out> --export ply --undistort
+- **3c. The adapter**, built 2026-11-25 (branch `lichtfeld-adapter`): as planned below, with two findings. LichtFeld
+  prints a progress redraw only every 100 steps and no line end until the next one, so the node also reads the
+  unfinished line for the step (else progress lagged one redraw); a completed job's step is set to its steps (no bar
+  for the last ones). LichtFeld's home (its logs of every run) is the job's folder. Output samples in `node/tests`:
+  three real runs (a training, a failure, a SIGTERM stop) and an out-of-memory sample composed from its messages,
+  since this GPU under WSL spills into the computer's memory instead (two trainings at once and 4,032 px photos at a
+  50,000,000 cap only slowed down). Tests: 14 against a stand-in that refuses to run without a terminal, 6 against
+  the samples. Live, the node in the image on the check task: 500 steps (`mcmc`, a 500,000 cap), continued to 800
+  (`--init`, 300 steps trained, progress from 600), and 200 steps with a white mask per photo ("Found 217 masks",
+  mask mode ignore, nothing excluded). Planned as:
+  (`LichtFeld` in `splatnode.py`): `--headless -d <dataset> -o <out> --export ply --undistort
   --log-level info`, plus `-i`, `--max-cap`, `--strategy`, `--sh-degree`, `--no-exposure-correction` from the
   options; `--mask-mode ignore` when the zip has masks; `--init resume.ply` to continue (a new schedule: the
   plugin sends the model's steps with the job, `resume_steps`, and the node trains `steps - resume_steps`). Run
