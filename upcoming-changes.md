@@ -28,7 +28,7 @@ joins older holes.
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
    2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
-   LichtFeld node (planned)"; 3a done (no bake, the user's decision); next, 3b (the image). The default
+   LichtFeld node (planned)"; 3a to 3e built and merged; next, 3f (the release, planned). The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
@@ -4285,8 +4285,23 @@ LichtFeld's model looks a little brighter than the photos' edges.
   Planned as: the forms' new fields (Strategy a select, Exposure Correction a checkbox, SH Degree and Max
   Gaussians numbers), shown when the node has them (phase 2's rule), in OptionsFields and `options.html`; the
   options' new kinds checked in `parse_options` and `optionsFromForm`.
-- **3f. The release**: `release.yml`'s node job for both images (the second's inputs: `node/lichtfeld.Dockerfile`
-  and `splatnode.py`), with room made on the runner; its time measured on the first run by hand.
+- **3f. The release** (planned 2026-11-25; decided with the user: a matrix, a shared version, both must build):
+  `release.yml`'s node job becomes a matrix over the two images (`opensplat`: `node/Dockerfile`,
+  `splatme-node`; `lichtfeld`: `node/lichtfeld.Dockerfile`, `splatme-node-lichtfeld`), `fail-fast: false`, every
+  step as today per image: the tag's version check, the published version skipped, its inputs' hash compared
+  (the image's Dockerfile and `splatnode.py`), `latest` moving only forward, room made on the runner, a run by
+  hand building without pushing. Both images carry `splatnode.py`'s `VERSION`: a change to either Dockerfile needs
+  a new one, which builds both. The plugin's release and the docs wait for both (`needs: node` waits for every
+  matrix entry), so `--trainer lichtfeld` never installs an image not yet published. The LichtFeld image's labels:
+  description "LichtFeld Studio on an NVIDIA GPU", licences `AGPL-3.0-only AND GPL-3.0-or-later` (SplatMe's node
+  and LichtFeld; its NVIDIA exception is in the image, `/opt/lichtfeld`), and a `splatme.trainer.source` label with
+  LichtFeld's repository at the pinned commit (the source offer; the recipe is `org.opencontainers.image.source`).
+  The OpenSplat image's licence label stays `AGPL-3.0`. No new trigger (the repository is public: minutes are
+  free). Not checkable here (no `actionlint` or `act`): the YAML is parsed and its shell steps run through
+  `shellcheck` where installed; then the user pushes and runs it by hand (no publish ticked), which measures the
+  LichtFeld build on a 4-core runner (12 minutes on this machine for the spike's build; vcpkg's ports build from
+  source on every run). If it is too slow or runs out of disk, a vcpkg binary cache is the follow-up, planned
+  then. Docs: `CLAUDE.md`'s release rule names both images.
 
 **How it can fail, unattended, and what then** (each with a test that makes it happen, against the stand-in
 trainer):
