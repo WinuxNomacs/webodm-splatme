@@ -28,7 +28,7 @@ joins older holes.
    Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
    2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
-   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the docs (How It Works) and the comparisons for default values. The default
+   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then 3g (the docs, planned) and the comparisons for default values. The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
@@ -4302,6 +4302,26 @@ LichtFeld's model looks a little brighter than the photos' edges.
   LichtFeld build on a 4-core runner (12 minutes on this machine for the spike's build; vcpkg's ports build from
   source on every run). If it is too slow or runs out of disk, a vcpkg binary cache is the follow-up, planned
   then. Docs: `CLAUDE.md`'s release rule names both images.
+
+- **3g. The docs** (planned 2026-11-25; decided with the user: one page, as deep as OpenSplat's, a Licences and
+  Source section), branch `lichtfeld-docs`:
+  - **How It Works**: one page. Its shared parts stay (1. What Comes From WebODM; the result and what SplatMe
+    does with it), then **With OpenSplat** (today's sections 2 to 5) and **With LichtFeld Studio**, as deep:
+    preparing the scene, the starting model, one step, the schedule, each strategy (MRNF, the default; MCMC; IGS+),
+    what Max Gaussians does in each, Exposure Correction (each photo's brightness and colour, each camera's
+    vignetting, learned beside the model and not in it; why the model looks a little brighter than the photos'
+    edges, 3a's finding), masks, and continuing (`--init`, a new schedule over the remaining steps). Read from
+    LichtFeld's code at the pin (v0.5.4.3, `06c9a04`), cloned into `ignored/` for reference; numbers only from
+    its code or a run. The footer names both pins.
+  - **The Splat Node**: a **Licences and Source** section per image: its licences, where the licence files are
+    in the image (`/opt/lichtfeld`: `LICENSE`, `LICENSE-EXCEPTION.txt`, `THIRD-PARTY-LICENSES.md`; OpenSplat's
+    `LICENSE.txt`), the source (the trainer's pinned commit, vcpkg's commit, the Dockerfile that rebuilds it at the
+    release's tag) and the `splatme.trainer.source` label; a pointer, not legal advice. The API table: `/info`'s
+    `trainer_kind` (`opensplat` or `lichtfeld`) and option kinds (a range, choices, on/off); `POST /jobs`'s
+    `strategy`, `exposure_correction`, `resume_steps` (LichtFeld only).
+  - **Home and README**: SplatMe trains with OpenSplat or LichtFeld Studio; LichtFeld Studio in the thanks.
+  - Not in this phase: the Quality presets' words and times for LichtFeld (they show only with OpenSplat); they
+    come with the comparisons' default values.
 
 **How it can fail, unattended, and what then** (each with a test that makes it happen, against the stand-in
 trainer):
