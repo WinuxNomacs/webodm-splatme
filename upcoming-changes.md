@@ -64,6 +64,9 @@ joins older holes.
    `NOTICE`, if its v2.7.1 tag has one) from that tag, pinned by checksum, into `/opt/libtorch/`; The Splat
    Node's Licences and Source table names it. Needs a new node `VERSION` once 0.3.0 is published, and a rebuild
    (about 30 minutes) to check it.
+6. Proposed, to decide later (asked 2026-11-26): SplatMe on WebODM's native Windows app, the user leaning toward
+   a native splat node (the larger lift) over the app with the Docker node; to discuss when it is time. See
+   "27. Native Windows support (proposed, to decide later)".
 
 **Dropped**
 
@@ -78,7 +81,8 @@ joins older holes.
   training options (dropped)".
   Except `--densify-until`, asked for on 2026-11-21 as Grow Until (built, see "11. Grow Until (built)").
 
-- Native Windows app (2026-11-15, the user's decision after checking their native install): WebODM's native
+- Native Windows app (2026-11-15, the user's decision after checking their native install; proposed again
+  2026-11-26, Later 6 and section 27): WebODM's native
   app is not ready for it. It ships no `splat-tools` (WebODM's own Splats import cannot convert there either)
   and no Node or webpack to build a plugin's page scripts. SplatMe supports Docker installs of WebODM only. See
   "Native Windows app (dropped)".
@@ -4673,3 +4677,58 @@ snapping to edges and to vertical and horizontal), its thickness and both sides,
 they saw it, a colour sampled nearby, or plain), how it joins the mesh around it, whether it also applies to the
 splats, and how it is undone and kept with the task's edits.
 
+### 27. Native Windows support (proposed, to decide later)
+
+**Asked 2026-11-26**, after research the same day. Decided "Native Windows app (dropped)" on 2026-11-15; proposed
+again because WebODM's Windows app is truly native: the user's install (`C:\WebODM`, WebODM 4.0.0; webodm.org now
+offers 4.0.1, free) runs WebODM on Windows' Python 3.14 (waitress, Celery on eventlet), PostgreSQL 18, Valkey,
+`nodeodx.exe` and ODX 3.8.5 built with MSVC, with no Docker or WSL (webodm.org's FAQ: "Windows: no, it runs natively
+if you use the installer"). Its ODX uses the GPU without Docker: `modules\gpu.py` looks for
+`System32\nvcuda.dll`; OpenSfM's matching (32 photos or more) and OpenMVS's densify use CUDA, the sky and
+background masks do not (plain `onnxruntime`). Read in the install's code, not seen in a task's log.
+
+**The user's leaning (2026-11-26): the larger lift**, a native splat node, since the app with a Docker node is not
+native as WebODM's maintainers intend their Windows app to be. To discuss when it is time.
+
+**A. The larger lift: a native Windows splat node** (with B's plugin changes too, but no conversion move: see the
+open decisions).
+
+- Trainers: OpenSplat's Windows program is sold by its maintainer (its README: "buy the pre-built program"); its
+  GitHub releases have no files; its README's Windows build (CUDA 11.8, libtorch 2.1.2) is too old for an RTX 50,
+  so a build with CUDA 12.8, libtorch cu128 and OpenCV under MSVC is needed. LichtFeld Studio's Windows binaries
+  are paid (its portal, a donation that funds it); a source build is free under GPLv3 (MSVC, vcpkg, CUDA 12.8).
+  AGPL and GPL allow SplatMe to publish its own builds, but that undercuts both projects' funding, one of them by
+  WebODM's maintainer: the user's decision, not a technical one.
+- `node/splatnode.py` (standard library only) uses what Windows lacks: `pty`, `fcntl`, `termios` (LichtFeld's
+  progress only to a terminal; Windows has ConPTY, not in the standard library, and `pywinpty` would break
+  standard-library-only; whether LichtFeld on Windows prints its progress to a pipe is to be measured);
+  `start_new_session`, `os.killpg`, SIGTERM and SIGKILL (Windows: a new process group, CTRL_BREAK_EVENT, then
+  `taskkill /T /F` or a Job Object); Docker's restart after a fatal error (Windows: a service restarted on failure,
+  through a wrapper or the Task Scheduler); renames and deletes of files a process still holds (the trash design
+  checked against Windows' locks). Each with a test that makes its failure happen, the OS branches small and in one
+  place.
+- An installer for Windows in place of `splatnode.sh` (PowerShell): the trainer's files fetched and checked, the
+  service, the firewall, the token, the settings saved through the app's own Python (`apps\python314\python.exe
+  manage.py`).
+- Release: Windows builds of each trainer in GitHub Actions (the repo is public, so the minutes are free; CUDA and
+  libtorch builds are long and large), two builds per trainer upgrade.
+
+**B. The smaller lift: the Windows app with the Docker node** (the gaps from the 2026-11-15 check):
+
+- No `splat-tools` on the app (`training.py`, its `splat-tools` check): the node converts (the Linux `splat-tools` in
+  the node images, `model.rad` returned too). Splat-Tools v1.0.3 has a Windows build
+  (`x86_64-pc-windows-msvc.zip`), but a plugin that downloads programs is outside WebODM's plugin rules.
+- No Node or webpack: the zip ships `public/build` (`dev/build-zip.sh` leaves it out now; WebODM uses it as is).
+- The restart notice and "WebODM's own containers" assume Docker; `splatnode.sh` saves the settings through
+  `docker exec`, so on the app they are typed in SplatMe → Settings (`localhost:3108` worked).
+- The app has numpy 2.5.4, scipy 1.18.1 and onnxruntime 1.31.1 in its `python314`, so Ignore Sky, Remove Floaters
+  and Crop to Boundary should run (not tried there).
+
+**Open decisions (for the user, when planned):**
+
+- A or B (the user leans to A), or B first as a step toward A.
+- For A: the trainers' Windows programs: SplatMe's own builds published, the maintainers asked first, or the
+  users pointed to the paid programs (SPLATNODE_TRAINER already takes a program's path).
+- For A: which trainer first on Windows, and the service wrapper.
+- Conversion on the app: `splat-tools` for Windows (how it is installed, given the plugin rules) or the node's
+  conversion.
