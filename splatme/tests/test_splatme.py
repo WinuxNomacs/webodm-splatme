@@ -1439,6 +1439,21 @@ class TestSplatMe(BootTestCase):
         self.assertEqual((res.status_code, res.data["error"]), (400, "A training is under way on this splat node: stop it, or let it end, first."))
         self.assertIsNotNone(training.find_node(other_id))
 
+    def test_splatnode_sh_adds_a_node_by_its_address_updates_it_again_and_removes_only_its_own(self):
+        node_id = training.connect_node("http://splat-node-lf:3100/", "t1", "lichtfeld")
+        self.assertEqual([(n["name"], n["url"]) for n in training.nodes()],
+                         [("Splat Node", self.node.url), ("lichtfeld", "http://splat-node-lf:3100")])
+        training.rename_node(node_id, "LichtFeld Studio")
+        self.assertEqual(training.connect_node("http://splat-node-lf:3100", "t2", "lichtfeld"), node_id)  # connect again
+        self.assertEqual((training.find_node(node_id)["name"], training.find_node(node_id)["token"]), ("LichtFeld Studio", "t2"))
+        other = training.connect_node("http://splat-node-2:3100", "t3", "LichtFeld Studio")
+        self.assertEqual(training.find_node(other)["name"], "LichtFeld Studio 2")
+        self.assertTrue(training.disconnect_node("http://splat-node-lf:3100"))
+        self.assertFalse(training.disconnect_node("http://splat-node-lf:3100"))
+        self.assertEqual([n["name"] for n in training.nodes()], ["Splat Node", "LichtFeld Studio 2"])
+        training.store().set_json(training.NODES, [])
+        self.assertEqual(training.connect_node("http://splat-node:3100", "t", "OpenSplat"), "default")  # the first
+
     def test_each_trainer_keeps_its_own_saved_options_and_a_setting_from_before_serves_both(self):
         other, other_id = self.second_node()
         training.store().set_json("auto_default", {"options": {"steps": 3000, "image_size": 800}})  # saved before

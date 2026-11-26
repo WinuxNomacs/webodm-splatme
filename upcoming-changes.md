@@ -5,6 +5,17 @@ task's training data and imports, converts and displays a trained model (a task'
 Dashboard, `app/splats.py`, `app/api/splats.py`, `worker/tasks.py`); the training in between is done by hand in
 other software. The plugin does that step.
 
+## Decisions needed (for the user, collected as work goes on)
+
+Each is decided with the user when its phase is planned or before the release it affects; once decided, it moves
+into its phase's section and leaves this list.
+
+1. **The default splat node's name** (found in 25c/25d, 2026-11-26). The node set up before plan 25 becomes the
+   entry "Splat Node", which reads oddly under the panel's "Splat Node" heading and beside the forms' field of that
+   name. Options: name it after its trainer ("OpenSplat", "LichtFeld Studio") at upgrade or when `splatnode.sh`
+   installs or connects it (25e), or leave it for administrators to rename in the panel. Before the LichtFeld
+   release.
+
 ## Phases (current and upcoming)
 
 **Up next**
