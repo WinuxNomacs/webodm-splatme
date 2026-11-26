@@ -29,7 +29,7 @@ joins older holes.
    continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
    2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
    LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the comparisons for default values: OpenSplat's growth swept on Brighton Beach and confirmed on the check
-   task ("24. OpenSplat's growth: the Brighton Beach sweep (planned 2026-11-25)"; LichtFeld keeps its own defaults). The default
+   task ("24. OpenSplat's growth: the Brighton Beach sweep": done 2026-11-25, both trainers keep their defaults; left, the docs' guidance on Max Gaussians and LichtFeld). The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
 **Then**
@@ -4427,7 +4427,7 @@ https://github.com/m-schuetz/Splatshop, read through the GitHub API on 2026-11-2
 - E4: a selection model, or shortcuts on the edit list.
 - Which of E2 to E4 to build, and in what order.
 
-### 24. OpenSplat's growth: the Brighton Beach sweep (planned 2026-11-25)
+### 24. OpenSplat's growth: the Brighton Beach sweep (done 2026-11-25: defaults kept)
 
 **Why.** High (30,000 steps) ends at 303,981 Gaussians on the check task; LichtFeld's default ends at 5,000,000.
 The user wants OpenSplat's presets nearer LichtFeld's counts (1 to 2 million at 30,000 steps), with OpenSplat's
@@ -4536,3 +4536,9 @@ mask. Grow Until 27,000 is the one option that counts: rounds keep netting a few
 final prunes at 18,000 to 24,000 (124,000 with the defaults) do not run. It gives 1.65 times the Gaussians, a
 little better scores (LPIPS 0.340 to 0.326), 49% more time and 6.8 GB of GPU memory above idle (8 GB on this
 machine). No combination of OpenSplat's options reaches 1 to 2 million on this dataset.
+
+**Decided with the user (2026-11-25): OpenSplat's presets keep their defaults.** Grow Until 27,000's gain (LPIPS
+better on all 28 held-out photos, by 0.014 on average; PSNR +0.18 dB) does not justify 49% more time and 6.8 GB
+of GPU memory; a user who wants larger, sharper models installs a LichtFeld node instead. The sweep's tooling
+(`record.py --results`, `--growth`) and its numbers stay. Still owed by this section: the docs' guidance that a
+lower Max Gaussians gives smaller models that are easier to edit, and that LichtFeld gives larger, sharper ones.
