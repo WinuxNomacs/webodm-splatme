@@ -64,7 +64,9 @@ with open(os.path.join(out, "project.licht"), "wb") as f:
 say("✓ Training completed in 1.0s (avg 1.9 iter/s)")
 if mode != "nomodel":
     model = os.path.join(out, f"splat_{steps}.ply")
+    # A real model's header and two splats (tests/lichtfeld-model.ply), at its steps; its arguments after the data
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lichtfeld-model.ply"), "rb") as f:
+        data = f.read().replace(b'"iteration":500,', f'"iteration":{steps},'.encode(), 1)
     with open(model, "wb") as f:
-        f.write(f'ply\ncomment lichtfeld_provenance {{"iteration":{steps}}}\n'.encode())
-        f.write(" ".join(args).encode())
+        f.write(data + b"\nargs " + " ".join(args).encode())
     info(f"Exported final splat: {model}")
