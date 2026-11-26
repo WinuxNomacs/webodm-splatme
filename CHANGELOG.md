@@ -20,7 +20,8 @@ counts as OpenSplat, and nothing changes for it).
 - `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio (its image,
   `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, is published with each release beside OpenSplat's); `status`
   names a node's trainer.
-- SplatMe keeps a list of splat nodes: the node set up before becomes its first, the default. Each training
+- SplatMe keeps a list of splat nodes: the node set up before becomes its first, the default, named after its
+  trainer ("OpenSplat") once it answers (a node added with no name too; a name given on the panel is kept). Each training
   remembers the node it was sent to, and its progress, log and model come from that node. In the API: `GET nodes`,
   `node` on `train` and `auto`, and `check`'s `nodes`, with whether each can continue the task's model.
 - The **Splat Node** panel lists every node and its state (SplatMe → Settings), and on Administration → SplatMe

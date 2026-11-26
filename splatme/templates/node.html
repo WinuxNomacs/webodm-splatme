@@ -69,8 +69,8 @@ the default (what trains when none is chosen). A token is never shown.
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-name">Name</label>
         <div class="col-sm-9">
-            <input type="text" class="form-control" id="splatme-name" maxlength="80" autocomplete="off">
-            <span class="help-block">How the forms name this node in Splat Node, when there are two or more.</span>
+            <input type="text" class="form-control" id="splatme-name" maxlength="80" autocomplete="off" placeholder="Its trainer's name">
+            <span class="help-block">How the forms name this node in Splat Node, when there are two or more. Left blank, it is named after its trainer.</span>
         </div>
     </div>
     <div class="form-group">
@@ -232,7 +232,7 @@ the default (what trains when none is chosen). A token is never shown.
     function openForm(id){
         editing = id;
         var n = nodes.filter(function(m){ return m.id === id; })[0] || {};
-        nameField.value = n.name || (nodes.length ? "" : "Splat Node");
+        nameField.value = n.named === false ? "" : n.name || "";
         url.value = n.url || "";
         token.value = "";
         token.placeholder = n.token_set ? "Unchanged" : "";
