@@ -128,8 +128,10 @@ it short; edit in place.
   use (`SM_GPU=auto`, the default: WebODM's `nodeodx:gpu` image with the GPU reserved, `dev/compose.gpu.yml`);
   `SM_GPU=0` runs it on the CPU. With a GPU the stack also has the splat node (`sm-splat-node`, built from
   `node/` on the first `up`, `dev/compose.splatnode.yml`): http://splat-node:3100 from WebODM's containers,
-  http://localhost:3108 from the host, token `dev-token`. After a change to `node/`:
-  `dev/webodm.sh up --build splat-node`.
+  http://localhost:3108 from the host, token `dev-token`; and a second one with LichtFeld Studio
+  (`sm-splat-node-lichtfeld`, `dev/compose.lichtfeld.yml`, `SM_LICHTFELD=0` leaves it out):
+  http://splat-node-lichtfeld:3100, http://localhost:3109, the same token. After a change to `node/`:
+  `dev/webodm.sh up --build splat-node splat-node-lichtfeld`.
 - **`splatme/` is mounted live**, and the server reloads on every save: an undefined name 500s the pages that use
   it. Check a Python change with Ruff before it lands in `splatme/`.
 - The plugin's code runs in two containers: views in `sm-webapp`, `run_function_async` jobs in `sm-worker`. They

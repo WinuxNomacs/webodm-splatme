@@ -189,7 +189,7 @@ the default (what trains when none is chosen). A token is never shown.
             var b = document.createElement("b");
             b.textContent = n.name;
             head.appendChild(b);
-            head.appendChild(document.createTextNode((n.trainer_kind ? " (" + trainerName(n.trainer_kind) + ")" : "") +
+            head.appendChild(document.createTextNode((n.trainer_kind && trainerName(n.trainer_kind) !== n.name ? " (" + trainerName(n.trainer_kind) + ")" : "") +
                 (k === 0 && nodes.length > 1 ? ", the default" : "")));
             item.appendChild(head);
             item.appendChild(stateBox(n, false));

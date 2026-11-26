@@ -199,7 +199,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
         while (nodeSelect.options.length) nodeSelect.remove(0);
         nodes.forEach(function(n){  // as public/trainingView.js's nodeLabel
             var trainer = n.trainer_kind === "lichtfeld" ? "LichtFeld Studio" : n.trainer_kind ? "OpenSplat" : "not available";
-            nodeSelect.add(new Option(n.name + " (" + trainer + ")", n.id));
+            nodeSelect.add(new Option(n.name === trainer ? n.name : n.name + " (" + trainer + ")", n.id));
         });
         if (nodes.length) nodeSelect.value = chosen || nodes[0].id;
     }
