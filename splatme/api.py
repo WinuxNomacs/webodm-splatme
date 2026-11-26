@@ -581,7 +581,7 @@ class Nodes(APIView):
                     "trainer_kind": None if info is None else training.node_kind(info),
                     "error": None if error is None else (error if admin else UNAVAILABLE)}
             if admin:
-                item.update(url=entry["url"], token_set=bool(entry["token"]))
+                item.update(url=entry["url"], token_set=bool(entry["token"]), named=entry.get("named") is not False)
             out.append(item)
         return {"admin": admin, "nodes": out}
 

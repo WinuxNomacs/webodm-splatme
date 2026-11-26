@@ -10,12 +10,7 @@ other software. The plugin does that step.
 Each is decided with the user when its phase is planned or before the release it affects; once decided, it moves
 into its phase's section and leaves this list.
 
-1. **The default splat node's name** (found in 25c/25d, 2026-11-26). The node set up before plan 25 becomes the
-   entry "Splat Node", which reads oddly under the panel's "Splat Node" heading and beside the forms' field of that
-   name. Options: name it after its trainer ("OpenSplat", "LichtFeld Studio") at upgrade or when `splatnode.sh`
-   installs or connects it (25e), or leave it for administrators to rename in the panel. Since 25e a node that
-   `splatnode.sh` adds is named after its trainer (or its `--name`); an entry it finds by address keeps its name, so
-   only the node migrated from before plan 25 is "Splat Node". Before the LichtFeld release.
+None open.
 
 ## Phases (current and upcoming)
 
@@ -4733,6 +4728,15 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   LichtFeld node `--name lichtfeld` (0.4.0 left as it was), SplatMe upgraded to this branch (the old node migrated,
   `connect --name lichtfeld` added it), both answering repeatedly with their own tokens, `status` of both,
   uninstall of each. Docs: Install and The Splat Node (Both Trainers on One Machine). Tests: 1 Django.
+- **The default node's name**, decided by the user 2026-11-26 ("name the default node after its trainer") and
+  built (branch `default-node-name`): an entry SplatMe named itself (`"named": false`: the node moved from before,
+  one set by `POST node`, one added or saved with no name) takes its trainer's name ("OpenSplat", "LichtFeld
+  Studio", a number added when taken) when `check_nodes` hears the node's trainer (`name_after_trainers`), and
+  follows it if the node is installed again with the other trainer; a node that does not answer, or has no
+  trainer, keeps "Splat Node" until it does. A name given on the panel is kept (`rename_node`; the same name saved
+  again changes nothing; a blank name returns to the trainer's). The panel's Name field is blank for such a node,
+  with "Its trainer's name" as placeholder; `GET nodes` gives administrators `named`. Tests: 1 Django (seen
+  failing on the code before). Checked live: Administration → SplatMe shows "OpenSplat, the default".
 - **25f. The dev stack and the docs**, built 2026-11-26 (branch `dev-docs`): `dev/webodm.sh` adds
   `sm-splat-node-lichtfeld` (`dev/compose.lichtfeld.yml`, port 3109, the same dev token; `SM_LICHTFELD=0` leaves it
   out) beside the OpenSplat node with a GPU, and the dev stack's SplatMe has it as "LichtFeld Studio". Docs: Using

@@ -127,10 +127,11 @@ def store():
 
 # The splat nodes set up: [{"id", "name", "url", "token"}], in the order added; the first is the default (what a
 # training uses when none is chosen). Until plan 25 SplatMe kept one node, under node_url and node_token: the first
-# read moves it into the list.
+# read moves it into the list. An entry SplatMe named itself ("named": false: the one moved from before, one set
+# by POST node, one added with no name) is named after its trainer once the node says it (name_after_trainers).
 NODES = "nodes"
 NODE_ID = re.compile(r"^[0-9a-z_-]{1,32}$")
-DEFAULT_NODE_NAME = "Splat Node"
+DEFAULT_NODE_NAME = "Splat Node"  # until the node says its trainer
 
 
 def valid_node(entry):
@@ -148,7 +149,7 @@ def nodes():
             raw = store().get_json(NODES, None)  # again, under the lock: another request may have just done it
             if raw is None:
                 url, token = store().get_string("node_url"), store().get_string("node_token")
-                raw = [{"id": "default", "name": DEFAULT_NODE_NAME, "url": url, "token": token}] if url or token else []
+                raw = [{"id": "default", "name": DEFAULT_NODE_NAME, "url": url, "token": token, "named": False}] if url or token else []
                 store().set_json(NODES, raw)
                 for key in ("node_url", "node_token"):
                     store().del_key(key)
@@ -193,9 +194,45 @@ def check_nodes():
 
     listed = nodes()
     if len(listed) < 2:
-        return [ask(entry) for entry in listed]
-    with ThreadPoolExecutor(max_workers=min(8, len(listed))) as pool:
-        return list(pool.map(ask, listed))
+        results = [ask(entry) for entry in listed]
+    else:
+        with ThreadPoolExecutor(max_workers=min(8, len(listed))) as pool:
+            results = list(pool.map(ask, listed))
+    names = name_after_trainers(results)
+    return [({**entry, "name": names.get(entry["id"], entry["name"])}, info, error) for entry, info, error in results]
+
+
+def free_name(listed, base, entry=None):
+    """base, or base with a number after it, that no other entry has (names are compared without case)."""
+    final, n = base, 2
+    while any(e["name"].lower() == final.lower() and e is not entry for e in listed):
+        final, n = f"{base} {n}", n + 1
+    return final
+
+
+def name_after_trainers(results):
+    """The entries SplatMe named itself take their trainer's name ("OpenSplat"), from check_nodes' answers, and
+    follow it when the node changes trainer; a node that does not answer, or has no trainer (no GPU), keeps its
+    name. {id: new name} of those renamed."""
+    wanted = {entry["id"]: trainer_label(node_kind(info)) for entry, info, _ in results
+              if entry.get("named") is False and info and info.get("trainer")}
+    if not any(names_differ(entry, wanted) for entry, _, _ in results):
+        return {}
+
+    def change(listed):
+        renamed = {}
+        for entry in listed:
+            if entry["id"] in wanted and entry.get("named") is False:
+                name = free_name(listed, wanted[entry["id"]], entry)
+                if name != entry["name"]:
+                    entry["name"] = renamed[entry["id"]] = name
+        return renamed
+
+    return change_nodes(change)
+
+
+def names_differ(entry, wanted):
+    return entry["id"] in wanted and entry["name"] != wanted[entry["id"]]
 
 
 def job_node(job):
@@ -230,7 +267,7 @@ def set_node(url, token=None, node_id=None):
         if entry is None:
             if node_id:
                 raise TrainingError("That splat node is not set up.")
-            entry = {"id": "default", "name": DEFAULT_NODE_NAME, "url": "", "token": ""}
+            entry = {"id": "default", "name": DEFAULT_NODE_NAME, "url": "", "token": "", "named": False}
             listed.append(entry)
         entry["url"] = url
         if token is not None:
@@ -241,31 +278,40 @@ def set_node(url, token=None, node_id=None):
 
 
 def add_node(name, url, token=""):
-    """A new node at the end of the list: its id."""
-    check_node_fields(name, url)
-    name = str(name).strip()
+    """A new node at the end of the list: its id. With no name it is named after its trainer."""
+    named = bool(str(name or "").strip())
+    check_node_fields(name if named else None, url)
+    name = str(name).strip() if named else DEFAULT_NODE_NAME
 
     def change(listed):
-        if any(e["name"].lower() == name.lower() for e in listed):
+        if named and any(e["name"].lower() == name.lower() for e in listed):
             raise TrainingError(f"A splat node is already named {name}.")
-        node_id = uuid.uuid4().hex[:12]
-        listed.append({"id": node_id, "name": name, "url": (url or "").strip(), "token": token or ""})
+        node_id = "default" if not listed else uuid.uuid4().hex[:12]
+        entry = {"id": node_id, "name": name if named else free_name(listed, name), "url": (url or "").strip(), "token": token or ""}
+        if not named:
+            entry["named"] = False
+        listed.append(entry)
         return node_id
 
     return change_nodes(change)
 
 
 def rename_node(node_id, name):
-    check_node_fields(name, None)
-    name = str(name).strip()
+    """A node's new name; with none it is named after its trainer again (the next time it is asked)."""
+    name = str(name or "").strip()
 
     def change(listed):
         entry = next((e for e in listed if e["id"] == node_id), None)
         if entry is None:
             raise TrainingError("That splat node is not set up.")
+        if not name:
+            entry["named"] = False
+            return
         if any(e["name"].lower() == name.lower() and e is not entry for e in listed):
             raise TrainingError(f"A splat node is already named {name}.")
-        entry["name"] = name
+        if name != entry["name"]:  # a name given by a person is kept: no longer named after its trainer
+            entry["name"] = name
+            entry.pop("named", None)
 
     change_nodes(change)
 
@@ -281,9 +327,7 @@ def connect_node(url, token, name):
         if entry is not None:
             entry["token"] = token or ""
             return entry["id"]
-        base, final, n = str(name).strip(), str(name).strip(), 2
-        while any(e["name"].lower() == final.lower() for e in listed):
-            final, n = f"{base} {n}", n + 1
+        final = free_name(listed, str(name).strip())
         node_id = "default" if not listed else uuid.uuid4().hex[:12]
         listed.append({"id": node_id, "name": final, "url": url, "token": token or ""})
         return node_id

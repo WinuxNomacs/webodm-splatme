@@ -5,9 +5,9 @@ WebODM routes a plugin's API through a plain Django view.
 
 | Request | Does |
 |---|---|
-| `GET nodes` | Every splat node set up, the default first: its `id`, `name`, state (`node`, as `GET node` gives it) and `trainer_kind`, or `error`; for administrators also its `url` and `token_set`. Tokens are never sent back |
-| `POST nodes` (`name`, `url`, `token`, `save`) | Superusers: adds a node (its id in `saved`, with the list); with `save` false only tries the address and token (`tried`: the state, or what is wrong) |
-| `POST nodes/<id>` (`name`, `url`, `token`, `save`, `default`) | Superusers: changes a node (an empty token keeps the one set), tries it with `save` false, or with `default` true makes it the default (the first) |
+| `GET nodes` | Every splat node set up, the default first: its `id`, `name`, state (`node`, as `GET node` gives it) and `trainer_kind`, or `error`; for administrators also its `url`, `token_set` and `named` (false: named after its trainer, as `GET nodes` renames it once the node answers). Tokens are never sent back |
+| `POST nodes` (`name`, `url`, `token`, `save`) | Superusers: adds a node (its id in `saved`, with the list; with no `name`, named after its trainer); with `save` false only tries the address and token (`tried`: the state, or what is wrong) |
+| `POST nodes/<id>` (`name`, `url`, `token`, `save`, `default`) | Superusers: changes a node (an empty token keeps the one set, an empty name names it after its trainer), tries it with `save` false, or with `default` true makes it the default (the first) |
 | `DELETE nodes/<id>` | Superusers: removes a node from SplatMe (the node itself keeps running); refused while a training is under way on it |
 | `GET node` | The default node's state or that it is not available (with `update`: what an older node lacks, or null), and its `url`; for administrators also what is wrong and `token_set`. The token is never sent back |
 | `POST node` (`url`, `token`, `save`) | Administrators: sets the default node's address and token; with `save` false only tries them |

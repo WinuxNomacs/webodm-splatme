@@ -1273,9 +1273,9 @@ class TestSplatMe(BootTestCase):
         store.del_key(training.NODES)
         store.set_string("node_url", "http://old:3100")
         store.set_string("node_token", "old-token")
-        self.assertEqual(training.nodes(), [{"id": "default", "name": "Splat Node", "url": "http://old:3100", "token": "old-token"}])
+        self.assertEqual(training.nodes(), [{"id": "default", "name": "Splat Node", "url": "http://old:3100", "token": "old-token", "named": False}])
         self.assertEqual((store.get_string("node_url"), store.get_string("node_token")), ("", ""))
-        self.assertEqual(training.nodes(), [{"id": "default", "name": "Splat Node", "url": "http://old:3100", "token": "old-token"}])
+        self.assertEqual(training.nodes(), [{"id": "default", "name": "Splat Node", "url": "http://old:3100", "token": "old-token", "named": False}])
         self.assertEqual(PluginDatum.objects.filter(key=store.db_key(training.NODES)).count(), 1)
         store.del_key(training.NODES)  # nothing saved before: no node
         self.assertEqual(training.nodes(), [])
@@ -1296,7 +1296,6 @@ class TestSplatMe(BootTestCase):
         node_id = training.add_node("LichtFeld", "http://lf:3100", "t")
         self.assertEqual([n["name"] for n in training.nodes()], ["Splat Node", "LichtFeld"])
         for call, message in ((lambda: training.add_node("lichtfeld", "http://x:1"), "already named lichtfeld"),
-                              (lambda: training.add_node(" ", "http://x:1"), "needs a name"),
                               (lambda: training.add_node("Other", "ftp://x"), "starts with http"),
                               (lambda: training.rename_node(node_id, "splat node"), "already named splat node"),
                               (lambda: training.remove_node("nope"), "not set up")):
@@ -1343,7 +1342,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         self.assertEqual(self.train(task, steps=10, image_size=16, max_gaussians=5000).status_code, 200)
         nodes = {n["name"]: n for n in self.client.get(f"{API}/task/{task.id}/check").data["nodes"]}
-        self.assertEqual((nodes["Splat Node"]["continue_problem"], nodes["LichtFeld"]["continue_problem"]), (None, None))
+        self.assertEqual((nodes["OpenSplat"]["continue_problem"], nodes["LichtFeld"]["continue_problem"]), (None, None))
         res = self.train(task, resume="true", steps=5, node=lichtfeld_id)  # OpenSplat's model, on LichtFeld
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(lichtfeld.jobs["job1"]["options"], {"steps": 15, "max_gaussians": 5000, "resume_steps": 10})
@@ -1370,7 +1369,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         check = self.client.get(f"{API}/task/{task.id}/check").data
         self.assertEqual((check["node_id"], check["node"]["trainer_kind"]), ("default", "opensplat"))
-        self.assertEqual([(n["name"], n["trainer_kind"]) for n in check["nodes"]], [("Splat Node", "opensplat"), ("LichtFeld", "lichtfeld")])
+        self.assertEqual([(n["name"], n["trainer_kind"]) for n in check["nodes"]], [("OpenSplat", "opensplat"), ("LichtFeld", "lichtfeld")])
         check = self.client.get(f"{API}/task/{task.id}/check?node={other_id}").data
         self.assertEqual((check["node_id"], check["node"]["trainer_kind"]), (other_id, "lichtfeld"))
         self.assertIn("strategy", check["ranges"])
@@ -1406,9 +1405,8 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(len(training.nodes()), 1)  # only tried
         res = admin.post(f"{API}/nodes", {"name": "LichtFeld", "url": other.url, "token": other.token}, format="json")
         node_id = res.data["saved"]
-        self.assertEqual([(n["name"], n["trainer_kind"]) for n in res.data["nodes"]], [("Splat Node", "opensplat"), ("LichtFeld", "lichtfeld")])
-        for values, message in (({"name": "splat node", "url": other.url}, "already named"),
-                                ({"name": "", "url": other.url}, "needs a name"),
+        self.assertEqual([(n["name"], n["trainer_kind"]) for n in res.data["nodes"]], [("OpenSplat", "opensplat"), ("LichtFeld", "lichtfeld")])
+        for values, message in (({"name": "opensplat", "url": other.url}, "already named"),
                                 ({"name": "Other", "url": "ftp://x"}, "starts with http")):
             res = admin.post(f"{API}/nodes/{node_id}", values, format="json")
             self.assertEqual(res.status_code, 400, values)
@@ -1419,11 +1417,43 @@ class TestSplatMe(BootTestCase):
         res = admin.post(f"{API}/nodes/{node_id}", {"name": "LF", "url": other.url, "token": ""}, format="json")
         self.assertEqual(training.find_node(node_id)["token"], other.token)
         res = admin.post(f"{API}/nodes/{node_id}", {"default": True}, format="json")
-        self.assertEqual([n["name"] for n in res.data["nodes"]], ["LF", "Splat Node"])
+        self.assertEqual([n["name"] for n in res.data["nodes"]], ["LF", "OpenSplat"])
         self.assertEqual(training.find_node()["id"], node_id)
         self.assertEqual(admin.post(f"{API}/nodes/nope", {"name": "x"}, format="json").status_code, 404)
         res = admin.delete(f"{API}/nodes/{node_id}")
-        self.assertEqual([n["name"] for n in res.data["nodes"]], ["Splat Node"])
+        self.assertEqual([n["name"] for n in res.data["nodes"]], ["OpenSplat"])
+
+    def test_a_node_splatme_named_takes_its_trainers_name_and_a_name_given_by_a_person_is_kept(self):
+        store = training.store()
+        store.del_key(training.NODES)
+        store.set_string("node_url", self.node.url)  # the one node saved before plan 25
+        store.set_string("node_token", self.node.token)
+        self.assertEqual(training.find_node()["name"], "Splat Node")
+        self.node.run_030("lichtfeld")
+        listed = self.client.get(f"{API}/nodes").data["nodes"]
+        self.assertEqual([(n["name"], n["trainer_kind"]) for n in listed], [("LichtFeld Studio", "lichtfeld")])
+        self.assertEqual(training.find_node()["name"], "LichtFeld Studio")  # kept
+        self.node.run_030("opensplat")  # installed again with the other trainer: the name follows
+        training.check_nodes()
+        self.assertEqual(training.find_node()["name"], "OpenSplat")
+        # A name taken by another node gets a number; a node that does not answer keeps its name
+        training.rename_node("default", "Main")
+        training.add_node("OpenSplat", "http://127.0.0.1:9", "t")
+        quiet = training.add_node("", "http://127.0.0.1:9", "t")
+        training.rename_node("default", "")
+        names = {entry["id"]: entry["name"] for entry, _, _ in training.check_nodes()}
+        self.assertEqual((names["default"], names[quiet]), ("OpenSplat 2", "Splat Node"))
+        # A name given by a person stays whatever the trainer; the same name saved again changes nothing
+        training.rename_node("default", "Main")
+        self.node.run_030("lichtfeld")
+        training.check_nodes()
+        self.assertEqual(training.find_node()["name"], "Main")
+        training.rename_node(quiet, "Splat Node")
+        self.assertIs(training.find_node(quiet).get("named"), False)
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        listed = admin.get(f"{API}/nodes").data["nodes"]
+        self.assertEqual([n["named"] for n in listed], [True, True, False])
 
     def test_a_node_training_a_task_is_not_removed_from_the_panel(self):
         other, other_id = self.second_node()
