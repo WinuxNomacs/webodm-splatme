@@ -4,12 +4,14 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import { request } from './api';
 import OptionsFields from './OptionsFields';
-import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, continueState, trainerView, formFromOptions } from './trainingView';
+import { optionsFromForm, continueFromForm, defaultMoreSteps, growUntilRange, stepsGrow, continueState, trainerView, formFromOptions, startingNode } from './trainingView';
 import StagesTable from './StagesTable';
+import NodeField from './NodeField';
 
 // The Train Splats dialog: what stands in the way (the task, the splat node), WebODM's own warning about photos
 // that all point down, the options, and Start Training. A task whose trained model SplatMe kept can be continued
-// instead: Start Over or Continue From Step N, which asks how many more steps and, optionally, Grow Until.
+// instead: Start Over or Continue From Step N, which asks how many more steps and, optionally, Grow Until. With two
+// or more splat nodes, Splat Node chooses the one that trains (and so the options and whether it can continue).
 export default class TrainDialog extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,
@@ -20,22 +22,35 @@ export default class TrainDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {check: null, error: null, starting: false, advanced: false, resume: false, more: "", growUntil: "",
-                      form: formFromOptions(null)};
+                      form: formFromOptions(null), nodeId: null, switching: false};
         this.touched = new Set();  // the form's fields the user changed
     }
 
     componentDidMount(){
         this._mounted = true;
-        request("GET", "task/" + this.props.taskId + "/check").then(check => {
-            if (!this._mounted) return;
+        this.ask(null).then(check => {
+            // A model the default node can't continue, and another node can: the dialog starts on that one
+            const better = check && startingNode(check);
+            if (better && better !== check.node_id) this.ask(better);
+        });
+    }
+
+    // The task and a node (null: the default) checked again: the node's trainer, its options and Continue
+    ask(nodeId){
+        if (this.state.check) this.setState({switching: true, nodeId, error: null});
+        return request("GET", "task/" + this.props.taskId + "/check" + (nodeId ? "?node=" + encodeURIComponent(nodeId) : "")).then(check => {
+            if (!this._mounted || (nodeId || null) !== (this.state.nodeId || null) && this.state.check) return null;
             const defaults = check.defaults || {};
             const trained = continueState(check).can ? check.trained_steps : 0;
             // The defaults, but not over a field typed in while the check was being answered
             const form = {steps: String(defaults.steps || 30000), image_size: String(defaults.image_size == null ? 1600 : defaults.image_size)};
             for (const name of this.touched) delete form[name];
-            this.setState({check, resume: trained > 0, more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, ...form}});
+            this.setState({check, nodeId: check.node_id || nodeId, switching: false, resume: trained > 0,
+                           more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, ...form}});
+            return check;
         }).catch(e => {
-            if (this._mounted) this.setState({check: {}, error: e.message});
+            if (this._mounted) this.setState({check: this.state.check || {}, switching: false, error: e.message});
+            return null;
         });
     }
 
@@ -51,7 +66,7 @@ export default class TrainDialog extends React.Component {
     handleStart = () => {
         // Enter in More Steps submits the form too: not while a start is being answered, nor when it cannot start
         const known = this.state.check;
-        if (this.state.starting || !known || known.problem || known.node_error) return;
+        if (this.state.starting || this.state.switching || !known || known.problem || known.node_error) return;
         const check = known;
         const { options, error } = this.state.resume ?
             continueFromForm(this.state.more, check.trained_steps, check.ranges, this.state.growUntil) :
@@ -61,6 +76,7 @@ export default class TrainDialog extends React.Component {
             return;
         }
         this.setState({starting: true, error: null});
+        if (this.state.nodeId) options.node = this.state.nodeId;
         request("POST", "task/" + this.props.taskId + "/train", options).then(status => {
             if (this._mounted) this.props.onStarted(status);
         }).catch(e => {
@@ -69,8 +85,8 @@ export default class TrainDialog extends React.Component {
     };
 
     render(){
-        const { check, error, starting, advanced, form, resume, more, growUntil } = this.state;
-        const blocked = !check || !!check.problem || !!check.node_error;
+        const { check, error, starting, advanced, form, resume, more, growUntil, switching } = this.state;
+        const blocked = !check || !!check.problem || !!check.node_error || switching;
         const cont = continueState(check);
         const trained = cont.can ? check.trained_steps : 0;  // a model that cannot be continued here starts over
         const view = trainerView((check || {}).node);
@@ -97,6 +113,8 @@ export default class TrainDialog extends React.Component {
                 {cont.note && !blocked ? <div className="alert alert-info">{_(cont.note)}</div> : ""}
                 {error ? <div className="alert alert-danger">{error}</div> : ""}
                 <form className="form-horizontal" onSubmit={e => { e.preventDefault(); this.handleStart(); }}>
+                    <NodeField nodes={(check || {}).nodes} value={this.state.nodeId || (check || {}).node_id} disabled={starting}
+                               onChange={id => this.ask(id)} />
                     {trained > 0 && !blocked ?
                         <div className="form-group">
                             <div className="col-sm-8 col-sm-offset-4 splatme-resume">

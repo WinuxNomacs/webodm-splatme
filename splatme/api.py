@@ -91,7 +91,7 @@ def is_true(value):
 
 
 def describe_auto(setting):
-    return {name: setting.get(name) for name in ("enabled", "options", "node") if name in setting}
+    return {name: setting.get(name) for name in ("enabled", "options", "node", "by_kind") if name in setting}
 
 
 def describe(request, task, job):
@@ -448,10 +448,11 @@ class ModelApply(TaskView):
 
 
 def with_node(request, out):
-    """With ?ranges=1, the node's trainer and range of each option added to an answer (None when it does not answer)."""
+    """With ?ranges=1, a node's trainer and range of each option added to an answer (trainer: None when it does not
+    answer): the node of ?node=, else the setting's, else the default."""
     if is_true(request.query_params.get("ranges")):
-        out["node"] = training.node_trainer()
-        out["ranges"] = out["node"]["ranges"] if out["node"] else None
+        out["trainer"] = training.node_trainer(request.query_params.get("node") or out.get("node"))
+        out["ranges"] = out["trainer"]["ranges"] if out["trainer"] else None
     return out
 
 
@@ -459,8 +460,9 @@ class Automation(APIView):
     permission_classes = (IsAuthenticated,)
 
     def describe(self, request):
-        own = training.own_options(request.user)
-        out = {"options": own or training.shared_options(), "own": own is not None, "admin": request.user.is_superuser}
+        own = training.own_setting(request.user)
+        out = {**training.described_setting(own or training.shared_setting()), "own": own is not None,
+               "admin": request.user.is_superuser}
         # Administrators, who can restart WebODM, are told what the worker says now; others what it said lately
         out["listening"] = training.listens(fresh=request.user.is_superuser)
         return out
@@ -483,7 +485,7 @@ class SharedAutomation(APIView):
     permission_classes = (IsAuthenticated,)
 
     def describe(self, request):
-        out = {"options": training.shared_options(), "admin": request.user.is_superuser}
+        out = {**training.described_setting(training.shared_setting()), "admin": request.user.is_superuser}
         out["listening"] = training.listens(fresh=request.user.is_superuser)
         return out
 

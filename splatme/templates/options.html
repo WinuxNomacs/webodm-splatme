@@ -5,6 +5,14 @@ shared (the admin page) the administrators', for users who saved none, which onl
 <div id="splatme-auto-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Loading</div>
 
 <form id="splatme-auto-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
+    <div class="form-group" id="splatme-auto-node-row" style="display: none;">
+        <label class="col-sm-3 control-label" for="splatme-auto-node">Splat Node</label>
+        <div class="col-sm-9">
+            <select class="form-control" id="splatme-auto-node"></select>
+            <span class="help-block">The splat node that trains the splats, and with it the trainer: the options below
+                are its. Each trainer keeps its own.</span>
+        </div>
+    </div>
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-auto-quality">Quality</label>
         <div class="col-sm-9">
@@ -173,9 +181,28 @@ shared (the admin page) the administrators', for users who saved none, which onl
         });
     }
 
-    // The splat node's trainer (api.py's node_view), once it answered: as public/trainingView.js's trainerView, the
-    // texts of OpenSplat's schedule only with OpenSplat, a field only when the node has its option
+    // The chosen splat node's trainer (api.py's node_view), once it answered: as public/trainingView.js's trainerView,
+    // the texts of OpenSplat's schedule only with OpenSplat, a field only when the node has its option
     var node = null;
+    // The splat nodes (api.py's nodes), for Splat Node when there are two or more; the setting last shown
+    var nodes = [], current = null;
+    var nodeRow = document.getElementById("splatme-auto-node-row");
+    var nodeSelect = document.getElementById("splatme-auto-node");
+    function kindOf(trainer){ return trainer ? trainer.trainer_kind || "opensplat" : null; }
+    // As public/trainingView.js's settingOptions: the setting's options for a trainer, else those last saved
+    function settingOptions(setting, kind){
+        var own = (setting.by_kind || {})[kind];
+        return own && typeof own === "object" ? own : setting.options || {};
+    }
+    function showNodes(chosen){
+        nodeRow.style.display = nodes.length > 1 ? "" : "none";
+        while (nodeSelect.options.length) nodeSelect.remove(0);
+        nodes.forEach(function(n){  // as public/trainingView.js's nodeLabel
+            var trainer = n.trainer_kind === "lichtfeld" ? "LichtFeld Studio" : n.trainer_kind ? "OpenSplat" : "not available";
+            nodeSelect.add(new Option(n.name + " (" + trainer + ")", n.id));
+        });
+        if (nodes.length) nodeSelect.value = chosen || nodes[0].id;
+    }
     function opensplat(){ return !node || !node.trainer_kind || node.trainer_kind === "opensplat"; }
     function has(name){ return !node || !node.ranges || node.ranges.hasOwnProperty(name); }
     function masks(){ return !node || !node.supports || node.supports.masks !== false; }
@@ -251,8 +278,11 @@ shared (the admin page) the administrators', for users who saved none, which onl
         showHint();
     }
 
-    function show(data){
-        var options = data.options || {};
+    function show(data, chosen){
+        if (data.trainer !== undefined) node = data.trainer;  // a save's answer has none: the node's stays
+        current = data;
+        showNodes(chosen || data.node);
+        var options = node ? settingOptions(data, kindOf(node)) : data.options || {};
         var name = NAMES[options.steps] || (options.steps + " steps");
         state.innerHTML = "";
         // The worker imports plugins when it starts: one installed since then hears of no completed task
@@ -285,7 +315,6 @@ shared (the admin page) the administrators', for users who saved none, which onl
         sky.checked = !!options.ignore_sky;
         crop.checked = options.crop !== false;
         palette.value = options.palette || "gray";
-        if (data.node !== undefined) node = data.node;  // a save's answer has none: the node's stays
         showFields();
         strategy.value = strategy.dataset.saved;
         if (strategy.value !== strategy.dataset.saved) strategy.value = "";  // a strategy the node does not offer
@@ -324,7 +353,8 @@ shared (the admin page) the administrators', for users who saved none, which onl
 
     form.addEventListener("submit", function(e){
         e.preventDefault();
-        save(document.getElementById("splatme-auto-save"), {steps: steps.value, image_size: size.value.trim() === "" ? 0 : size.value,
+        save(document.getElementById("splatme-auto-save"), {node: nodes.length > 1 ? nodeSelect.value : "",
+            trainer_kind: node ? kindOf(node) : "", steps: steps.value, image_size: size.value.trim() === "" ? 0 : size.value,
             // A field the node's trainer lacks is hidden, and saving clears it
             max_gaussians: has("max_gaussians") ? gaussians.value : "", densify_until: has("densify_until") ? grow.value : "",
             sh_degree: has("sh_degree") ? sh.value : "", strategy: has("strategy") ? strategy.value : "",
@@ -333,7 +363,18 @@ shared (the admin page) the administrators', for users who saved none, which onl
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });
 
-    $.getJSON(API + "?ranges=1").done(show).fail(function(xhr){
+    // Splat Node changed: that node's trainer, and the options saved for it
+    nodeSelect.addEventListener("change", function(){
+        var chosen = nodeSelect.value;
+        $.getJSON(API + "?ranges=1&node=" + encodeURIComponent(chosen)).done(function(data){
+            if (nodeSelect.value === chosen) show(data, chosen);
+        });
+    });
+    $.getJSON("/api/plugins/splatme/nodes").done(function(data){
+        nodes = data.nodes || [];
+        if (current) showNodes(nodeSelect.value || current.node);
+    });
+    $.getJSON(API + "?ranges=1").done(function(data){ show(data); }).fail(function(xhr){
         state.innerHTML = "";
         state.appendChild(box("danger", "fa fa-exclamation-triangle", reason(xhr)));
     });

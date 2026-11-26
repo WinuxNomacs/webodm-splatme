@@ -4,14 +4,15 @@ import { _ } from 'webodm/classes/gettext';
 import Dialog from './Dialog';
 import OptionsFields from './OptionsFields';
 import { request } from './api';
-import { formFromOptions, optionsFromForm } from './trainingView';
+import NodeField from './NodeField';
+import { formFromOptions, optionsFromForm, settingOptions } from './trainingView';
 
 // A task's automatic training, from Change on SplatMe's Tasks page (TrainSplats.jsx): whether its splats are
-// trained when it completes processing, and with which options.
+// trained when it completes processing, on which splat node, and with which options (each trainer keeps its own).
 export default class AutoDialog extends React.Component {
     static propTypes = {
         taskId: PropTypes.string.isRequired,
-        auto: PropTypes.object.isRequired,     // the status' "auto": enabled, options
+        auto: PropTypes.object.isRequired,     // the status' "auto": enabled, options, node, by_kind
         onSaved: PropTypes.func.isRequired,    // (auto)
         onClose: PropTypes.func.isRequired
     };
@@ -19,14 +20,24 @@ export default class AutoDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {enabled: !!props.auto.enabled, form: formFromOptions(props.auto.options), ranges: null, showCrop: true,
-                      advanced: false, saving: false, error: null};
+                      advanced: false, saving: false, error: null, nodeId: props.auto.node || null, nodes: null};
     }
 
     componentDidMount(){
         this._mounted = true;
-        // The node's ranges, to name a wrong number before saving; without them the server still checks
-        request("GET", "task/" + this.props.taskId + "/check").then(check => {
-            if (this._mounted) this.setState({ranges: check.ranges, node: check.node, showCrop: !!check.boundary, thermal: !!check.thermal, photoSizes: check.photo_sizes});
+        this.ask(this.state.nodeId, false);
+    }
+
+    // The chosen node's trainer and ranges, to show its options and name a wrong number before saving (without them
+    // the server still checks); a node chosen here shows the options saved for its trainer
+    ask(nodeId, switched){
+        this.setState({nodeId});
+        request("GET", "task/" + this.props.taskId + "/check" + (nodeId ? "?node=" + encodeURIComponent(nodeId) : "")).then(check => {
+            if (!this._mounted || (this.state.nodeId || null) !== (nodeId || null)) return;
+            const kind = check.node ? check.node.trainer_kind || "opensplat" : null;
+            const changes = {ranges: check.ranges, node: check.node, nodes: check.nodes, showCrop: !!check.boundary, thermal: !!check.thermal, photoSizes: check.photo_sizes};
+            if (switched && kind) changes.form = formFromOptions(settingOptions(this.props.auto, kind));
+            this.setState(changes);
         }).catch(() => {});
     }
 
@@ -42,7 +53,8 @@ export default class AutoDialog extends React.Component {
             return;
         }
         this.setState({saving: true, error: null});
-        request("POST", "task/" + this.props.taskId + "/auto", Object.assign({enabled: this.state.enabled}, error ? {} : options)).then(auto => {
+        const node = {node: this.state.nodeId || "", trainer_kind: this.state.node ? this.state.node.trainer_kind || "opensplat" : ""};
+        request("POST", "task/" + this.props.taskId + "/auto", Object.assign({enabled: this.state.enabled}, node, error ? {} : options)).then(auto => {
             if (this._mounted) this.props.onSaved(auto);
         }).catch(e => {
             if (this._mounted) this.setState({saving: false, error: e.message});
@@ -73,6 +85,7 @@ export default class AutoDialog extends React.Component {
                             </div>
                         </div>
                     </div>
+                    {enabled ? <NodeField nodes={this.state.nodes} value={this.state.nodeId} onChange={id => this.ask(id, true)} /> : ""}
                     {enabled ?
                         <OptionsFields form={form} advanced={advanced} showCrop={showCrop} thermal={!!thermal} photoSizes={this.state.photoSizes} node={this.state.node}
                                        onChange={(name, value) => this.setState({form: {...form, [name]: value}, error: null})}

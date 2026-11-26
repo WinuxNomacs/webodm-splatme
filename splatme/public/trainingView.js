@@ -286,6 +286,15 @@ export function continueState(check){
     const c = check || {};
     if (!c.trained_steps) return {can: false, note: ""};
     if (!c.node) return {can: true, note: ""};  // the node did not answer: the dialog says so, and nothing starts
+    // Several nodes (plan 25): whether the chosen node's trainer reads the model's data, as the server judged it
+    const chosen = Array.isArray(c.nodes) ? c.nodes.find(n => n.id === c.node_id) : null;
+    if (chosen){
+        if (!chosen.continue_problem) return {can: true, note: ""};
+        const others = c.nodes.filter(n => n.id !== chosen.id && n.trainer_kind && !n.continue_problem).map(n => n.name);
+        return {can: false, note: chosen.continue_problem + " " + (others.length ?
+            "Choose " + others.join(" or ") + " under Splat Node to continue it; on this node the training starts over." :
+            "No splat node set up can continue it: the training starts over.")};
+    }
     const view = trainerView(c.node);
     const made = c.trained_kind || "opensplat";
     if (made !== view.kind){
@@ -293,6 +302,32 @@ export function continueState(check){
     }
     if (!view.continues) return {can: false, note: trainerLabel(view.kind) + " cannot continue a model: the training starts over."};
     return {can: true, note: ""};
+}
+
+// Several splat nodes (plan 25). A node as a Splat Node choice names its trainer: "LichtFeld (LichtFeld Studio)",
+// or that it does not answer
+export function nodeLabel(node){
+    const n = node || {};
+    return n.name + " (" + (n.trainer_kind ? trainerLabel(n.trainer_kind) : "not available") + ")";
+}
+
+// The node a Train Splats dialog starts with (check: task/<id>/check's answer): the default, unless the task has a
+// model to continue that the default can't continue and another node can
+export function startingNode(check){
+    const c = check || {};
+    const nodes = Array.isArray(c.nodes) ? c.nodes : [];
+    const chosen = nodes.find(n => n.id === c.node_id);
+    if (!c.trained_steps || !chosen || !chosen.continue_problem) return c.node_id || null;
+    const other = nodes.find(n => n.trainer_kind && !n.continue_problem);
+    return other ? other.id : c.node_id;
+}
+
+// A saved setting's options for a trainer (training.py's setting_options): its own for that trainer, else those
+// last saved (a setting from before keeps one set for every trainer), else null (the form's defaults)
+export function settingOptions(setting, kind){
+    const s = setting || {};
+    const own = (s.by_kind || {})[kind];
+    return own && typeof own === "object" ? own : s.options || null;
 }
 
 // Continuing a trained model: the More Steps and Grow Until fields as a training request, or {error}.

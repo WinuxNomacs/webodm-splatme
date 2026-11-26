@@ -12,7 +12,6 @@ counts as OpenSplat, and nothing changes for it).
   table and times only with OpenSplat. An option saved for another trainer (Grow Until, in SplatMe → Settings or a
   task's Change dialog) is left out of a training, which names it, instead of refusing to start; saving the form
   clears it.
-- **Continue From Step** is offered only when the node's trainer made the task's model.
 - With a LichtFeld Studio node, the forms (Train Splats, Change, SplatMe's panel, SplatMe → Settings and the
   admin page) offer **Strategy** and **Exposure Correction** (ticked by default for MRNF, unticked for MCMC and IGS+, as
   LichtFeld Studio's own defaults); continuing a model trains only the steps after its
@@ -24,6 +23,10 @@ counts as OpenSplat, and nothing changes for it).
 - SplatMe keeps a list of splat nodes: the node set up before becomes its first, the default. Each training
   remembers the node it was sent to, and its progress, log and model come from that node. In the API: `GET nodes`,
   `node` on `train` and `auto`, and `check`'s `nodes`, with whether each can continue the task's model.
+- With two or more splat nodes, **Splat Node** chooses the one that trains, in Train Splats, Change, SplatMe's panel
+  and SplatMe → Settings; the options shown are its trainer's, and each trainer keeps its own saved options.
+  **Continue From Step** is offered on any node whose trainer can read the task's model (Train Splats starts on
+  one when the default can't), and says which node can when the chosen one can't.
 - Splat node 0.3.0 continues a model either trainer made: OpenSplat rewrites a LichtFeld Studio model into its own
   form (the same values), LichtFeld Studio reads an OpenSplat model as it is, and either trains at the model's SH
   degree. A model it can't continue is refused with the reason; its `/info` says what a model needs
