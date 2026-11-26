@@ -23,6 +23,9 @@ counts as OpenSplat, and nothing changes for it).
 - SplatMe keeps a list of splat nodes: the node set up before becomes its first, the default. Each training
   remembers the node it was sent to, and its progress, log and model come from that node. In the API: `GET nodes`,
   `node` on `train` and `auto`, and `check`'s `nodes`, with whether each can continue the task's model.
+- The **Splat Node** panel lists every node and its state (SplatMe → Settings), and on Administration → SplatMe
+  adds, edits, tests, removes and reorders them (**Add a Splat Node**, **Make Default**); a node training a task is
+  not removed.
 - With two or more splat nodes, **Splat Node** chooses the one that trains, in Train Splats, Change, SplatMe's panel
   and SplatMe → Settings; the options shown are its trainer's, and each trainer keeps its own saved options.
   **Continue From Step** is offered on any node whose trainer can read the task's model (Train Splats starts on

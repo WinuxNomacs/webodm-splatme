@@ -270,6 +270,18 @@ def rename_node(node_id, name):
     change_nodes(change)
 
 
+def make_default_node(node_id):
+    """Moves a node to the front of the list: the default."""
+    def change(listed):
+        entry = next((e for e in listed if e["id"] == node_id), None)
+        if entry is None:
+            raise TrainingError("That splat node is not set up.")
+        listed.remove(entry)
+        listed.insert(0, entry)
+
+    change_nodes(change)
+
+
 def remove_node(node_id):
     """Removes a node; refused while a training on it is under way."""
     default = find_node()

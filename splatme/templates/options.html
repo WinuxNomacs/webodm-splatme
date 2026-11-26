@@ -374,6 +374,12 @@ shared (the admin page) the administrators', for users who saved none, which onl
         nodes = data.nodes || [];
         if (current) showNodes(nodeSelect.value || current.node);
     });
+    // The Splat Node panel on the same page (node.html) added, renamed or removed one
+    document.addEventListener("splatme-nodes", function(e){
+        var chosen = nodeSelect.value;
+        nodes = e.detail || [];
+        if (current) showNodes(nodes.some(function(n){ return n.id === chosen; }) ? chosen : current.node);
+    });
     $.getJSON(API + "?ranges=1").done(function(data){ show(data); }).fail(function(xhr){
         state.innerHTML = "";
         state.appendChild(box("danger", "fa fa-exclamation-triangle", reason(xhr)));

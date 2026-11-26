@@ -36,7 +36,7 @@ joins older holes.
    choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
    otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
    responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
-   25d (25a to 25c built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
+   25e (25a to 25d built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
 
 **Then**
 
@@ -4700,7 +4700,15 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   for the setting's new fields). The pages' docs (Using SplatMe) come with 25f. Planned as: the forms: the Node select (two or more nodes) in the Train dialog, SplatMe's panel and SplatMe →
   Settings; options per trainer kind; Continue with the nodes that can take the model, or Train Again with the
   reason. Jest and Django; live with both nodes on the dev stack.
-- **25d. The Splat Node panel as a list** (SplatMe → Settings, Administration → SplatMe): add, edit, check, remove
+- **25d. The Splat Node panel as a list**, built 2026-11-26 (branch `node-panel`): `node.html` lists every node with
+  its state (its name, trainer, and ", the default" for the first of two or more), for everyone on SplatMe →
+  Settings (no addresses for plain users); on Administration → SplatMe superusers get Edit (name, address, token:
+  blank keeps it), Test Connection, Make Default, Remove (confirmed; refused while it trains) and Add a Splat Node
+  (the install guide stays, open while no node is set up). API: `POST nodes`, `POST nodes/<id>`, `DELETE
+  nodes/<id>`; `GET node` and `POST node` stay for the default. The options form on the same page follows the panel's
+  changes (a page event). Checked live with a LichtFeld node beside the dev stack, for real and restored after: add
+  (a wrong token tried, then the right one), save, rename with the token kept, make default, a plain user's view,
+  remove; 375 px wide. Tests: 2 Django. Planned as: the Splat Node panel as a list (SplatMe → Settings, Administration → SplatMe): add, edit, check, remove
   (refused while it trains).
 - **25e. `splatnode.sh --name`**: as in the design; tested against a throwaway WebODM with two nodes.
 - **25f. The dev stack and the docs**: both nodes on the dev stack; Getting Started, The Splat Node, Using SplatMe,

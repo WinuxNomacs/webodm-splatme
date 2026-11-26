@@ -546,13 +546,34 @@ class Revive(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def node_fields(request):
+    """A node form's name, address (http or https) and token (None: keep the one set) from a request."""
+    url = str(request.data.get("url", "")).strip().rstrip("/")
+    if url and not url.startswith(("http://", "https://")):
+        raise exceptions.ValidationError(detail="The address starts with http:// or https://")
+    token = request.data.get("token")
+    return str(request.data.get("name", "")).strip(), url, None if token in (None, "") else str(token)
+
+
+def tried_node(url, token):
+    """A node tried with a form's address and token, not saved: its state, or what is wrong."""
+    out = {"url": url, "node": None, "error": None}
+    try:
+        info = Node(url, token).check()
+        out.update(node=node_state(info), trainer_kind=training.node_kind(info))
+    except NodeError as e:
+        out["error"] = str(e)
+    return out
+
+
 class Nodes(APIView):
     """GET: every splat node set up, the default first: its id, name and state (an administrator also gets its
-    address and whether a token is set; nobody gets the token)."""
+    address and whether a token is set; nobody gets the token). POST (superusers): adds a node (name, url, token),
+    or with save false only tries the address and token."""
 
     permission_classes = (IsAuthenticated,)
 
-    def get(self, request):
+    def describe(self, request):
         admin = request.user.is_superuser
         out = []
         for entry, info, error in training.check_nodes():
@@ -562,7 +583,58 @@ class Nodes(APIView):
             if admin:
                 item.update(url=entry["url"], token_set=bool(entry["token"]))
             out.append(item)
-        return Response({"admin": admin, "nodes": out})
+        return {"admin": admin, "nodes": out}
+
+    def get(self, request):
+        return Response(self.describe(request))
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            raise exceptions.PermissionDenied()
+        name, url, token = node_fields(request)
+        if request.data.get("save") in (False, "false", "0"):
+            return Response({"tried": tried_node(url, token or "")})
+        try:
+            node_id = training.add_node(name, url, token or "")
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**self.describe(request), "saved": node_id})
+
+
+class OneNode(APIView):
+    """Superusers: POST changes a node (name, url, token: an empty token keeps the one set), or with save false only
+    tries the address and token, or with default true makes it the default; DELETE removes it (refused while a
+    training is under way on it)."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, node_id=None):
+        if not request.user.is_superuser:
+            raise exceptions.PermissionDenied()
+        entry = training.find_node(node_id)
+        if entry is None:
+            raise exceptions.NotFound(detail="That splat node is not set up.")
+        try:
+            if is_true(request.data.get("default")):
+                training.make_default_node(node_id)
+                return Response({**Nodes().describe(request), "saved": node_id})
+            name, url, token = node_fields(request)
+            if request.data.get("save") in (False, "false", "0"):
+                return Response({"tried": tried_node(url, entry["token"] if token is None else token)})
+            training.rename_node(node_id, name)
+            training.set_node(url, token, node_id)
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**Nodes().describe(request), "saved": node_id})
+
+    def delete(self, request, node_id=None):
+        if not request.user.is_superuser:
+            raise exceptions.PermissionDenied()
+        try:
+            training.remove_node(node_id)
+        except training.TrainingError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(Nodes().describe(request))
 
 
 class NodeSettings(APIView):

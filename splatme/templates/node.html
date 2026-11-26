@@ -1,9 +1,11 @@
 {% comment %}
-The splat node's state and address, for everyone (api.py: node); with editable (the admin page), its address and
-token as a form for superusers, and the steps to install a node: in the state's place while no node is set, else
-behind a link under it. The token is never shown.
+The splat nodes and their state, for everyone (api.py: nodes); with editable (the admin page), for superusers, each
+node's name, address and token as a form (Edit, Test Connection, Make Default, Remove), Add a Splat Node, and the
+steps to install a node: in the list's place while no node is set, else behind a link under it. The first node is
+the default (what trains when none is chosen). A token is never shown.
 {% endcomment %}
-<div id="splatme-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Asking the splat node</div>
+<div id="splatme-state"><i class="fa fa-circle-notch fa-spin fa-fw"></i> Asking the splat nodes</div>
+<div id="splatme-nodes"></div>
 <div id="splatme-node-note" style="margin-bottom: 10px;"></div>
 {% if editable %}
 <style>
@@ -62,7 +64,15 @@ behind a link under it. The token is never shown.
             <a href="https://winuxnomacs.github.io/webodm-splatme/install/" target="_blank" rel="noopener noreferrer">SplatMe's documentation</a>.</p>
     </div>
 </div>
+<button type="button" class="btn btn-default btn-sm" id="splatme-add" style="display: none;"><i class="fa fa-plus fa-fw"></i> Add a Splat Node</button>
 <form id="splatme-form" class="form-horizontal" style="display: none; max-width: 720px; margin-top: 16px;">
+    <div class="form-group">
+        <label class="col-sm-3 control-label" for="splatme-name">Name</label>
+        <div class="col-sm-9">
+            <input type="text" class="form-control" id="splatme-name" maxlength="80" autocomplete="off">
+            <span class="help-block">How the forms name this node in Splat Node, when there are two or more.</span>
+        </div>
+    </div>
     <div class="form-group">
         <label class="col-sm-3 control-label" for="splatme-url">Node Address</label>
         <div class="col-sm-9">
@@ -81,7 +91,9 @@ behind a link under it. The token is never shown.
         <div class="col-sm-9 col-sm-offset-3">
             <button type="submit" class="btn btn-primary" id="splatme-save"><i class="fa fa-save fa-fw"></i> Save</button>
             <button type="button" class="btn btn-default" id="splatme-test"><i class="fa fa-plug fa-fw"></i> Test Connection</button>
-            <span id="splatme-saved" class="text-success" style="display: none; margin-left: 8px;">Saved.</span>
+            <button type="button" class="btn btn-default" id="splatme-cancel"><i class="fa fa-times fa-fw"></i> Cancel</button>
+            <div id="splatme-tried" style="margin-top: 10px;"></div>
+            <span id="splatme-form-error" class="text-danger"></span>
         </div>
     </div>
 </form>
@@ -89,16 +101,23 @@ behind a link under it. The token is never shown.
 
 <script>
 (function(){
-    var API = "/api/plugins/splatme/node";
-    var state = document.getElementById("splatme-state");
-    var form = document.getElementById("splatme-form");
-    var url = document.getElementById("splatme-url");
-    var token = document.getElementById("splatme-token");
-    var saved = document.getElementById("splatme-saved");
-    var note = document.getElementById("splatme-node-note");
+    var API = "/api/plugins/splatme/nodes";
+    var CSRF = "{{ csrf_token }}";
     var EDITABLE = {% if editable %}true{% else %}false{% endif %};
+    var state = document.getElementById("splatme-state");
+    var list = document.getElementById("splatme-nodes");
+    var note = document.getElementById("splatme-node-note");
     var guide = document.getElementById("splatme-guide");
     var toggle = document.getElementById("splatme-guide-toggle");
+    var form = document.getElementById("splatme-form");
+    var addButton = document.getElementById("splatme-add");
+    var nameField = document.getElementById("splatme-name");
+    var url = document.getElementById("splatme-url");
+    var token = document.getElementById("splatme-token");
+    var tried = document.getElementById("splatme-tried");
+    var formError = document.getElementById("splatme-form-error");
+    var nodes = [], admin = false;
+    var editing = null;  // the node whose form is open (its id), "" for a new one, null for none
 
     function line(icon, text){
         var p = document.createElement("div");
@@ -108,133 +127,191 @@ behind a link under it. The token is never shown.
         p.appendChild(document.createTextNode(" " + text));
         return p;
     }
-
-    // The install steps, for superusers on the admin page: open in the state's place while no node is saved,
-    // else closed behind the link under the state
-    function setGuide(open){
-        guide.style.display = open ? "" : "none";
-        toggle.setAttribute("aria-expanded", open ? "true" : "false");
-        toggle.firstElementChild.className = "fa fa-chevron-" + (open ? "down" : "right") + " fa-fw";
+    function button(icon, text, cls){
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn btn-default btn-sm " + (cls || "");
+        var i = document.createElement("i");
+        i.className = icon + " fa-fw";
+        b.appendChild(i);
+        b.appendChild(document.createTextNode(" " + text));
+        return b;
     }
-    function placeGuide(data){
-        if (!EDITABLE || !data.admin) return;
-        var unset = !data.url;
-        toggle.style.display = unset ? "none" : "";
-        state.style.display = unset ? "none" : "";
-        if (unset) setGuide(true);
-        else if (toggle.getAttribute("aria-expanded") !== "true") setGuide(false);
-    }
+    function trainerName(kind){ return kind === "lichtfeld" ? "LichtFeld Studio" : "OpenSplat"; }
 
-    // One tab's steps at a time; the arrow keys move between the tabs, as in any tab list
-    function showTab(tab, focus){
-        Array.prototype.forEach.call(guide.querySelectorAll("[role=tab]"), function(other){
-            var on = other === tab;
-            other.parentNode.className = on ? "active" : "";
-            other.setAttribute("aria-selected", on ? "true" : "false");
-            if (on) other.removeAttribute("tabindex"); else other.setAttribute("tabindex", "-1");
-            document.getElementById(other.getAttribute("aria-controls")).style.display = on ? "" : "none";
-        });
-        if (focus) tab.focus();
-    }
-
-    // A command into the clipboard: the Clipboard API where the page is a secure context, else a selected text area
-    // (a WebODM on plain HTTP by its address); the command stays selectable either way
-    function copy(text, button){
-        var done = function(){
-            button.lastChild.textContent = " Copied";
-            setTimeout(function(){ button.lastChild.textContent = " Copy"; }, 2000);
-        };
-        if (navigator.clipboard && window.isSecureContext){
-            navigator.clipboard.writeText(text).then(done, function(){});
-            return;
-        }
-        var area = document.createElement("textarea");
-        area.value = text;
-        area.setAttribute("readonly", "");
-        area.style.position = "fixed";
-        area.style.opacity = "0";
-        document.body.appendChild(area);
-        area.select();
-        try { if (document.execCommand("copy")) done(); } catch (e) { /* left to select by hand */ }
-        document.body.removeChild(area);
-    }
-
-    // What the node answered, or what is wrong with it, and its address; tried: these are the form's values, not
-    // the saved ones
-    function show(data, tried){
-        state.innerHTML = "";
-        state.style.display = "";
+    // A node's state: what it answered, or what is wrong with it, and its address (administrators only)
+    function stateBox(data, triedNow){
         var box = document.createElement("div");
         if (data.error){
-            box.className = "alert alert-danger";
+            box.className = "alert alert-danger splatme-node-state";
             box.appendChild(line("fa fa-exclamation-triangle", data.error));
             if (data.url !== undefined) box.appendChild(line("fa fa-link", "Node Address: " + (data.url || "not set")));
         }else{
             var node = data.node, gpu = node.gpu || {};
-            box.className = "alert alert-success";
-            box.appendChild(line("fa fa-check", tried ? "The splat node answers and can train." : "The splat node is ready."));
-            box.appendChild(line("fa fa-link", "Node Address: " + data.url));
-            box.appendChild(line("fa fa-microchip", gpu.name + ", " + (gpu.memory_total / 1024).toFixed(1) + " GB (" +
+            box.className = "alert alert-success splatme-node-state";
+            box.appendChild(line("fa fa-check", triedNow ? "The splat node answers and can train." : "The splat node is ready."));
+            if (data.url !== undefined) box.appendChild(line("fa fa-link", "Node Address: " + data.url));
+            if (gpu.name) box.appendChild(line("fa fa-microchip", gpu.name + ", " + (gpu.memory_total / 1024).toFixed(1) + " GB (" +
                 (gpu.memory_used / 1024).toFixed(1) + " GB in use)"));
             box.appendChild(line("fa fa-cogs", node.trainer + ", node " + node.version));
             box.appendChild(line("fa fa-tasks", node.busy ? "Training now, " + node.queued + " waiting" : "Idle"));
             if (node.update) box.appendChild(line("fa fa-exclamation-circle", node.update));
         }
-        state.appendChild(box);
-        if (tried && !data.error) state.appendChild(line("fa fa-info-circle", "Not saved yet."));
+        return box;
     }
 
-    // Only superusers change the node, on the admin page; the SplatMe page tells them where
-    function fill(data){
+    // The install steps, for superusers on the admin page: open in the list's place while no node is set up, else
+    // closed behind the link under it
+    function setGuide(open){
+        if (!guide) return;
+        guide.style.display = open ? "" : "none";
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        toggle.firstElementChild.className = "fa fa-chevron-" + (open ? "down" : "right") + " fa-fw";
+    }
+    function placeGuide(){
+        if (!EDITABLE || !admin) return;
+        var none = !nodes.length;
+        toggle.style.display = none ? "none" : "";
+        if (none) setGuide(true);
+        else if (toggle.getAttribute("aria-expanded") !== "true") setGuide(false);
+    }
+
+    function render(){
+        state.innerHTML = "";
+        list.innerHTML = "";
+        if (!nodes.length && !(EDITABLE && admin)) state.appendChild(line("fa fa-info-circle", "No splat node is set up yet." +
+            (admin ? "" : " Ask an administrator to set one up.")));
+        nodes.forEach(function(n, k){
+            var item = document.createElement("div");
+            item.className = "splatme-node-item";
+            item.setAttribute("data-node", n.id);
+            var head = document.createElement("h5");
+            var b = document.createElement("b");
+            b.textContent = n.name;
+            head.appendChild(b);
+            head.appendChild(document.createTextNode((n.trainer_kind ? " (" + trainerName(n.trainer_kind) + ")" : "") +
+                (k === 0 && nodes.length > 1 ? ", the default" : "")));
+            item.appendChild(head);
+            item.appendChild(stateBox(n, false));
+            if (EDITABLE && admin){
+                var actions = document.createElement("div");
+                actions.style.marginBottom = "16px";
+                var edit = button("fa fa-edit", "Edit", "splatme-edit");
+                edit.addEventListener("click", function(){ openForm(n.id); });
+                actions.appendChild(edit);
+                if (k > 0){
+                    var def = button("fa fa-star", "Make Default", "splatme-default");
+                    def.addEventListener("click", function(){ send("POST", API + "/" + n.id, {"default": true}, def); });
+                    actions.appendChild(document.createTextNode(" "));
+                    actions.appendChild(def);
+                }
+                var remove = button("fa fa-trash", "Remove", "splatme-remove");
+                remove.addEventListener("click", function(){
+                    if (window.confirm("Remove the splat node " + n.name + " from SplatMe? The node itself keeps running."))
+                        send("DELETE", API + "/" + n.id, null, remove);
+                });
+                actions.appendChild(document.createTextNode(" "));
+                actions.appendChild(remove);
+                item.appendChild(actions);
+            }
+            list.appendChild(item);
+        });
+        if (EDITABLE && admin){
+            addButton.style.display = editing === "" ? "none" : "";
+            if (editing !== null) placeForm();
+        }
+        placeGuide();
+    }
+
+    // The form, under the node it edits (or under the list for a new one)
+    function placeForm(){
+        var item = editing ? list.querySelector('[data-node="' + editing + '"]') : null;
+        if (item) item.appendChild(form); else list.parentNode.insertBefore(form, addButton.nextSibling);
+        form.style.display = "";
+    }
+    function openForm(id){
+        editing = id;
+        var n = nodes.filter(function(m){ return m.id === id; })[0] || {};
+        nameField.value = n.name || (nodes.length ? "" : "Splat Node");
+        url.value = n.url || "";
+        token.value = "";
+        token.placeholder = n.token_set ? "Unchanged" : "";
+        tried.innerHTML = "";
+        formError.textContent = "";
+        render();
+        nameField.focus();
+    }
+    function closeForm(){
+        editing = null;
+        form.style.display = "none";
+        render();
+    }
+
+    function reason(xhr){
+        var data = xhr.responseJSON || {};
+        return data.error || data.detail || (Array.isArray(data) && data[0]) || "The request failed (" + xhr.status + ").";
+    }
+    function shown(data){
+        nodes = data.nodes || [];
+        admin = !!data.admin;
+        render();
+        // The options form on the same page (options.html) offers the nodes too
+        document.dispatchEvent(new CustomEvent("splatme-nodes", {detail: nodes}));
+    }
+    function send(method, address, values, by){
+        if (by) by.disabled = true;
+        formError.textContent = "";
+        $.ajax({url: address, type: method, contentType: "application/json", headers: {"X-CSRFToken": CSRF},
+                data: values ? JSON.stringify(values) : undefined})
+            .done(function(data){
+                if (data.tried){
+                    tried.innerHTML = "";
+                    tried.appendChild(stateBox(data.tried, true));
+                    if (!data.tried.error) tried.appendChild(line("fa fa-info-circle", "Not saved yet."));
+                    return;
+                }
+                if (data.saved !== undefined) editing = null, form.style.display = "none";
+                shown(data);
+            })
+            .fail(function(xhr){
+                if (editing !== null) formError.textContent = reason(xhr);
+                else window.alert(reason(xhr));
+            })
+            .always(function(){ if (by) by.disabled = false; });
+    }
+
+    // Only superusers change the nodes, on the admin page; the SplatMe page tells them where
+    function notes(){
         note.innerHTML = "";
-        if (!EDITABLE && data.admin){
-            note.appendChild(line("fa fa-info-circle", "Change the splat node under Administration, "));
+        if (!EDITABLE && admin){
+            note.appendChild(line("fa fa-info-circle", "Change the splat nodes under Administration, "));
             var link = document.createElement("a");
             link.href = "/plugins/splatme/admin/";
             link.textContent = "SplatMe";
             note.firstChild.appendChild(link);
             note.firstChild.appendChild(document.createTextNode("."));
         }
-        if (EDITABLE && !data.admin) note.appendChild(line("fa fa-info-circle", "Only a superuser can change the splat node."));
-        if (!EDITABLE || !data.admin) return;
-        form.style.display = "";
-        url.value = data.url || "";
-        token.value = "";
-        token.placeholder = data.token_set ? "Unchanged" : "";
-    }
-
-    function failed(xhr){
-        var data = xhr.responseJSON || {};
-        show({error: data.detail || (Array.isArray(data) && data[0]) || "The request failed (" + xhr.status + ")."});
-    }
-
-    function post(save, button){
-        saved.style.display = "none";
-        button.disabled = true;
-        $.ajax({
-            url: API, type: "POST", contentType: "application/json",
-            headers: {"X-CSRFToken": "{{ csrf_token }}"},
-            data: JSON.stringify({url: url.value, token: token.value, save: save})
-        }).done(function(data){
-            show(data, !save);
-            if (save){
-                fill(data);
-                placeGuide(data);
-                saved.style.display = "";
-            }
-        }).fail(failed).always(function(){ button.disabled = false; });
+        if (EDITABLE && !admin) note.appendChild(line("fa fa-info-circle", "Only a superuser can change the splat nodes."));
     }
 
     if (EDITABLE){
         toggle.addEventListener("click", function(){
             setGuide(toggle.getAttribute("aria-expanded") !== "true");
         });
+        // One tab's steps at a time; the arrow keys move between the tabs, as in any tab list
         var tabs = guide.querySelectorAll("[role=tab]");
-        Array.prototype.forEach.call(tabs, function(tab, i){
-            tab.addEventListener("click", function(e){
-                e.preventDefault();
-                showTab(tab, false);
+        var showTab = function(tab, focus){
+            Array.prototype.forEach.call(tabs, function(other){
+                var on = other === tab;
+                other.parentNode.className = on ? "active" : "";
+                other.setAttribute("aria-selected", on ? "true" : "false");
+                if (on) other.removeAttribute("tabindex"); else other.setAttribute("tabindex", "-1");
+                document.getElementById(other.getAttribute("aria-controls")).style.display = on ? "" : "none";
             });
+            if (focus) tab.focus();
+        };
+        Array.prototype.forEach.call(tabs, function(tab, i){
+            tab.addEventListener("click", function(e){ e.preventDefault(); showTab(tab, false); });
             tab.addEventListener("keydown", function(e){
                 var step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
                 if (!step) return;
@@ -242,24 +319,49 @@ behind a link under it. The token is never shown.
                 showTab(tabs[(i + step + tabs.length) % tabs.length], true);
             });
         });
-        Array.prototype.forEach.call(guide.querySelectorAll(".splatme-copy"), function(button){
-            button.addEventListener("click", function(){
-                copy(button.previousElementSibling.textContent, button);
+        // A command into the clipboard: the Clipboard API where the page is a secure context, else a selected text
+        // area (a WebODM on plain HTTP by its address); the command stays selectable either way
+        Array.prototype.forEach.call(guide.querySelectorAll(".splatme-copy"), function(copyButton){
+            copyButton.addEventListener("click", function(){
+                var text = copyButton.previousElementSibling.textContent;
+                var done = function(){
+                    copyButton.lastChild.textContent = " Copied";
+                    setTimeout(function(){ copyButton.lastChild.textContent = " Copy"; }, 2000);
+                };
+                if (navigator.clipboard && window.isSecureContext){
+                    navigator.clipboard.writeText(text).then(done, function(){});
+                    return;
+                }
+                var area = document.createElement("textarea");
+                area.value = text;
+                area.setAttribute("readonly", "");
+                area.style.position = "fixed";
+                area.style.opacity = "0";
+                document.body.appendChild(area);
+                area.select();
+                try { if (document.execCommand("copy")) done(); } catch (e) { /* left to select by hand */ }
+                document.body.removeChild(area);
             });
         });
+        addButton.addEventListener("click", function(){ openForm(""); });
+        document.getElementById("splatme-cancel").addEventListener("click", closeForm);
+        var values = function(save){ return {name: nameField.value, url: url.value, token: token.value, save: save}; };
+        var target = function(){ return editing ? API + "/" + editing : API; };
         form.addEventListener("submit", function(e){
             e.preventDefault();
-            post(true, document.getElementById("splatme-save"));
+            send("POST", target(), values(true), document.getElementById("splatme-save"));
         });
         document.getElementById("splatme-test").addEventListener("click", function(){
-            post(false, document.getElementById("splatme-test"));
+            send("POST", target(), values(false), document.getElementById("splatme-test"));
         });
     }
 
     $.getJSON(API).done(function(data){
-        show(data, false);
-        fill(data);
-        placeGuide(data);
-    }).fail(failed);
+        shown(data);
+        notes();
+    }).fail(function(xhr){
+        state.innerHTML = "";
+        state.appendChild(stateBox({error: reason(xhr)}, false));
+    });
 })();
 </script>
