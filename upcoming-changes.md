@@ -32,6 +32,11 @@ joins older holes.
    task ("24. OpenSplat's growth: the Brighton Beach sweep": done 2026-11-25, both trainers keep their defaults; left, the docs' guidance on Max Gaussians and LichtFeld). The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
+3. Several splat nodes at once (asked 2026-11-25): an OpenSplat and a LichtFeld node installed together, the user
+   choosing which begins a splat; Continue only on a node of the model's trainer that supports it, otherwise Train
+   Again on any node. Plan with the user (its open decisions: one GPU shared, options per trainer, which node trains
+   automatically, which release). See "25. Several splat nodes (asked 2026-11-25, proposed)".
+
 **Then**
 
 1. Editing ideas from LichtFeld Studio and Splatshop (asked 2026-11-24), after phase 3 (the LichtFeld node) is
@@ -4542,3 +4547,62 @@ better on all 28 held-out photos, by 0.014 on average; PSNR +0.18 dB) does not j
 of GPU memory; a user who wants larger, sharper models installs a LichtFeld node instead. The sweep's tooling
 (`record.py --results`, `--growth`) and its numbers stay. Still owed by this section: the docs' guidance that a
 lower Max Gaussians gives smaller models that are easier to edit, and that LichtFeld gives larger, sharper ones.
+
+### 25. Several splat nodes (asked 2026-11-25, proposed)
+
+**The request (the user, 2026-11-25):** both kinds of splat node, OpenSplat and LichtFeld Studio, installed at the
+same time, so a user chooses which node begins a splat. Once a splat exists, it can be retrained (continued) only
+on a node of the kind that created it, and only if that kind supports continuing; otherwise an existing splat can
+only be made again from the start, on any installed node.
+
+**What it builds on (checked in the code, 2026-11-25):**
+- SplatMe keeps one node: `node_url` and `node_token` in its global data store (`training.get_node`, `set_node`),
+  set in the Splat Node panel (`templates/node.html`) on SplatMe → Settings and on Administration → SplatMe.
+- A trained model already records the trainer that made it (`_trainer` beside its options; none means OpenSplat),
+  and Continue already refuses a node of another kind or one whose `/info` says it cannot continue
+  (`training.start`). The rule asked for is today's rule, applied per node instead of to the one node.
+- A job's record holds the node's `trainer_kind` but not which node: polling, Stop and the log always ask the
+  current node. Changing the address during a training would lose it (not tried).
+- `splatnode.sh` installs one node per folder and Compose project (`SPLATNODE_DIR`, `SPLATNODE_PROJECT`, `--port`),
+  but every install joins WebODM's network as `splat-node` (two would share the name, and Docker splits connections
+  between them) and `connect` overwrites SplatMe's one address and token.
+- Making sky masks, cropping and Apply Edits run in WebODM's worker, not on the node: they are unaffected.
+
+**Proposed design:**
+1. **The plugin keeps a list of nodes**, each with a name (shown in the UI), address and token, in the global data
+   store. An upgrade turns today's `node_url`/`node_token` into the first entry (named after its trainer), so an
+   existing install keeps working with no action. The token never reaches a page, as today.
+2. **Each training remembers its node** (the entry's id, with its trainer kind) in the job record; polling, Stop,
+   the log and the model's download ask that node. A job whose node was removed, or does not answer, fails with a
+   message naming it, as an unreachable node does today. A job from before (no node id) belongs to the first entry.
+3. **Choosing the node**: a Node select (shown only when there are two or more) in the Train dialog (SplatMe →
+   Tasks, Train Splats), in SplatMe's panel on New Task With Splats, and in SplatMe → Settings for automatic
+   training. The option fields follow the chosen node's `/info` (phase 2's rule, unchanged).
+4. **Continue**: offered only when a listed node has the model's trainer kind and supports continuing; it goes to
+   that node (to the first such node, or the user's choice when there are several). Otherwise the row offers Train
+   Again only, with the node select, and says why ("Made with OpenSplat; no OpenSplat node is set up").
+5. **The Splat Node panel** becomes a list: add, edit, remove, check (its trainer, version, GPU from `/info`).
+   Removing a node with a training running on it is refused until the training ends or is stopped.
+6. **`splatnode.sh`**: `install --trainer lichtfeld --name <name>` gives each node its own folder
+   (`~/splatnode-<name>`; the default name keeps `~/splatnode` and `splat-node` for today's installs), Compose
+   project, container, network alias (`splat-node-<name>`) and a free port; `connect` adds or updates the entry with
+   that name through `manage.py` instead of replacing the node; `status`, `upgrade` and `uninstall` take `--name`
+   (uninstall also removes the entry). Tested against a throwaway WebODM with two nodes.
+7. **The dev stack** can run both (`dev/compose.splatnode.yml` gains the LichtFeld node, behind a setting).
+8. **Docs**: Getting Started and The Splat Node (a second node, choosing between them, their GPU), Using SplatMe
+   (the Node select, when Continue is offered), the API page (`node` on a training, the nodes list), the changelog.
+
+**How it can fail, and what then** (each with a test): a node removed or renamed during a training; a node that
+stops answering while another works; two nodes trying to train at once on one GPU (below); the stored list
+damaged (set aside, as other saved state, falling back to none listed rather than failing the pages); an
+upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM whose list already has the name.
+
+**Open decisions (for planning with the user):**
+- **One GPU, two nodes.** Two trainings at once on one GPU compete for its memory (this machine's 8 GB holds one
+  High training). Choices: nothing (the user's responsibility, as with LichtFeld's desktop app), one training at a
+  time across all nodes (SplatMe queues the rest), or per machine (nodes marked as sharing a GPU).
+- **Default options per trainer**: SplatMe → Settings keeps one set of training options today; with two trainers it
+  could keep one set per trainer kind (LichtFeld's Strategy beside OpenSplat's Grow Until), or per node.
+- **Which node trains automatically** (New Task With Splats and SplatMe → Settings): a default node, or the one
+  chosen per task.
+- **Release**: with the LichtFeld node's first release (node 0.3.0, still unpublished), or after it.
