@@ -114,7 +114,9 @@ still weak, with too few steps left to recover.
 **Continue From Step** sends the task's model back: OpenSplat loads its gaussians and its step, starts the optimiser
 afresh, and carries on the schedule from that step towards the new total. As growing ends at half the total (and
 at step 15,000), continuing a model mostly sharpens the gaussians it already has, unless **Grow Until** is set past
-the model's step: the model then grows again until it.
+the model's step: the model then grows again until it. A model LichtFeld Studio made is first rewritten into
+OpenSplat's form (the same values, its properties in OpenSplat's order, with the step SplatMe kept with it), and
+trained at its SH degree; OpenSplat cannot continue a model of SH degree 0.
 
 ## 3. With LichtFeld Studio
 
@@ -205,7 +207,7 @@ step 4,000.
 model, for the steps between. It loads the model's gaussians in place of the point cloud (thinned at random to
 **Max Gaussians** if it has more) and trains them on a schedule that starts again from step 0: the model grows
 again, the optimiser starts afresh, the colour's angle detail opens again from one plain colour, and Exposure
-Correction is learned again.
+Correction is learned again. It reads an OpenSplat model as it is, and trains at that model's SH degree.
 
 ### Running Out of GPU Memory
 

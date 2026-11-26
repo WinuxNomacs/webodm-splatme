@@ -305,10 +305,11 @@ export function continueState(check){
 }
 
 // Several splat nodes (plan 25). A node as a Splat Node choice names its trainer: "LichtFeld (LichtFeld Studio)",
-// or that it does not answer
+// or that it does not answer; a node named as its trainer (as splatnode.sh names one) only once
 export function nodeLabel(node){
     const n = node || {};
-    return n.name + " (" + (n.trainer_kind ? trainerLabel(n.trainer_kind) : "not available") + ")";
+    const trainer = n.trainer_kind ? trainerLabel(n.trainer_kind) : "not available";
+    return n.name === trainer ? n.name : n.name + " (" + trainer + ")";
 }
 
 // The node a Train Splats dialog starts with (check: task/<id>/check's answer): the default, unless the task has a

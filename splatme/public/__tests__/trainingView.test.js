@@ -565,6 +565,12 @@ describe("several splat nodes", () => {
         expect(nodeLabel(nodes[2])).toBe("Spare (not available)");
     });
 
+    test("a node named as its trainer is not named twice", () => {
+        expect(nodeLabel({id: "x", name: "LichtFeld Studio", trainer_kind: "lichtfeld"})).toBe("LichtFeld Studio");
+        expect(nodeLabel({id: "y", name: "OpenSplat", trainer_kind: "opensplat"})).toBe("OpenSplat");
+        expect(nodeLabel({id: "z", name: "OpenSplat", trainer_kind: "lichtfeld"})).toBe("OpenSplat (LichtFeld Studio)");
+    });
+
     test("continuing on the chosen node follows the server's judgement and names the nodes that can", () => {
         expect(continueState({trained_steps: 10, node, nodes, node_id: "lf"})).toEqual({can: true, note: ""});
         expect(continueState({trained_steps: 10, node, nodes, node_id: "default"})).toEqual({can: false, note:

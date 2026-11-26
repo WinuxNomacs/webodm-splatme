@@ -1,0 +1,28 @@
+# Added by dev/webodm.sh beside the splat node (with a GPU, unless SM_LICHTFELD=0): a second splat node, with
+# LichtFeld Studio (node/lichtfeld.Dockerfile), so the stack has both trainers. WebODM's containers reach it at
+# http://splat-node-lichtfeld:3100, the host at http://localhost:${SM_LICHTFELD_PORT}; the same dev token. Its first
+# build compiles LichtFeld Studio (long).
+services:
+  splat-node-lichtfeld:
+    build:
+      context: ${SM_REPO}/node
+      dockerfile: lichtfeld.Dockerfile
+    image: splatme-node-lichtfeld:dev
+    container_name: ${SM_PREFIX}-splat-node-lichtfeld
+    ports:
+      - "${SM_LICHTFELD_PORT}:3100"
+    environment:
+      SPLATNODE_TOKEN: ${SM_SPLATNODE_TOKEN}
+    volumes:
+      - splatnode-lichtfeld:/var/splatnode
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+volumes:
+  splatnode-lichtfeld:

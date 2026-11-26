@@ -44,12 +44,6 @@ joins older holes.
    task ("24. OpenSplat's growth: the Brighton Beach sweep": done 2026-11-25, both trainers keep their defaults; left, the docs' guidance on Max Gaussians and LichtFeld). The default
    values for both trainers come from comparisons run before the release (the user, 2026-11-24).
 
-3. Several splat nodes at once (asked 2026-11-25): an OpenSplat and a LichtFeld node installed together, the user
-   choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
-   otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
-   responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
-   25f (25a to 25e built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
-
 **Then**
 
 1. Editing ideas from LichtFeld Studio and Splatshop (asked 2026-11-24), after phase 3 (the LichtFeld node) is
@@ -106,6 +100,10 @@ joins older holes.
 
 **Done**
 
+- Several splat nodes at once (asked 2026-11-25, built 2026-11-26, 25a to 25f): an OpenSplat and a LichtFeld node
+  together, the user choosing which trains; Continue on any node whose trainer can read the model. Unreleased: it
+  ships with the LichtFeld release (node 0.3.0). See "25. Several splat nodes (asked 2026-11-25, planned
+  2026-11-26)" and "Decisions needed" (the default node's name).
 - Release 0.4.0 prepared (2026-11-23): the release review (findings A to Y), the fixes the user chose on
   `review-server`, `review-engine` and `review-editor`, then `release/0.4.0`: version, CHANGELOG, the documentation's
   corrections and removals, Getting Started's upgrade from 0.3.0 with node 0.2.3, five screenshots retaken, and the
@@ -4735,8 +4733,15 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   LichtFeld node `--name lichtfeld` (0.4.0 left as it was), SplatMe upgraded to this branch (the old node migrated,
   `connect --name lichtfeld` added it), both answering repeatedly with their own tokens, `status` of both,
   uninstall of each. Docs: Install and The Splat Node (Both Trainers on One Machine). Tests: 1 Django.
-- **25f. The dev stack and the docs**: both nodes on the dev stack; Getting Started, The Splat Node, Using SplatMe,
-  How It Works (continuing across trainers), the API page, the changelog.
+- **25f. The dev stack and the docs**, built 2026-11-26 (branch `dev-docs`): `dev/webodm.sh` adds
+  `sm-splat-node-lichtfeld` (`dev/compose.lichtfeld.yml`, port 3109, the same dev token; `SM_LICHTFELD=0` leaves it
+  out) beside the OpenSplat node with a GPU, and the dev stack's SplatMe has it as "LichtFeld Studio". Docs: Using
+  SplatMe (the Splat Node choice; Continue on any node that can read the model, which said another trainer starts
+  over), Getting Started and Install (both trainers with `--name`), The Splat Node (Both Trainers on One Machine),
+  How It Works (continuing the other trainer's model), the changelog; the API page came with 25b to 25d. Found in
+  the live check: a node named as its trainer (as `splatnode.sh` names one) read "LichtFeld Studio (LichtFeld
+  Studio)"; now named once (`nodeLabel`, `options.html`, `node.html`; 1 Jest). Checked live: Administration →
+  SplatMe lists both, Train Splats offers both and shows LichtFeld's fields when it is chosen.
 
 ### 26. Surfaces for walls, floors and ceilings (asked 2026-11-26, to plan)
 
