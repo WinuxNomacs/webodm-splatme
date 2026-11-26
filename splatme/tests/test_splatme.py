@@ -1391,6 +1391,54 @@ class TestSplatMe(BootTestCase):
         self.assertEqual([n["url"] for n in data["nodes"]], [self.node.url, training.nodes()[1]["url"]])
         self.assertTrue(all(n["token_set"] and "token" not in n for n in data["nodes"]))
 
+    def test_superusers_add_try_change_reorder_and_remove_nodes_and_nobody_else_can(self):
+        other = FakeNode()
+        self.addCleanup(other.close)
+        other.run_030("lichtfeld")
+        for method, url in (("post", f"{API}/nodes"), ("post", f"{API}/nodes/default"), ("delete", f"{API}/nodes/default")):
+            self.assertEqual(getattr(self.client, method)(url, {"name": "x"}, format="json").status_code, 403, url)
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        res = admin.post(f"{API}/nodes", {"name": "LichtFeld", "url": other.url, "token": "wrong", "save": False}, format="json")
+        self.assertIn("token", res.data["tried"]["error"].lower())
+        res = admin.post(f"{API}/nodes", {"name": "LichtFeld", "url": other.url, "token": other.token, "save": False}, format="json")
+        self.assertEqual((res.data["tried"]["error"], res.data["tried"]["trainer_kind"]), (None, "lichtfeld"))
+        self.assertEqual(len(training.nodes()), 1)  # only tried
+        res = admin.post(f"{API}/nodes", {"name": "LichtFeld", "url": other.url, "token": other.token}, format="json")
+        node_id = res.data["saved"]
+        self.assertEqual([(n["name"], n["trainer_kind"]) for n in res.data["nodes"]], [("Splat Node", "opensplat"), ("LichtFeld", "lichtfeld")])
+        for values, message in (({"name": "splat node", "url": other.url}, "already named"),
+                                ({"name": "", "url": other.url}, "needs a name"),
+                                ({"name": "Other", "url": "ftp://x"}, "starts with http")):
+            res = admin.post(f"{API}/nodes/{node_id}", values, format="json")
+            self.assertEqual(res.status_code, 400, values)
+            self.assertIn(message, str(res.data))
+        # An empty token keeps the one set, in a try as in a save
+        res = admin.post(f"{API}/nodes/{node_id}", {"name": "LF", "url": other.url, "token": "", "save": False}, format="json")
+        self.assertIsNone(res.data["tried"]["error"])
+        res = admin.post(f"{API}/nodes/{node_id}", {"name": "LF", "url": other.url, "token": ""}, format="json")
+        self.assertEqual(training.find_node(node_id)["token"], other.token)
+        res = admin.post(f"{API}/nodes/{node_id}", {"default": True}, format="json")
+        self.assertEqual([n["name"] for n in res.data["nodes"]], ["LF", "Splat Node"])
+        self.assertEqual(training.find_node()["id"], node_id)
+        self.assertEqual(admin.post(f"{API}/nodes/nope", {"name": "x"}, format="json").status_code, 404)
+        res = admin.delete(f"{API}/nodes/{node_id}")
+        self.assertEqual([n["name"] for n in res.data["nodes"]], ["Splat Node"])
+
+    def test_a_node_training_a_task_is_not_removed_from_the_panel(self):
+        other, other_id = self.second_node()
+        other.script = [("running", {"progress": 50, "step": 5})]
+        task = make_task(self.user)
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.train(task, steps=10, node=other_id)
+            training.run(*started[0][1:])
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        res = admin.delete(f"{API}/nodes/{other_id}")
+        self.assertEqual((res.status_code, res.data["error"]), (400, "A training is under way on this splat node: stop it, or let it end, first."))
+        self.assertIsNotNone(training.find_node(other_id))
+
     def test_each_trainer_keeps_its_own_saved_options_and_a_setting_from_before_serves_both(self):
         other, other_id = self.second_node()
         training.store().set_json("auto_default", {"options": {"steps": 3000, "image_size": 800}})  # saved before
