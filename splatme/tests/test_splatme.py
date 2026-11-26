@@ -28,7 +28,7 @@ from nodeodm import status_codes
 from PIL import Image
 from rest_framework.test import APIClient
 
-from .. import crop, edits, meshes, sky, thermal, training
+from .. import api, crop, edits, meshes, sky, thermal, training
 from .fake_node import MODEL, OPTIONS, FakeNode, trained, trained_lichtfeld
 
 API = "/api/plugins/splatme"
@@ -1260,6 +1260,154 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.train(task, resume="true", steps=5).status_code, 200)
         self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 15})
 
+    # Several splat nodes (plan 25b)
+
+    def second_node(self, kind="lichtfeld", name="LichtFeld"):
+        node = FakeNode()
+        self.addCleanup(node.close)
+        node.run_030(kind)
+        return node, training.add_node(name, node.url, node.token)
+
+    def test_the_one_node_saved_before_becomes_the_default_in_the_list_once(self):
+        store = training.store()
+        store.del_key(training.NODES)
+        store.set_string("node_url", "http://old:3100")
+        store.set_string("node_token", "old-token")
+        self.assertEqual(training.nodes(), [{"id": "default", "name": "Splat Node", "url": "http://old:3100", "token": "old-token"}])
+        self.assertEqual((store.get_string("node_url"), store.get_string("node_token")), ("", ""))
+        self.assertEqual(training.nodes(), [{"id": "default", "name": "Splat Node", "url": "http://old:3100", "token": "old-token"}])
+        self.assertEqual(PluginDatum.objects.filter(key=store.db_key(training.NODES)).count(), 1)
+        store.del_key(training.NODES)  # nothing saved before: no node
+        self.assertEqual(training.nodes(), [])
+
+    def test_a_saved_list_that_does_not_read_is_set_aside_and_keeps_its_good_entries(self):
+        store = training.store()
+        good = {"id": "default", "name": "Splat Node", "url": self.node.url, "token": self.node.token}
+        store.set_json(training.NODES, [good, {"id": "BAD ID", "name": "x"}, "junk"])
+        self.assertEqual(training.nodes(), [good])
+        aside = PluginDatum.objects.filter(key__startswith=store.db_key(training.NODES + "_set_aside_"))
+        self.assertEqual(aside.count(), 1)
+        store.set_json(training.NODES, {"not": "a list"})
+        self.assertEqual(training.nodes(), [])
+        task = make_task(self.user)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").status_code, 200)
+
+    def test_nodes_are_added_renamed_and_removed_with_their_names_kept_apart(self):
+        node_id = training.add_node("LichtFeld", "http://lf:3100", "t")
+        self.assertEqual([n["name"] for n in training.nodes()], ["Splat Node", "LichtFeld"])
+        for call, message in ((lambda: training.add_node("lichtfeld", "http://x:1"), "already named lichtfeld"),
+                              (lambda: training.add_node(" ", "http://x:1"), "needs a name"),
+                              (lambda: training.add_node("Other", "ftp://x"), "starts with http"),
+                              (lambda: training.rename_node(node_id, "splat node"), "already named splat node"),
+                              (lambda: training.remove_node("nope"), "not set up")):
+            with self.assertRaisesRegex(training.TrainingError, message):
+                call()
+        training.rename_node(node_id, "LichtFeld Studio")
+        training.remove_node(node_id)
+        self.assertEqual([n["name"] for n in training.nodes()], ["Splat Node"])
+
+    def test_a_training_goes_to_the_chosen_node_and_its_record_and_log_follow_it(self):
+        other, other_id = self.second_node()
+        task = make_task(self.user)
+        res = self.train(task, steps=10, image_size=16, node=other_id)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual((list(other.jobs), list(self.node.jobs)), (["job1"], []))
+        self.assertEqual(training.get_job(task.id)["node"], other_id)
+        self.assertEqual(self.status(task)["state"], "completed")
+        self.assertEqual(training.trained_kind(task), "lichtfeld")
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/log").content, b"Step 10: 0.5 [100%]\n")
+        self.assertEqual(self.train(task, steps=10, image_size=16).status_code, 200)  # none chosen: the default
+        self.assertEqual(list(self.node.jobs), ["job1"])
+        res = self.train(task, steps=10, node="nope")
+        self.assertEqual((res.status_code, res.data["error"]), (400, "That splat node is not set up in SplatMe."))
+
+    def test_a_node_with_a_training_under_way_is_not_removed_and_one_removed_anyway_fails_it_with_the_reason(self):
+        other, other_id = self.second_node()
+        other.script = [("running", {"progress": 50, "step": 5})]
+        task = make_task(self.user)
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.assertEqual(self.train(task, steps=10, node=other_id).status_code, 200)
+            training.run(*started[0][1:])
+            with self.assertRaisesRegex(training.TrainingError, "A training is under way on this splat node"):
+                training.remove_node(other_id)
+            training.change_nodes(lambda listed: listed.pop())  # removed by other means (an edit of the store)
+            training.follow_all(started[1][1], {})
+        status = self.status(task)
+        self.assertEqual(status["state"], "failed")
+        self.assertIn("no longer set up in SplatMe", status["error"])
+
+    def test_any_node_whose_trainer_reads_the_models_data_continues_it(self):
+        self.node.run_030("opensplat")
+        lichtfeld, lichtfeld_id = self.second_node()
+        task = make_task(self.user)
+        self.assertEqual(self.train(task, steps=10, image_size=16, max_gaussians=5000).status_code, 200)
+        nodes = {n["name"]: n for n in self.client.get(f"{API}/task/{task.id}/check").data["nodes"]}
+        self.assertEqual((nodes["Splat Node"]["continue_problem"], nodes["LichtFeld"]["continue_problem"]), (None, None))
+        res = self.train(task, resume="true", steps=5, node=lichtfeld_id)  # OpenSplat's model, on LichtFeld
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(lichtfeld.jobs["job1"]["options"], {"steps": 15, "max_gaussians": 5000, "resume_steps": 10})
+        self.assertEqual(training.trained_kind(task), "lichtfeld")
+        lichtfeld.splats = (0, ())  # LichtFeld's model of SH degree 0: OpenSplat takes 1 to 3
+        self.assertEqual(self.train(task, steps=10, image_size=16, node=lichtfeld_id).status_code, 200)
+        problem = self.client.get(f"{API}/task/{task.id}/check").data["nodes"][0]["continue_problem"]
+        self.assertEqual(problem, "OpenSplat can't continue this task's model, whose colours are of another SH degree.")
+        res = self.train(task, resume="true", steps=5)
+        self.assertEqual(res.data["error"], problem + " Start the training over.")
+        lichtfeld.splats = (3, ("rot_3",))
+        self.assertEqual(self.train(task, steps=10, image_size=16, node=lichtfeld_id, strategy="mcmc").status_code, 200)
+        res = self.train(task, resume="true", steps=5)
+        self.assertEqual(res.data["error"], "OpenSplat can't continue this task's model: it has no rot_3. Start the training over.")
+        lichtfeld.splats = (3, ())
+        self.assertEqual(self.train(task, steps=10, image_size=16, node=lichtfeld_id, strategy="mcmc").status_code, 200)
+        res = self.train(task, resume="true", steps=5)  # LichtFeld's model on OpenSplat: its Strategy is not OpenSplat's
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 15, "resume_steps": 10})
+        self.assertEqual(self.status(task)["skipped"], [])
+
+    def test_check_shows_the_chosen_nodes_trainer_and_every_nodes_state(self):
+        other, other_id = self.second_node()
+        task = make_task(self.user)
+        check = self.client.get(f"{API}/task/{task.id}/check").data
+        self.assertEqual((check["node_id"], check["node"]["trainer_kind"]), ("default", "opensplat"))
+        self.assertEqual([(n["name"], n["trainer_kind"]) for n in check["nodes"]], [("Splat Node", "opensplat"), ("LichtFeld", "lichtfeld")])
+        check = self.client.get(f"{API}/task/{task.id}/check?node={other_id}").data
+        self.assertEqual((check["node_id"], check["node"]["trainer_kind"]), (other_id, "lichtfeld"))
+        self.assertIn("strategy", check["ranges"])
+        other.close()
+        check = self.client.get(f"{API}/task/{task.id}/check?node={other_id}").data
+        self.assertEqual(check["node_error"], api.UNAVAILABLE)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check?node=nope").data["node_error"],
+                         "That splat node is not set up in SplatMe.")
+
+    def test_the_nodes_list_never_gives_a_token_and_gives_addresses_to_administrators_only(self):
+        self.second_node()
+        data = self.client.get(f"{API}/nodes").data
+        self.assertFalse(data["admin"])
+        self.assertEqual([sorted(n) for n in data["nodes"]], [["error", "id", "name", "node", "trainer_kind"]] * 2)
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        data = admin.get(f"{API}/nodes").data
+        self.assertEqual([n["url"] for n in data["nodes"]], [self.node.url, training.nodes()[1]["url"]])
+        self.assertTrue(all(n["token_set"] and "token" not in n for n in data["nodes"]))
+
+    def test_a_task_set_to_train_keeps_its_node_and_falls_back_to_the_default_once_that_node_is_gone(self):
+        other, other_id = self.second_node()
+        tasks = [make_task(self.user, status=status_codes.RUNNING) for _ in range(2)]
+        res = self.client.post(f"{API}/task/{tasks[0].id}/auto", {"enabled": "true", "steps": 10, "image_size": 16, "node": "nope"})
+        self.assertEqual(res.status_code, 400)
+        for task in tasks:
+            res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "true", "steps": 10, "image_size": 16, "node": other_id})
+            self.assertEqual(res.data["node"], other_id)
+            task.status = status_codes.COMPLETED
+            task.save()
+        training.completed(tasks[0].id)
+        self.assertEqual(list(other.jobs), ["job1"])
+        training.remove_node(other_id)
+        training.completed(tasks[1].id)
+        self.assertEqual(list(self.node.jobs), ["job1"])
+        self.assertEqual(self.status(tasks[1])["state"], "completed")
+
     def test_continuing_may_set_grow_until_after_the_models_steps_or_keep_the_models(self):
         task = make_task(self.user)
         self.assertEqual(self.train(task, steps=20000, image_size=16, densify_until=10000).status_code, 200)
@@ -1609,7 +1757,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         res = self.auto(task, enabled=True, steps=20, image_size=16)
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}})
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}, "node": None})
         self.assertEqual(self.node.jobs, {})
 
         self.complete(task)
@@ -1651,7 +1799,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user, status=None)
         res = self.auto(task, enabled=True, steps=30, ignore_sky=True)
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}})
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}, "node": None})
 
         # Options chosen later are for the tasks created later; the Edit Task panel's can switch it off
         admin.post(f"{API}/automation/shared", {"steps": 40}, format="json")

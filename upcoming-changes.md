@@ -36,7 +36,7 @@ joins older holes.
    choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
    otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
    responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
-   25b (25a built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
+   25c (25a and 25b built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
 
 **Then**
 
@@ -4672,7 +4672,15 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   model's SH degree, from its `f_rest_*` count, is sent as the training's SH Degree. Tests in `node/tests` against
   OpenSplat's and LichtFeld's real `.ply` headers (captured from the pinned builds), a damaged header, a missing
   property. Live: both directions on the check task, scored with the `trainer-benchmark` skill.
-- **25b. The nodes list** (the plugin): the list in the global data store, the upgrade from `node_url` and
+- **25b. The nodes list**, built 2026-11-26 (branch `nodes-list`), as planned below, with these choices: the
+  node saved before becomes the entry `default`, named "Splat Node" (asking its trainer for a name would need the
+  node to answer at upgrade; it is renamed in 25d's panel); `set_node` (the Splat Node panel and `splatnode.sh
+  connect` today) sets the default's address; the functions to add, rename and remove a node are built and tested,
+  their endpoints come with 25d's panel; the automatic setting of a task whose node was removed trains on the
+  default (logged), while a training started by hand on a node not set up is refused. A cross-trainer Continue
+  carries over only the options the node's trainer has. Checked live on the dev stack: its saved node became the
+  default entry on the first read and the old keys went; `nodes`, `node` and `check` answer. Tests: 10 new Django
+  tests (195 in all), against two stand-in nodes. Planned as: the nodes list (the plugin): the list in the global data store, the upgrade from `node_url` and
   `node_token` (idempotent; a damaged list set aside), each job's node, Continue decided by the model's header
   against each node's `continue_from`, the API (`node` on a training; the nodes for a page, never their tokens).
   Tests: Django, with two stand-in nodes, one failing.

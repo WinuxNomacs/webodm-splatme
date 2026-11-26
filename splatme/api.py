@@ -91,7 +91,7 @@ def is_true(value):
 
 
 def describe_auto(setting):
-    return {name: setting.get(name) for name in ("enabled", "options") if name in setting}
+    return {name: setting.get(name) for name in ("enabled", "options", "node") if name in setting}
 
 
 def describe(request, task, job):
@@ -166,13 +166,35 @@ class Check(TaskView):
         }  # fmt: skip
         if out["problem"] is None:
             out["warnings"] = training.warnings(task)
-        try:
-            # The node's trainer: what the form shows, and whether the task's model can be continued on it
-            out["node"] = training.node_view(training.get_node().check())
-            out["ranges"] = out["node"]["ranges"]
-        except NodeError as e:
-            # Only an administrator can fix the node, and its address is theirs to know
-            out["node_error"] = str(e) if request.user.is_superuser else UNAVAILABLE
+        # Every node set up, and whether each can continue the task's model; the chosen one's trainer (?node=, or
+        # the default) is what the form shows. Only an administrator can fix a node, and its address is theirs to know
+        chosen = request.query_params.get("node") or None
+        out["nodes"], picked = [], None
+        for entry, info, error in training.check_nodes():
+            item = {"id": entry["id"], "name": entry["name"], "trainer_kind": None, "continue_problem": None,
+                    "error": None if error is None else (error if request.user.is_superuser else UNAVAILABLE)}
+            if info is not None:
+                item["trainer_kind"] = training.node_kind(info)
+                if out["trained_steps"] is not None:
+                    item["continue_problem"] = training.continue_problem(task, info)
+            out["nodes"].append(item)
+            if picked is None and (entry["id"] == chosen or chosen is None):
+                picked = (entry, info, item["error"])
+        if picked is None:
+            if chosen is not None:
+                out["node_error"] = "That splat node is not set up in SplatMe."
+            else:
+                try:
+                    training.get_node().check()  # none set up: its answer says so
+                except NodeError as e:
+                    out["node_error"] = str(e) if request.user.is_superuser else UNAVAILABLE
+        else:
+            out["node_id"] = picked[0]["id"]
+            if picked[1] is None:
+                out["node_error"] = picked[2]
+            else:
+                out["node"] = training.node_view(picked[1])
+                out["ranges"] = out["node"]["ranges"]
         return Response(out)
 
 
@@ -194,7 +216,7 @@ class Log(TaskView):
         text = ""
         if job and job.get("node_job"):
             try:
-                text, offset = training.get_node().log(job["node_job"], offset)
+                text, offset = training.job_node(job).log(job["node_job"], offset)
             except NodeError as e:
                 if e.status != 404:  # the node deletes a finished job, and its log, after a while
                     error = str(e) if request.user.is_superuser else UNAVAILABLE  # as Check
@@ -520,6 +542,25 @@ class Revive(APIView):
     def get(self, request):
         training.revive()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class Nodes(APIView):
+    """GET: every splat node set up, the default first: its id, name and state (an administrator also gets its
+    address and whether a token is set; nobody gets the token)."""
+
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        admin = request.user.is_superuser
+        out = []
+        for entry, info, error in training.check_nodes():
+            item = {"id": entry["id"], "name": entry["name"], "node": None if info is None else node_state(info),
+                    "trainer_kind": None if info is None else training.node_kind(info),
+                    "error": None if error is None else (error if admin else UNAVAILABLE)}
+            if admin:
+                item.update(url=entry["url"], token_set=bool(entry["token"]))
+            out.append(item)
+        return Response({"admin": admin, "nodes": out})
 
 
 class NodeSettings(APIView):

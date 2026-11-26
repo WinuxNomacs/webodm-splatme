@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from app import splats
@@ -124,14 +125,172 @@ def store():
     return GlobalDataStore(NAME)
 
 
-def get_node():
-    return Node(store().get_string("node_url"), store().get_string("node_token"))
+# The splat nodes set up: [{"id", "name", "url", "token"}], in the order added; the first is the default (what a
+# training uses when none is chosen). Until plan 25 SplatMe kept one node, under node_url and node_token: the first
+# read moves it into the list.
+NODES = "nodes"
+NODE_ID = re.compile(r"^[0-9a-z_-]{1,32}$")
+DEFAULT_NODE_NAME = "Splat Node"
 
 
-def set_node(url, token=None):
-    store().set_string("node_url", (url or "").strip())
-    if token is not None:
-        store().set_string("node_token", token)
+def valid_node(entry):
+    return (isinstance(entry, dict) and isinstance(entry.get("id"), str) and NODE_ID.match(entry["id"]) is not None
+            and all(isinstance(entry.get(k), str) for k in ("name", "url", "token")) and entry["name"].strip() != "")
+
+
+def nodes():
+    """The splat nodes set up, the default first: [{"id", "name", "url", "token"}]. A saved list that does not read
+    is set aside (kept under another key, logged) and counts as none."""
+    raw = store().get_json(NODES, None)
+    if raw is None or not isinstance(raw, list) or not all(valid_node(entry) for entry in raw):
+        with transaction.atomic():
+            lock_records()
+            raw = store().get_json(NODES, None)  # again, under the lock: another request may have just done it
+            if raw is None:
+                url, token = store().get_string("node_url"), store().get_string("node_token")
+                raw = [{"id": "default", "name": DEFAULT_NODE_NAME, "url": url, "token": token}] if url or token else []
+                store().set_json(NODES, raw)
+                for key in ("node_url", "node_token"):
+                    store().del_key(key)
+            elif not isinstance(raw, list) or not all(valid_node(entry) for entry in raw):
+                logger.warning("SplatMe: the saved splat nodes do not read; they are set aside and none is set up")
+                store().set_json(f"{NODES}_set_aside_{int(time.time())}", raw)
+                raw = [entry for entry in raw if valid_node(entry)] if isinstance(raw, list) else []
+                store().set_json(NODES, raw)
+    return [dict(entry) for entry in raw]
+
+
+def find_node(node_id=None):
+    """A node's entry, the default's when node_id is empty, or None."""
+    listed = nodes()
+    if node_id in (None, ""):
+        return listed[0] if listed else None
+    return next((entry for entry in listed if entry["id"] == node_id), None)
+
+
+def node_client(entry):
+    node = Node(entry["url"], entry["token"]) if entry else Node("", "")
+    node.id, node.name = (entry["id"], entry["name"]) if entry else (None, None)
+    return node
+
+
+def get_node(node_id=None):
+    """The node with that id, or the default (an unset node when there is none, whose check says so). Raises
+    NodeError for an id no longer set up."""
+    entry = find_node(node_id)
+    if entry is None and node_id not in (None, ""):
+        raise NodeError("The splat node this was sent to is no longer set up in SplatMe.")
+    return node_client(entry)
+
+
+def check_nodes():
+    """[(entry, its /info or None, the error or None)] of every node set up, asked at once."""
+    def ask(entry):
+        try:
+            return entry, node_client(entry).check(), None
+        except NodeError as e:
+            return entry, None, str(e)
+
+    listed = nodes()
+    if len(listed) < 2:
+        return [ask(entry) for entry in listed]
+    with ThreadPoolExecutor(max_workers=min(8, len(listed))) as pool:
+        return list(pool.map(ask, listed))
+
+
+def job_node(job):
+    """The node a training was sent to: its record's, or the default for a record from before plan 25."""
+    return get_node((job or {}).get("node"))
+
+
+def change_nodes(change):
+    """change(listed) edits the list in place, under the records' lock; the list is saved after."""
+    nodes()  # moved from the old keys first, if not yet
+    with transaction.atomic():
+        lock_records()
+        listed = store().get_json(NODES, None) or []
+        result = change(listed)
+        store().set_json(NODES, listed)
+    return result
+
+
+def check_node_fields(name, url):
+    if name is not None and not str(name).strip():
+        raise TrainingError("A splat node needs a name.")
+    if url and not str(url).startswith(("http://", "https://")):
+        raise TrainingError("The address starts with http:// or https://")
+
+
+def set_node(url, token=None, node_id=None):
+    """The address (and token, unless None) of a node, the default when node_id is empty: made when there is none."""
+    url = (url or "").strip()
+
+    def change(listed):
+        entry = next((e for e in listed if e["id"] == node_id), None) if node_id else (listed[0] if listed else None)
+        if entry is None:
+            if node_id:
+                raise TrainingError("That splat node is not set up.")
+            entry = {"id": "default", "name": DEFAULT_NODE_NAME, "url": "", "token": ""}
+            listed.append(entry)
+        entry["url"] = url
+        if token is not None:
+            entry["token"] = token
+        return entry["id"]
+
+    return change_nodes(change)
+
+
+def add_node(name, url, token=""):
+    """A new node at the end of the list: its id."""
+    check_node_fields(name, url)
+    name = str(name).strip()
+
+    def change(listed):
+        if any(e["name"].lower() == name.lower() for e in listed):
+            raise TrainingError(f"A splat node is already named {name}.")
+        node_id = uuid.uuid4().hex[:12]
+        listed.append({"id": node_id, "name": name, "url": (url or "").strip(), "token": token or ""})
+        return node_id
+
+    return change_nodes(change)
+
+
+def rename_node(node_id, name):
+    check_node_fields(name, None)
+    name = str(name).strip()
+
+    def change(listed):
+        entry = next((e for e in listed if e["id"] == node_id), None)
+        if entry is None:
+            raise TrainingError("That splat node is not set up.")
+        if any(e["name"].lower() == name.lower() and e is not entry for e in listed):
+            raise TrainingError(f"A splat node is already named {name}.")
+        entry["name"] = name
+
+    change_nodes(change)
+
+
+def remove_node(node_id):
+    """Removes a node; refused while a training on it is under way."""
+    default = find_node()
+    for task_id, job in active_jobs():
+        if (job.get("node") or (default or {}).get("id")) == node_id:
+            raise TrainingError("A training is under way on this splat node: stop it, or let it end, first.")
+
+    def change(listed):
+        if not any(e["id"] == node_id for e in listed):
+            raise TrainingError("That splat node is not set up.")
+        listed[:] = [e for e in listed if e["id"] != node_id]
+
+    change_nodes(change)
+
+
+def active_jobs():
+    """[(task id, record)] of every training under way."""
+    prefix = store().db_key(job_key(""))
+    records = PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", "json_value")
+    return [(key[len(prefix) :], job) for key, job in records
+            if isinstance(job, dict) and job.get("state") in ACTIVE and not is_stale(job)]  # fmt: skip
 
 
 # Training automatically: a task's own setting, chosen in SplatMe's panel above WebODM's New Task panel (opened
@@ -204,7 +363,10 @@ def get_auto(task_id, user=None):
 
 
 def set_auto(task_id, username, enabled, given):
-    setting = {"enabled": bool(enabled), "options": clean_options(given), "user": username}
+    node_id = given.get("node") or None
+    if node_id is not None and find_node(node_id) is None:
+        raise TrainingError("That splat node is not set up in SplatMe.")
+    setting = {"enabled": bool(enabled), "options": clean_options(given), "user": username, "node": node_id}
     store().set_json(auto_key(task_id), setting)
 
 
@@ -497,6 +659,49 @@ def trainer_label(kind):
     return TRAINER_LABELS.get(kind, kind)
 
 
+def model_header(path):
+    """A trained .ply's property names and its colours' SH degree: {"properties", "sh_degree"}, or None when its
+    header does not read (sh_degree None when its colours match no degree)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(1 << 16)
+    except OSError:
+        return None
+    end = head.find(b"\nend_header")
+    if not head.startswith(b"ply\n") or end < 0:
+        return None
+    properties = [line.split()[-1] for line in head[:end].decode("ascii", "replace").split("\n")
+                  if line.startswith("property ") and len(line.split()) == 3]  # fmt: skip
+    rest = sum(1 for name in properties if name.startswith("f_rest_"))
+    degree = next((d for d in range(4) if rest == 3 * ((d + 1) ** 2 - 1)), None)
+    return {"properties": properties, "sh_degree": degree}
+
+
+def continue_problem(task, info):
+    """Why a node (its /info) can't continue the task's trained model, or None. A node of 0.3.0 says what a model
+    needs (continue_from), whichever trainer made it; an older one continues only its own trainer's."""
+    kind = node_kind(info)
+    if not node_supports(info)["continue"]:
+        return f"{trainer_label(kind)} cannot continue a model."
+    wants = (info or {}).get("continue_from")
+    if not isinstance(wants, dict):
+        if trained_kind(task) != kind:
+            return (f"This task's model was trained with {trainer_label(trained_kind(task))}, and the splat node "
+                    f"trains with {trainer_label(kind)}.")
+        return None
+    header = model_header(trained_model(task))
+    if header is None:
+        return "This task's trained model can't be read."
+    needed = wants.get("properties") if isinstance(wants.get("properties"), list) else []
+    missing = [name for name in needed if name not in header["properties"]]
+    if missing:
+        return f"{trainer_label(kind)} can't continue this task's model: it has no {', '.join(missing[:3])}."
+    degrees = wants.get("sh_degrees")
+    if isinstance(degrees, list) and header["sh_degree"] not in degrees:
+        return f"{trainer_label(kind)} can't continue this task's model, whose colours are of another SH degree."
+    return None
+
+
 def node_view(info):
     """What the pages need of the node's trainer: its kind, what it supports and the range of each option it has."""
     return {
@@ -677,7 +882,14 @@ def start(task, username, given, auto=False):
     reason = problem(task)
     if reason:
         raise TrainingError(reason)
-    node_info = get_node().check()
+    chosen = given.get("node") or None
+    if chosen is not None and find_node(chosen) is None:
+        if not auto:
+            raise TrainingError("That splat node is not set up in SplatMe.")
+        logger.warning(f"SplatMe: task {task.id}'s splat node is no longer set up: the default trains it")
+        chosen = None
+    node = get_node(chosen)
+    node_info = node.check()
     current = get_job(task.id)
     resume = None
     if str(given.get("resume", "")).lower() in ("true", "1"):
@@ -685,12 +897,9 @@ def start(task, username, given, auto=False):
         resume = trained_steps(task)
         if resume is None:
             raise TrainingError("This task has no trained model to continue from. Start the training over.")
-        kind = node_kind(node_info)
-        if trained_kind(task) != kind:
-            raise TrainingError(f"This task's model was trained with {trainer_label(trained_kind(task))}, and the "
-                                f"splat node trains with {trainer_label(kind)}. Start the training over.")
-        if not node_supports(node_info)["continue"]:
-            raise TrainingError(f"{trainer_label(kind)} cannot continue a model. Start the training over.")
+        why = continue_problem(task, node_info)
+        if why:
+            raise TrainingError(f"{why} Start the training over.")
         try:
             more = int(given.get("steps") or 0)
         except (TypeError, ValueError):
@@ -704,6 +913,9 @@ def start(task, username, given, auto=False):
             raise TrainingError(
                 "The options this task's model was trained with are not known. Start the training over."
             )
+        if trained_kind(task) != node_kind(node_info):
+            # Another trainer's options: only those this node's trainer has too (steps, SH degree) carry over
+            model_options = {k: v for k, v in model_options.items() if k in node_info.get("options", {})}
         grow_until = given.get("densify_until")
         given = {**model_options, "steps": resume + more}
         if grow_until not in (None, ""):
@@ -733,7 +945,7 @@ def start(task, username, given, auto=False):
         "resume": resume, "source": reconstruction(task), "waiting": run, "since": now, "times": {},
         # On Continue, the training time of the model continued from (None: not known, a model of SplatMe 0.3)
         "earlier_training": trained_seconds(task) if resume is not None else 0,
-        "trainer_kind": node_kind(node_info), "skipped": skipped,
+        "trainer_kind": node_kind(node_info), "skipped": skipped, "node": node.id,
     }  # fmt: skip
     with transaction.atomic():
         lock_records()
@@ -779,7 +991,7 @@ def completed(task_id):
     try:
         if reason:
             raise TrainingError(reason)
-        start(task, auto.get("user") or "", auto["options"], auto=True)
+        start(task, auto.get("user") or "", {**auto["options"], "node": auto.get("node")}, auto=True)
     except (TrainingError, NodeError) as e:
         current = get_job(task.id)
         if current and current["state"] in ACTIVE and not is_stale(current):
@@ -937,7 +1149,7 @@ def sweep():
 def drop_node_job(job):
     if job.get("node_job"):
         try:
-            get_node().delete(job["node_job"])
+            job_node(job).delete(job["node_job"])
         except NodeError as e:
             logger.warning(f"SplatMe: could not delete the node's job {job['node_job']}: {e}")
 
@@ -991,9 +1203,9 @@ def run(task_id, run):
         update(task_id, run, waiting=None)  # it started: losing it from here on counts as a takeover
     except Superseded:
         return
-    node = get_node()
     node_job = job.get("node_job")
     try:
+        node = job_node(job)
         with Heartbeat(task_id, run):
             # Folders of this task's earlier runs: their jobs are gone or will stop at their next report
             shutil.rmtree(work_dir(task_id), ignore_errors=True)
@@ -1008,9 +1220,9 @@ def run(task_id, run):
         ensure_follower()
     except Superseded:
         if get_job(task_id) is None and node_job:
-            drop_node_job({"node_job": node_job})  # the task was deleted
+            drop_node_job({"node_job": node_job, "node": job.get("node")})  # the task was deleted
     except Canceled:
-        drop_node_job({"node_job": node_job})
+        drop_node_job({"node_job": node_job, "node": job.get("node")})
         finish(task_id, run, "canceled")
         if not Task.objects.filter(pk=task_id).exists():
             forget(task_id)
@@ -1117,7 +1329,7 @@ def export_and_send(task_id, run, node, options, work, resume=None):
     try:
         update(task_id, run, state="queued", node_job=node_job, status="", progress=0)
     except Superseded:
-        drop_node_job({"node_job": node_job})
+        drop_node_job({"node_job": node_job, "node": node.id})
         raise
     shutil.rmtree(export_dir, ignore_errors=True)
     return node_job
@@ -1260,10 +1472,9 @@ def follow_all(frun, seen):
     jobs = handed_jobs()
     if not jobs and follower_done(frun):
         return False
-    node = get_node()
     for task_id, job in jobs:
         try:
-            follow_job(task_id, job["run"], node, job["node_job"], seen.setdefault(job["node_job"], {}))
+            follow_job(task_id, job["run"], job_node(job), job["node_job"], seen.setdefault(job["node_job"], {}))
         except Superseded:
             seen.pop(job["node_job"], None)
         except Canceled:
