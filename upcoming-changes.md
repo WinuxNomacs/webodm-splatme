@@ -36,7 +36,7 @@ joins older holes.
    choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
    otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
    responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
-   25a. See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
+   25b (25a built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
 
 **Then**
 
@@ -4638,7 +4638,30 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   Task With Splats), starting from the saved setting's node (not asked: it follows from the options' rule).
 
 **Steps** (each on its own branch, tested, then merged):
-- **25a. Continuing across trainers** (the node): `/info` says what a model needs for this node to continue it
+- **25a. Continuing across trainers**, built 2026-11-26 (branch `cross-continue`). The node reads the model's
+  header at upload (`read_ply_header`, `splat_sh_degree`) and refuses with the reason one it can't continue (not a
+  binary little-endian `.ply`, no splat properties, colours out of sequence or of no SH degree from 0 to 3, a degree
+  the trainer doesn't take, cut short); `/info` has `continue_from` (the properties, `sh_degrees`: OpenSplat 1 to 3,
+  LichtFeld 0 to 3); OpenSplat takes `resume_steps` too (needed unless it wrote the model); either trains at the
+  model's SH degree. The OpenSplat node rewrites another trainer's model into its own form in the worker, before
+  training (`rewrite_for_opensplat`, in chunks; a full disk fails the job with the reason and leaves no half file).
+  Found: LichtFeld's export has OpenSplat's properties in OpenSplat's order; only its comment differs. Tests: 8 new
+  (84 in all), against the real headers captured from the pinned builds (`node/tests/*-model.ply`). Live on the
+  check task, through the node service in both images (`dev/benchmarks/check-task.json`, runs `xc-*`; LichtFeld
+  capped at 1,000,000):
+
+  | Model | Gaussians | PSNR | SSIM | LPIPS |
+  |---|---|---|---|---|
+  | OpenSplat, 7,000 steps | 218,313 | 21.78 | 0.661 | 0.476 |
+  | LichtFeld, 7,000 steps | 1,000,000 | 23.56 | 0.719 | 0.375 |
+  | OpenSplat's continued by OpenSplat to 14,000 | 208,638 | 22.13 | 0.666 | 0.467 |
+  | LichtFeld's continued by OpenSplat to 14,000 | 713,849 | **25.70** | 0.721 | 0.384 |
+  | LichtFeld's continued by LichtFeld to 14,000 | 1,000,000 | 24.18 | 0.737 | 0.345 |
+  | OpenSplat's continued by LichtFeld to 14,000 | 1,000,000 | 24.08 | **0.754** | **0.314** |
+
+  Both directions train and improve on the model they start from. OpenSplat continuing its own 7,000-step model
+  gains little: its default schedule grows until half the steps (7,000 of 14,000), which the model had already
+  reached, so the continued training never grows it. Planned as: `/info` says what a model needs for this node to continue it
   (`continue_from`: the properties it reads); the OpenSplat node rewrites a resume `.ply` that has the data but
   another form (LichtFeld's: its comment replaced by OpenSplat's with the model's steps, the properties in
   OpenSplat's order, normals kept), and refuses one that lacks data with a message naming what is missing; a

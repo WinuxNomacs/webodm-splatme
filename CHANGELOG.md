@@ -21,6 +21,10 @@ counts as OpenSplat, and nothing changes for it).
 - `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio (its image,
   `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, is published with each release beside OpenSplat's); `status`
   names a node's trainer.
+- Splat node 0.3.0 continues a model either trainer made: OpenSplat rewrites a LichtFeld Studio model into its own
+  form (the same values), LichtFeld Studio reads an OpenSplat model as it is, and either trains at the model's SH
+  degree. A model it can't continue is refused with the reason; its `/info` says what a model needs
+  (`continue_from`).
 - A model's steps are read from what SplatMe keeps with it, not from OpenSplat's comment in the `.ply`: Edit Splats
   takes any trainer's model.
 

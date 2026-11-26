@@ -78,7 +78,9 @@ it short; edit in place.
   `lichtfeld.Dockerfile` is the same node with LichtFeld Studio (its own build at a pinned commit, its install
   rules, then a runtime stage; `docker build -f node/lichtfeld.Dockerfile -t splatme-node-lichtfeld:dev node`).
   Its output (through a pseudo-terminal) is parsed against `node/tests/lichtfeld-output.txt`, `-failure.txt`,
-  `-stopped.txt` (real runs) and `-out-of-memory.txt` (composed from its messages): capture them again on a new pin.
+  `-stopped.txt` (real runs) and `-out-of-memory.txt` (composed from its messages): capture them again on a new pin. A model to continue from is read
+  against both trainers' real headers, `node/tests/opensplat-model.ply` and `lichtfeld-model.ply` (two splats
+  each): capture them again on a new pin too.
 - **Every release is reviewed first, unless the user says otherwise for that release**: the code for bugs and
   weak areas to harden, and the documentation for accuracy and for saying only what helps its reader. The
   `release-review` skill in `.claude/skills` has the procedure; its findings go to the user, who decides which
