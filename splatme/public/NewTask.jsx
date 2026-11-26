@@ -7,7 +7,7 @@ import SplatMePanel from './SplatMePanel';
 import { request, webodm } from './api';
 import { Upload, photoProblem } from './taskUpload';
 import { NOT_LISTENING } from './restartText';
-import { formFromOptions, optionsFromForm } from './trainingView';
+import { formFromOptions, optionsFromForm, settingOptions } from './trainingView';
 
 // New Task With Splats on SplatMe's Tasks page (Tasks.jsx): the files the user picked, SplatMe's panel (Train Splats
 // When Completed and its options, from the user's New Task With Splats defaults) above WebODM's own New Task panel
@@ -40,15 +40,36 @@ export default class NewTask extends React.Component {
         this._mounted = true;
         window.addEventListener("beforeunload", this.handleLeave);
         request("GET", "automation?ranges=1").then(answer => {
-            this.ranges = answer.ranges;
-            this.node = answer.node;
+            this.saved = answer;
             if (!this._mounted) return;
-            this.setState({listening: answer.listening, node: answer.node});
-            this.change(this.touched ? {} : {form: formFromOptions(answer.options)});
+            this.setState({listening: answer.listening});
+            this.useTrainer(answer.trainer, answer.node || null, !this.touched);
+        }).catch(() => {});
+        // The splat nodes, for Splat Node when there are two or more
+        request("GET", "nodes").then(answer => {
+            if (this._mounted) this.setState({nodes: answer.nodes});
         }).catch(() => {});
         this.readPhotoSize();
         this.change({});  // the photos' problem, if any, before the defaults arrive
     }
+
+    // A node's trainer (as api.py's node_view): its ranges, and with fill the options the setting has for it
+    useTrainer(trainer, nodeId, fill){
+        this.ranges = trainer ? trainer.ranges : null;
+        this.node = trainer;
+        const kind = trainer ? trainer.trainer_kind || "opensplat" : null;
+        this.setState({node: trainer, nodeId});
+        this.change(fill ? {form: formFromOptions(kind ? settingOptions(this.saved, kind) : (this.saved || {}).options)} : {});
+    }
+
+    // Splat Node changed: that node's trainer, and the options saved for it
+    handleNode = nodeId => {
+        this.touched = true;
+        this.setState({nodeId});
+        request("GET", "automation?ranges=1&node=" + encodeURIComponent(nodeId)).then(answer => {
+            if (this._mounted && this.state.nodeId === nodeId) this.useTrainer(answer.trainer, nodeId, true);
+        }).catch(() => {});
+    };
 
     componentDidUpdate(prevProps, prevState){
         if (prevProps.files !== this.props.files){
@@ -103,7 +124,9 @@ export default class NewTask extends React.Component {
     setting(){
         if (!this.state.enabled) return null;
         const { options, error } = optionsFromForm(this.state.form, this.ranges, this.node);
-        return error || photoProblem(this.props.files) ? undefined : Object.assign({enabled: true}, options);
+        if (error || photoProblem(this.props.files)) return undefined;
+        const node = {node: this.state.nodeId || "", trainer_kind: this.node ? this.node.trainer_kind || "opensplat" : ""};
+        return Object.assign({enabled: true}, node, options);
     }
 
     // Before WebODM's own handler: Review and Start Processing (the panel's submit button, not its other buttons)
@@ -236,6 +259,7 @@ export default class NewTask extends React.Component {
                                 <SplatMePanel enabled={enabled} form={form} advanced={advanced} error={formError}
                                               warning={enabled && listening === false ? _(NOT_LISTENING) : null}
                                               thermal={files.some(f => /\.tiff?$/i.test(f.name))} photoSizes={this.state.photoSizes} node={this.state.node}
+                                              nodes={this.state.nodes} nodeId={this.state.nodeId} onNode={this.handleNode}
                                               onEnabled={value => { this.touched = true; this.change({enabled: value}); }}
                                               onChange={(name, value) => { this.touched = true; this.change({form: Object.assign({}, form, {[name]: value})}); }}
                                               onAdvanced={open => this.setState({advanced: open})} />

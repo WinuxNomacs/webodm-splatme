@@ -264,7 +264,7 @@ class TestSplatMe(BootTestCase):
             {
                 "state": None, "active": False, "has_splats": False, "can_train": True,
                 "task_status": status_codes.COMPLETED, "editable": False, "apply": None, "thumbnail": None, "model_editable": False, "model_apply": None,
-                "auto": {"enabled": False, "options": training.DEFAULTS}, "listening": None,
+                "auto": {"enabled": False, "options": training.DEFAULTS, "node": None, "by_kind": {}}, "listening": None,
             },
         )  # fmt: skip
 
@@ -1169,8 +1169,8 @@ class TestSplatMe(BootTestCase):
         self.assertEqual((node["trainer_kind"], node["supports"]), ("lichtfeld", {"masks": True, "continue": False}))
         self.assertNotIn("densify_until", node["ranges"])
         for url in (f"{API}/automation?ranges=1", f"{API}/automation/shared?ranges=1"):
-            self.assertEqual(self.client.get(url).data["node"], node, url)
-        self.assertNotIn("node", self.client.get(f"{API}/automation").data)
+            self.assertEqual(self.client.get(url).data["trainer"], node, url)
+        self.assertNotIn("trainer", self.client.get(f"{API}/automation").data)
 
     def test_saving_automatic_options_clears_those_the_node_does_not_have(self):
         del self.node.options["densify_until"]
@@ -1390,6 +1390,39 @@ class TestSplatMe(BootTestCase):
         data = admin.get(f"{API}/nodes").data
         self.assertEqual([n["url"] for n in data["nodes"]], [self.node.url, training.nodes()[1]["url"]])
         self.assertTrue(all(n["token_set"] and "token" not in n for n in data["nodes"]))
+
+    def test_each_trainer_keeps_its_own_saved_options_and_a_setting_from_before_serves_both(self):
+        other, other_id = self.second_node()
+        training.store().set_json("auto_default", {"options": {"steps": 3000, "image_size": 800}})  # saved before
+        res = self.client.get(f"{API}/automation?ranges=1&node={other_id}")
+        self.assertEqual((res.data["trainer"]["trainer_kind"], res.data["options"]), ("lichtfeld", {"steps": 3000, "image_size": 800}))
+        res = self.client.post(f"{API}/automation", {"node": other_id, "steps": 30000, "image_size": 1600, "max_gaussians": 300000,
+                                                    "strategy": "mcmc"}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["node"], other_id)
+        self.assertEqual(res.data["by_kind"], {"lichtfeld": {"steps": 30000, "image_size": 1600, "max_gaussians": 300000, "strategy": "mcmc"}})
+        res = self.client.post(f"{API}/automation", {"steps": 7000, "image_size": 1600}, format="json")  # the default: OpenSplat
+        self.assertEqual(sorted(res.data["by_kind"]), ["lichtfeld", "opensplat"])
+        self.assertEqual(res.data["by_kind"]["opensplat"], {"steps": 7000, "image_size": 1600})
+        self.assertIsNone(res.data["node"])
+        other.close()  # a node that does not answer: the form says its trainer
+        res = self.client.post(f"{API}/automation", {"node": other_id, "trainer_kind": "lichtfeld", "steps": 20000}, format="json")
+        self.assertEqual(res.data["by_kind"]["lichtfeld"]["steps"], 20000)
+        res = self.client.post(f"{API}/automation", {"node": "nope", "steps": 20000}, format="json")
+        self.assertEqual((res.status_code, res.data["error"]), (400, "That splat node is not set up in SplatMe."))
+
+    def test_a_task_trained_when_it_completes_uses_the_options_of_the_trainer_that_trains_it(self):
+        _, other_id = self.second_node()
+        task = make_task(self.user, status=status_codes.RUNNING)
+        self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "true", "steps": 10, "image_size": 16}, format="json")
+        res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "true", "node": other_id, "steps": 20, "image_size": 16,
+                                                            "max_gaussians": 300000}, format="json")
+        self.assertEqual(sorted(res.data["by_kind"]), ["lichtfeld", "opensplat"])
+        training.remove_node(other_id)  # the default trains it: with OpenSplat's options, not LichtFeld's Max Gaussians
+        task.status = status_codes.COMPLETED
+        task.save()
+        training.completed(task.id)
+        self.assertEqual(self.node.jobs["job1"]["options"], {"steps": 10})
 
     def test_a_task_set_to_train_keeps_its_node_and_falls_back_to_the_default_once_that_node_is_gone(self):
         other, other_id = self.second_node()
@@ -1757,7 +1790,8 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         res = self.auto(task, enabled=True, steps=20, image_size=16)
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}, "node": None})
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}, "node": None,
+                                    "by_kind": {"opensplat": {"steps": 20, "image_size": 16}}})
         self.assertEqual(self.node.jobs, {})
 
         self.complete(task)
@@ -1799,7 +1833,8 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user, status=None)
         res = self.auto(task, enabled=True, steps=30, ignore_sky=True)
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}, "node": None})
+        self.assertEqual(res.data, {"enabled": True, "options": {"steps": 30, "image_size": 1600, "ignore_sky": True}, "node": None,
+                                    "by_kind": {"opensplat": {"steps": 30, "image_size": 1600, "ignore_sky": True}}})
 
         # Options chosen later are for the tasks created later; the Edit Task panel's can switch it off
         admin.post(f"{API}/automation/shared", {"steps": 40}, format="json")
@@ -1829,7 +1864,8 @@ class TestSplatMe(BootTestCase):
         # The Edit Task panel of a task with no setting starts with the user's own options
         task = make_task(self.user)
         self.assertEqual(self.client.get(f"{API}/task/{task.id}/auto").data["options"]["steps"], 2000)
-        self.assertEqual(self.status(task)["auto"], {"enabled": False, "options": res.data["options"]})
+        self.assertEqual(self.status(task)["auto"], {"enabled": False, "options": res.data["options"], "node": None,
+                                                    "by_kind": res.data["by_kind"]})
 
         # Dropping their own goes back to the administrators'
         res = self.client.post(f"{API}/automation", {"reset": True}, format="json")

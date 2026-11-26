@@ -2,6 +2,7 @@ import React from 'React';
 import PropTypes from 'prop-types';
 import { _ } from 'webodm/classes/gettext';
 import OptionsFields from './OptionsFields';
+import NodeField from './NodeField';
 
 // SplatMe's panel above WebODM's New Task panel on the Tasks page (NewTask.jsx), drawn as WebODM's panels are:
 // whether the task's splats are trained when it completes, and with which options. The values are the parent's.
@@ -16,6 +17,9 @@ export default class SplatMePanel extends React.Component {
         thermal: PropTypes.bool,                // the photos picked are TIFFs (DJI Thermal Analyzer's)
         photoSizes: PropTypes.array,            // the first photo's size, [[width, height]], once read
         node: PropTypes.object,                 // the splat node's trainer, once it answered (OptionsFields)
+        nodes: PropTypes.array,                 // the splat nodes, for Splat Node (two or more)
+        nodeId: PropTypes.string,               // the chosen one's id (null: the default)
+        onNode: PropTypes.func,                 // (id)
         onEnabled: PropTypes.func.isRequired,   // (enabled)
         onChange: PropTypes.func.isRequired,    // (name, value)
         onAdvanced: PropTypes.func.isRequired   // (open)
@@ -34,6 +38,7 @@ export default class SplatMePanel extends React.Component {
                         {" "}{_("Train Splats When Completed")}
                     </label>
                 </div>
+                {enabled && this.props.onNode ? <NodeField nodes={this.props.nodes} value={this.props.nodeId} onChange={this.props.onNode} /> : ""}
                 {enabled ?
                     <OptionsFields form={form} advanced={advanced} showCrop={this.props.showCrop} thermal={!!this.props.thermal} photoSizes={this.props.photoSizes} node={this.props.node}
                                    onChange={this.props.onChange} onAdvanced={this.props.onAdvanced} /> : ""}

@@ -302,17 +302,17 @@ def auto_key(task_id):
     return f"auto::{task_id}"
 
 
-def clean_options(given):
+def clean_options(given, node_id=None):
     """A setting's options, checked against the node's ranges when the node answers (a training checks again)."""
     try:
-        info = get_node().check()
+        info = get_node(node_id).check()
     except NodeError:
         info = None
     return parse_options(given, info)
 
 
 def node_ranges():
-    """The node's range of each option, or None when the node does not answer."""
+    """The default node's range of each option, or None when it does not answer."""
     try:
         info = get_node().check()
     except NodeError:
@@ -320,53 +320,106 @@ def node_ranges():
     return node_view(info)["ranges"]
 
 
-def node_trainer():
-    """node_view of the node, or None when it does not answer."""
+def node_trainer(node_id=None):
+    """node_view of a node (the default's), or None when it does not answer or is not set up."""
     try:
-        return node_view(get_node().check())
+        return node_view(get_node(node_id).check())
     except NodeError:
         return None
 
 
+# A saved setting (the administrators' and each user's New Task With Splats options, a task's automatic training):
+# {"node": the node chosen (None: the default), "options": those last saved, "by_kind": {trainer kind: options}}.
+# Each trainer keeps its own options (plan 25: LichtFeld's Max Gaussians never reaches OpenSplat); a setting saved
+# before has only "options", which then serve every trainer until it is saved for one.
+
+
+def setting_options(setting, kind=None):
+    """A setting's options for a trainer: its own for that trainer, else those last saved, else the defaults."""
+    setting = setting or {}
+    by_kind = setting.get("by_kind") if isinstance(setting.get("by_kind"), dict) else {}
+    own = by_kind.get(kind)
+    return own if isinstance(own, dict) else setting.get("options") or dict(DEFAULTS)
+
+
+def described_setting(setting):
+    """What the pages are given of a setting: node, options and by_kind."""
+    setting = setting or {}
+    by_kind = setting.get("by_kind") if isinstance(setting.get("by_kind"), dict) else {}
+    return {"node": setting.get("node"), "options": setting.get("options") or dict(DEFAULTS), "by_kind": by_kind}
+
+
+def saved_setting(previous, given):
+    """A setting saved from a form: its node (checked), and its options as the chosen node's trainer's, beside the
+    other trainers' it already had. The trainer is the node's when it answers, else the form's (trainer_kind)."""
+    node_id = given.get("node") or None
+    if node_id is not None and find_node(node_id) is None:
+        raise TrainingError("That splat node is not set up in SplatMe.")
+    try:
+        info = get_node(node_id).check()
+    except NodeError:
+        info = None
+    said = given.get("trainer_kind")
+    kind = node_kind(info) if info is not None else said if said in TRAINER_LABELS else DEFAULT_KIND
+    options = parse_options(given, info)
+    by_kind = dict(described_setting(previous)["by_kind"])
+    by_kind[kind] = options
+    return {"node": node_id, "options": options, "by_kind": by_kind}
+
+
+def shared_setting():
+    return store().get_json("auto_default", None) or {}
+
+
 def shared_options():
     """The administrators' New Task With Splats options: what a user who saved none of their own starts with."""
-    return (store().get_json("auto_default", None) or {}).get("options") or dict(DEFAULTS)
+    return described_setting(shared_setting())["options"]
 
 
 def set_shared_options(given):
-    store().set_json("auto_default", {"options": clean_options(given)})
+    store().set_json("auto_default", saved_setting(shared_setting(), given))
+
+
+def own_setting(user):
+    """The New Task With Splats setting the user saved, or None."""
+    return UserDataStore(NAME, user).get_json("new_task", None)
 
 
 def own_options(user):
     """The New Task With Splats options the user saved, or None."""
-    return (UserDataStore(NAME, user).get_json("new_task", None) or {}).get("options")
+    return (own_setting(user) or {}).get("options")
 
 
 def set_own_options(user, given):
-    UserDataStore(NAME, user).set_json("new_task", {"options": clean_options(given)})
+    UserDataStore(NAME, user).set_json("new_task", saved_setting(own_setting(user), given))
 
 
 def reset_own_options(user):
     UserDataStore(NAME, user).del_key("new_task")
 
 
-def new_task_options(user=None):
-    """The options SplatMe's panel starts with for a new task: the user's own, else the administrators'."""
+def new_task_setting(user=None):
+    """The setting SplatMe's panel starts with for a new task: the user's own, else the administrators'."""
     known = user is not None and user.is_authenticated  # a public task's viewer may have no account
-    return (own_options(user) if known else None) or shared_options()
+    return described_setting((own_setting(user) if known else None) or shared_setting())
+
+
+def new_task_options(user=None):
+    return new_task_setting(user)["options"]
 
 
 def get_auto(task_id, user=None):
     """Whether the task is trained when it completes, and with what: off for a task without a setting, with the
-    options the user's panel would start with."""
-    return store().get_json(auto_key(task_id), None) or {"enabled": False, "options": new_task_options(user)}
+    setting the user's panel would start with."""
+    saved = store().get_json(auto_key(task_id), None)
+    if saved is None:
+        return {"enabled": False, **new_task_setting(user)}
+    return {**saved, **described_setting(saved)}
 
 
 def set_auto(task_id, username, enabled, given):
-    node_id = given.get("node") or None
-    if node_id is not None and find_node(node_id) is None:
-        raise TrainingError("That splat node is not set up in SplatMe.")
-    setting = {"enabled": bool(enabled), "options": clean_options(given), "user": username, "node": node_id}
+    previous = store().get_json(auto_key(task_id), None) or new_task_setting()
+    setting = {"enabled": bool(enabled), "user": username, **saved_setting(previous, given)}
     store().set_json(auto_key(task_id), setting)
 
 
@@ -877,8 +930,9 @@ def is_stale(job):
     return job["state"] in ACTIVE and time.time() - job.get("updated", 0) > STALE
 
 
-def start(task, username, given, auto=False):
-    """Starts training a task. Raises TrainingError or NodeError with the reason it cannot."""
+def start(task, username, given, auto=False, by_kind=None):
+    """Starts training a task. Raises TrainingError or NodeError with the reason it cannot. by_kind: a saved
+    setting's options per trainer, of which the node's trainer's are used (given's otherwise)."""
     reason = problem(task)
     if reason:
         raise TrainingError(reason)
@@ -890,6 +944,9 @@ def start(task, username, given, auto=False):
         chosen = None
     node = get_node(chosen)
     node_info = node.check()
+    own = (by_kind or {}).get(node_kind(node_info))
+    if isinstance(own, dict):
+        given = dict(own)
     current = get_job(task.id)
     resume = None
     if str(given.get("resume", "")).lower() in ("true", "1"):
@@ -991,7 +1048,8 @@ def completed(task_id):
     try:
         if reason:
             raise TrainingError(reason)
-        start(task, auto.get("user") or "", {**auto["options"], "node": auto.get("node")}, auto=True)
+        start(task, auto.get("user") or "", {**auto["options"], "node": auto.get("node")}, auto=True,
+              by_kind=auto.get("by_kind"))
     except (TrainingError, NodeError) as e:
         current = get_job(task.id)
         if current and current["state"] in ACTIVE and not is_stale(current):

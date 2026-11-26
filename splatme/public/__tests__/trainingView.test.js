@@ -1,4 +1,4 @@
-import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink, trainerView, continueState, strategyChoices, exposureChecked } from "../trainingView";
+import { stepsGrow, PRESETS, presetOfSteps, stepsNote, overallProgress, stageText, panelMode, optionsFromForm, duration, resultText, formFromOptions, autoText, continueFromForm, defaultMoreSteps, taskStatusText, rowNote, nextRefresh, splatsLine, runningPercent, FAST, SLOW, THERMAL_PALETTES, DEFAULT_PALETTE, thermalText, temperatureText, trainingStages, stagesCells, STAGE_TIPS, growUntilRange, trainedSize, imageSizeRows, justCompleted, dashboardLink, trainerView, continueState, strategyChoices, exposureChecked, nodeLabel, startingNode, settingOptions } from "../trainingView";
 
 describe("the Quality choice", () => {
     test("the default of 7,000 steps is Standard", () => {
@@ -551,5 +551,40 @@ describe("a LichtFeld Studio node's options", () => {
     test("the strategies are the node's, or SplatMe's own when it did not answer", () => {
         expect(strategyChoices({strategy: {choices: ["mcmc"]}})).toEqual(["mcmc"]);
         expect(strategyChoices(null)).toEqual(["mrnf", "mcmc", "igs+"]);
+    });
+});
+
+describe("several splat nodes", () => {
+    const nodes = [{id: "default", name: "Splat Node", trainer_kind: "opensplat", continue_problem: "OpenSplat can't continue this task's model: it has no rot_3."},
+                   {id: "lf", name: "LichtFeld", trainer_kind: "lichtfeld", continue_problem: null},
+                   {id: "off", name: "Spare", trainer_kind: null, continue_problem: null}];
+    const node = {trainer_kind: "opensplat", supports: {masks: true, continue: true}, ranges: {}};
+
+    test("a node is named with its trainer, or as not available", () => {
+        expect(nodeLabel(nodes[1])).toBe("LichtFeld (LichtFeld Studio)");
+        expect(nodeLabel(nodes[2])).toBe("Spare (not available)");
+    });
+
+    test("continuing on the chosen node follows the server's judgement and names the nodes that can", () => {
+        expect(continueState({trained_steps: 10, node, nodes, node_id: "lf"})).toEqual({can: true, note: ""});
+        expect(continueState({trained_steps: 10, node, nodes, node_id: "default"})).toEqual({can: false, note:
+            "OpenSplat can't continue this task's model: it has no rot_3. Choose LichtFeld under Splat Node to continue it; on this node the training starts over."});
+        const alone = [nodes[0]];
+        expect(continueState({trained_steps: 10, node, nodes: alone, node_id: "default"}).note).toBe(
+            "OpenSplat can't continue this task's model: it has no rot_3. No splat node set up can continue it: the training starts over.");
+    });
+
+    test("the dialog starts on a node that can continue the model when the default can't", () => {
+        expect(startingNode({trained_steps: 10, nodes, node_id: "default"})).toBe("lf");
+        expect(startingNode({trained_steps: 0, nodes, node_id: "default"})).toBe("default");
+        expect(startingNode({trained_steps: 10, nodes: [nodes[0]], node_id: "default"})).toBe("default");
+        expect(startingNode({})).toBe(null);
+    });
+
+    test("a setting gives each trainer its own options, else those it was saved with", () => {
+        const setting = {options: {steps: 7000}, by_kind: {lichtfeld: {steps: 30000, strategy: "mcmc"}}};
+        expect(settingOptions(setting, "lichtfeld")).toEqual({steps: 30000, strategy: "mcmc"});
+        expect(settingOptions(setting, "opensplat")).toEqual({steps: 7000});
+        expect(settingOptions(null, "opensplat")).toBe(null);
     });
 });

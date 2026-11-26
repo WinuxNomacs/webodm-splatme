@@ -36,7 +36,7 @@ joins older holes.
    choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
    otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
    responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
-   25c (25a and 25b built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
+   25d (25a to 25c built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
 
 **Then**
 
@@ -4684,7 +4684,20 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   `node_token` (idempotent; a damaged list set aside), each job's node, Continue decided by the model's header
   against each node's `continue_from`, the API (`node` on a training; the nodes for a page, never their tokens).
   Tests: Django, with two stand-in nodes, one failing.
-- **25c. The forms**: the Node select (two or more nodes) in the Train dialog, SplatMe's panel and SplatMe →
+- **25c. The forms**, built 2026-11-26 (branch `node-forms`). A Splat Node choice (`NodeField.jsx`, shown with two
+  or more nodes) in Train Splats, Change, SplatMe's panel on New Task With Splats and SplatMe → Settings
+  (`options.html`); choosing a node asks for its trainer again (`check?node=`, `automation?ranges=1&node=`).
+  Saved settings keep `node`, `options` (those last saved) and `by_kind` (each trainer's own); a setting from before
+  has only `options`, which serve every trainer until saved for one (`setting_options`, `settingOptions`); saving
+  files the options under the chosen node's trainer (the form's `trainer_kind` when the node does not answer). A
+  task trained when it completes uses the options of the trainer that trains it. Train Splats starts on a node that
+  can continue the task's model when the default can't (`startingNode`), and Continue's note names the nodes that
+  can. Automation's answer now gives the trainer as `trainer` (`node` is the chosen node's id). Checked live with a
+  LichtFeld node beside the dev stack (writes intercepted): Train Splats (both nodes listed, Continue offered on
+  LichtFeld for the task's OpenSplat model, LichtFeld's fields, Start sending its id), Change, SplatMe → Settings,
+  SplatMe's panel with a photo picked, and the dialog at 375 px. Found while checking: a node started without its
+  GPU answers with no trainer and counts as not available, as it should. Tests: 4 Jest, 2 Django (and 4 updated
+  for the setting's new fields). The pages' docs (Using SplatMe) come with 25f. Planned as: the forms: the Node select (two or more nodes) in the Train dialog, SplatMe's panel and SplatMe →
   Settings; options per trainer kind; Continue with the nodes that can take the model, or Train Again with the
   reason. Jest and Django; live with both nodes on the dev stack.
 - **25d. The Splat Node panel as a list** (SplatMe → Settings, Administration → SplatMe): add, edit, check, remove
