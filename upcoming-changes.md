@@ -34,14 +34,17 @@ joins older holes.
 
 3. Several splat nodes at once (asked 2026-11-25): an OpenSplat and a LichtFeld node installed together, the user
    choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
-   otherwise the splat is made again on any node. Plan with the user (its open decisions: one GPU shared, options
-   per trainer, which node trains automatically, which release). See "25. Several splat nodes (asked 2026-11-25, proposed)".
+   otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
+   responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
+   25a. See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
 
 **Then**
 
 1. Editing ideas from LichtFeld Studio and Splatshop (asked 2026-11-24), after phase 3 (the LichtFeld node) is
    built and merged; planned with the user then. First: clone patches that fill holes (E1). See "23. Editing ideas
    from LichtFeld Studio and Splatshop (proposed)".
+2. Surfaces that build walls, floors and ceilings in a model (asked 2026-11-26): plan the tool with the user. See
+   "26. Surfaces for walls, floors and ceilings (asked 2026-11-26, to plan)".
 
 **Later**
 
@@ -4548,7 +4551,7 @@ of GPU memory; a user who wants larger, sharper models installs a LichtFeld node
 (`record.py --results`, `--growth`) and its numbers stay. Still owed by this section: the docs' guidance that a
 lower Max Gaussians gives smaller models that are easier to edit, and that LichtFeld gives larger, sharper ones.
 
-### 25. Several splat nodes (asked 2026-11-25, proposed)
+### 25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)
 
 **The request (the user, 2026-11-25):** both kinds of splat node, OpenSplat and LichtFeld Studio, installed at the
 same time, so a user chooses which node begins a splat. Refined the same day: whether an existing splat can be
@@ -4582,7 +4585,7 @@ trainers):
   OpenSplat refuses it as it is. The data is all there: with its header rewritten (OpenSplat's comment with the
   model's steps, the properties in OpenSplat's order), OpenSplat may continue it.
 - Both need the model in the same coordinates as the dataset SplatMe sends, which is the same task's for either.
-- To check with real runs before the design relies on it: LichtFeld continuing an OpenSplat model, OpenSplat
+- Checked with real runs in 25a (they do not gate it, the user's decision): LichtFeld continuing an OpenSplat model, OpenSplat
   continuing a LichtFeld model through a rewritten header, each scored on the check task against the model
   before it, and the SH degrees (a model with fewer `f_rest_*` than the node's SH Degree).
 
@@ -4600,7 +4603,7 @@ trainers):
    steps it was trained for, kept beside it as today) and asks each node whether it can continue such a model.
    Each node's `/info` says what it reads (e.g. `continue_from` with the properties and forms it takes), so the rule
    lives with the trainer, not in the plugin; SplatMe rewrites a header when the data is complete and only the form
-   differs, if the runs above show that works. Continue is offered with the nodes that can take the model (the
+   differs (decided: built, 25a). Continue is offered with the nodes that can take the model (the
    user's choice when several can). When none can, the row offers Train Again only, with the node select, and says
    why ("No splat node set up can continue this model").
 5. **The Splat Node panel** becomes a list: add, edit, remove, check (its trainer, version, GPU from `/info`).
@@ -4615,18 +4618,58 @@ trainers):
    (the Node select, when Continue is offered), the API page (`node` on a training, the nodes list), the changelog.
 
 **How it can fail, and what then** (each with a test): a node removed or renamed during a training; a node that
-stops answering while another works; two nodes trying to train at once on one GPU (below); the stored list
+stops answering while another works; two trainings at once on one GPU (the user's responsibility: the node's out-of-memory message, as today); the stored list
 damaged (set aside, as other saved state, falling back to none listed rather than failing the pages); an
 upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM whose list already has the name.
 
-**Open decisions (for planning with the user):**
-- **One GPU, two nodes.** Two trainings at once on one GPU compete for its memory (this machine's 8 GB holds one
-  High training). Choices: nothing (the user's responsibility, as with LichtFeld's desktop app), one training at a
-  time across all nodes (SplatMe queues the rest), or per machine (nodes marked as sharing a GPU).
-- **Default options per trainer**: SplatMe → Settings keeps one set of training options today; with two trainers it
-  could keep one set per trainer kind (LichtFeld's Strategy beside OpenSplat's Grow Until), or per node.
-- **Which node trains automatically** (New Task With Splats and SplatMe → Settings): a default node, or the one
-  chosen per task.
-- **Continuing across trainers**: whether SplatMe should rewrite a model's header so OpenSplat continues a
-  LichtFeld model (only if the runs show it trains well), or offer only what each trainer reads as it is.
-- **Release**: with the LichtFeld node's first release (node 0.3.0, still unpublished), or after it.
+**Decided with the user (2026-11-26):**
+- **A shared GPU is the user's responsibility**, as with LichtFeld's desktop app: no lock or queue across nodes.
+  The docs say that two trainings at once on one GPU compete for its memory and may slow down or fail.
+- **Saved options are one set per trainer kind**: the administrators' New Task With Splats options, each user's
+  own and each task's automatic setting keep a chosen node plus the options of each trainer (OpenSplat's,
+  LichtFeld's); switching the node in a form shows that trainer's saved values. Settings saved before keep their
+  options as OpenSplat's (or as the one node's trainer's).
+- **Continuing across trainers is built**, without waiting for scores: OpenSplat continues a LichtFeld model whose
+  header is rewritten into its form, and LichtFeld continues an OpenSplat model as it is. Runs on the check task
+  check both directions train (and score them, for the docs), but do not gate the feature.
+- **It ships with the LichtFeld release**: node 0.3.0 is still unpublished, so `/info`'s new fields need no extra
+  node version.
+- Which node trains automatically: each task's automatic setting holds its node (chosen in SplatMe's panel on New
+  Task With Splats), starting from the saved setting's node (not asked: it follows from the options' rule).
+
+**Steps** (each on its own branch, tested, then merged):
+- **25a. Continuing across trainers** (the node): `/info` says what a model needs for this node to continue it
+  (`continue_from`: the properties it reads); the OpenSplat node rewrites a resume `.ply` that has the data but
+  another form (LichtFeld's: its comment replaced by OpenSplat's with the model's steps, the properties in
+  OpenSplat's order, normals kept), and refuses one that lacks data with a message naming what is missing; a
+  model's SH degree, from its `f_rest_*` count, is sent as the training's SH Degree. Tests in `node/tests` against
+  OpenSplat's and LichtFeld's real `.ply` headers (captured from the pinned builds), a damaged header, a missing
+  property. Live: both directions on the check task, scored with the `trainer-benchmark` skill.
+- **25b. The nodes list** (the plugin): the list in the global data store, the upgrade from `node_url` and
+  `node_token` (idempotent; a damaged list set aside), each job's node, Continue decided by the model's header
+  against each node's `continue_from`, the API (`node` on a training; the nodes for a page, never their tokens).
+  Tests: Django, with two stand-in nodes, one failing.
+- **25c. The forms**: the Node select (two or more nodes) in the Train dialog, SplatMe's panel and SplatMe →
+  Settings; options per trainer kind; Continue with the nodes that can take the model, or Train Again with the
+  reason. Jest and Django; live with both nodes on the dev stack.
+- **25d. The Splat Node panel as a list** (SplatMe → Settings, Administration → SplatMe): add, edit, check, remove
+  (refused while it trains).
+- **25e. `splatnode.sh --name`**: as in the design; tested against a throwaway WebODM with two nodes.
+- **25f. The dev stack and the docs**: both nodes on the dev stack; Getting Started, The Splat Node, Using SplatMe,
+  How It Works (continuing across trainers), the API page, the changelog.
+
+### 26. Surfaces for walls, floors and ceilings (asked 2026-11-26, to plan)
+
+**The request (`new.md`, 2026-11-26):** "add a phase for planning a model editing tool that allows the user to
+create flat surfaces to fill and create walls/floors/ceilings".
+
+**What it builds on:** the model editing tools on the Edit page (section 13), its repair tools (section 14: Fill
+Holes, Flatten), Remove Object and Straighten reworked (sections 16 and 17), and the model matched to its splats
+(section 18). Flatten fits an existing surface to a plane; Fill Holes closes a hole from its edges. Neither makes
+a surface where the model has none (an unscanned ceiling, a wall seen only from outside, a floor under furniture).
+
+**To plan with the user:** how a surface is drawn (points picked on the model, a rectangle on a fitted plane,
+snapping to edges and to vertical and horizontal), its thickness and both sides, its texture (from the photos where
+they saw it, a colour sampled nearby, or plain), how it joins the mesh around it, whether it also applies to the
+splats, and how it is undone and kept with the task's edits.
+
