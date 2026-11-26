@@ -14,7 +14,16 @@ v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series; the build needs about 
 
 A node runs one trainer, chosen at install: `splatnode.sh install --trainer opensplat` (the default) or
 `--trainer lichtfeld`. `status` names it, and `upgrade` keeps it; to change it, uninstall the node, then install
-it again with the other.
+it again with the other, or install the other beside it.
+
+**Both trainers on one machine**: `--name <name>` installs a node of its own beside the first, for example
+`splatnode.sh install --name lichtfeld --trainer lichtfeld`. It gets its own folder (`~/splatnode-<name>`),
+container (`splatnode-<name>`), name on WebODM's network (`http://splat-node-<name>:3100`) and port (the first free
+one from 3100, unless `--port`). SplatMe lists it as `<name>`; the node installed without `--name` is listed under
+its trainer's name. Every command takes the same `--name` to act on that node (`upgrade --name lichtfeld`,
+`uninstall --name lichtfeld`), and `status` names the other nodes installed. SplatMe 0.4 keeps one node: the
+install then says to upgrade SplatMe and run `connect --name <name>`. The nodes share the GPU: two trainings at once
+may run out of its memory.
 
 | Trainer | Image |
 | --- | --- |

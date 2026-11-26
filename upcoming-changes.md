@@ -5,6 +5,18 @@ task's training data and imports, converts and displays a trained model (a task'
 Dashboard, `app/splats.py`, `app/api/splats.py`, `worker/tasks.py`); the training in between is done by hand in
 other software. The plugin does that step.
 
+## Decisions needed (for the user, collected as work goes on)
+
+Each is decided with the user when its phase is planned or before the release it affects; once decided, it moves
+into its phase's section and leaves this list.
+
+1. **The default splat node's name** (found in 25c/25d, 2026-11-26). The node set up before plan 25 becomes the
+   entry "Splat Node", which reads oddly under the panel's "Splat Node" heading and beside the forms' field of that
+   name. Options: name it after its trainer ("OpenSplat", "LichtFeld Studio") at upgrade or when `splatnode.sh`
+   installs or connects it (25e), or leave it for administrators to rename in the panel. Since 25e a node that
+   `splatnode.sh` adds is named after its trainer (or its `--name`); an entry it finds by address keeps its name, so
+   only the node migrated from before plan 25 is "Splat Node". Before the LichtFeld release.
+
 ## Phases (current and upcoming)
 
 **Up next**
@@ -36,7 +48,7 @@ joins older holes.
    choosing which begins a splat. Continue is offered on any node whose trainer can read the model's data;
    otherwise the splat is made again on any node. Planned 2026-11-26 (a shared GPU is the user's
    responsibility, options per trainer, continuing across trainers built, ships with the LichtFeld release); next,
-   25e (25a to 25d built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
+   25f (25a to 25e built 2026-11-26). See "25. Several splat nodes (asked 2026-11-25, planned 2026-11-26)".
 
 **Then**
 
@@ -4710,7 +4722,19 @@ upgrade from the single-node keys run twice (idempotent); `connect` on a WebODM 
   (a wrong token tried, then the right one), save, rename with the token kept, make default, a plain user's view,
   remove; 375 px wide. Tests: 2 Django. Planned as: the Splat Node panel as a list (SplatMe → Settings, Administration → SplatMe): add, edit, check, remove
   (refused while it trains).
-- **25e. `splatnode.sh --name`**: as in the design; tested against a throwaway WebODM with two nodes.
+- **25e. `splatnode.sh --name`**, built 2026-11-26 (branch `install-name`): `--name <name>` on every command gives a
+  node of its own folder (`~/splatnode-<name>`), Compose project and container (`splatnode-<name>`), Compose
+  service and name on WebODM's network (`splat-node-<name>`: the service is named as the alias, since Compose
+  gives every network a service joins the service's name as an alias, and two services named `splat-node` made
+  that name reach either node at random, found in the throwaway test) and port (the first free from 3100 unless
+  `--port`). Install and connect save it in SplatMe by address (`training.connect_node`: the entry with that
+  address gets the token, else a new entry named `--name`, or the trainer's name without it), uninstall removes
+  that entry (`disconnect_node`, refused while it trains). With SplatMe 0.4 (one node) a named node is left out
+  and the script says to upgrade SplatMe and run `connect --name`; the unnamed node sets 0.4's one node as before.
+  `status` lists the other installs. Tested against a throwaway WebODM: SplatMe 0.4.0 with the unnamed node, a
+  LichtFeld node `--name lichtfeld` (0.4.0 left as it was), SplatMe upgraded to this branch (the old node migrated,
+  `connect --name lichtfeld` added it), both answering repeatedly with their own tokens, `status` of both,
+  uninstall of each. Docs: Install and The Splat Node (Both Trainers on One Machine). Tests: 1 Django.
 - **25f. The dev stack and the docs**: both nodes on the dev stack; Getting Started, The Splat Node, Using SplatMe,
   How It Works (continuing across trainers), the API page, the changelog.
 

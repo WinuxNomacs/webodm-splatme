@@ -270,6 +270,38 @@ def rename_node(node_id, name):
     change_nodes(change)
 
 
+def connect_node(url, token, name):
+    """splatnode.sh's install and connect: the node at that address gets the token (its entry, found by address,
+    keeps its name and place), or is added at the end as name (a number added when that name is taken). Its id."""
+    url = (url or "").strip().rstrip("/")
+    check_node_fields(name, url)
+
+    def change(listed):
+        entry = next((e for e in listed if e["url"].rstrip("/") == url), None)
+        if entry is not None:
+            entry["token"] = token or ""
+            return entry["id"]
+        base, final, n = str(name).strip(), str(name).strip(), 2
+        while any(e["name"].lower() == final.lower() for e in listed):
+            final, n = f"{base} {n}", n + 1
+        node_id = "default" if not listed else uuid.uuid4().hex[:12]
+        listed.append({"id": node_id, "name": final, "url": url, "token": token or ""})
+        return node_id
+
+    return change_nodes(change)
+
+
+def disconnect_node(url):
+    """splatnode.sh's uninstall: the node at that address leaves the list (refused while it trains). Whether it was
+    there."""
+    url = (url or "").strip().rstrip("/")
+    entry = next((e for e in nodes() if e["url"].rstrip("/") == url), None)
+    if entry is None:
+        return False
+    remove_node(entry["id"])
+    return True
+
+
 def make_default_node(node_id):
     """Moves a node to the front of the list: the default."""
     def change(listed):
