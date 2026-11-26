@@ -32,7 +32,8 @@ By a WebODM administrator, in this order:
     that port, or put an HTTPS proxy in front of it ([below](splat-node.md#https-to-a-node-on-another-machine)).
 
     `--trainer lichtfeld` installs a node that trains with LichtFeld Studio instead of OpenSplat
-    ([Trainers](splat-node.md#trainers)).
+    ([Trainers](splat-node.md#trainers)). Both can be installed: `install --name lichtfeld --trainer lichtfeld`
+    adds a second node beside the first, and users pick the node when they train.
 
     These steps, each command with a **Copy** button, are also on **Administration → SplatMe**: in place of the
     node's state while no node is set, and behind **How to Install a Splat Node** under it once one is.
@@ -61,7 +62,8 @@ Between trainings: a training running during an upgrade picks up again or fails 
 
 - **The splat node**: `curl -fsSL …/splatnode.sh | bash -s uninstall` stops and removes the node and its folder
     (`~/splatnode`), and asks before deleting its jobs' data and its image, and, for a node on WebODM's machine,
-    before removing it from SplatMe's settings (`--yes` answers yes to all).
+    before removing it from SplatMe's settings (`--yes` answers yes to all). `uninstall --name <name>` removes the
+    node installed with that name.
 - **The plugin**: its row's bin on Administration → Plugins removes the plugin's folder, with the sky model it
     downloaded. It leaves:
     - **The trained models**: each task keeps its model in its 3D view, as a model uploaded by hand, and the

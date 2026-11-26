@@ -10,7 +10,7 @@
 #
 # install: checks Docker, Compose and the GPU, writes a compose file and a token to $SPLATNODE_DIR, pulls the image
 #   and starts it. --trainer picks the image: OpenSplat's (the default) or LichtFeld Studio's; another trainer later
-#   is a new install (uninstall, then install). When WebODM runs on this machine (its webapp container is found,
+#   is a new install (uninstall, then install), or a second node beside it (--name). When WebODM runs on this machine (its webapp container is found,
 #   or named with --webodm), the node joins WebODM's Docker network, listens on this machine only, and SplatMe's
 #   settings get its address and token; otherwise (or with --standalone) it listens on every address, and the
 #   address and token are printed to enter on SplatMe's page in WebODM's Administration.
@@ -222,10 +222,14 @@ SPLATNODE_WEBODM_NETWORK=$network
 EOF
     umask 022
     {
-        cat <<'EOF'
-# SplatMe's splat node, written by splatnode.sh (its settings are in .env). Upgrade: splatnode.sh upgrade.
+        # The service is named as the node's alias: Compose gives every network a service joins its name as an
+        # alias, so two nodes' services both named splat-node would share that name on WebODM's network
+        cat <<EOF
+# SplatMe's splat node, written by splatnode.sh (its settings are in .env). Upgrade: $(run_again upgrade).
 services:
-  splat-node:
+  $ALIAS:
+EOF
+        cat <<'EOF'
     image: ${SPLATNODE_IMAGE}
     container_name: ${SPLATNODE_CONTAINER}
     ports:
