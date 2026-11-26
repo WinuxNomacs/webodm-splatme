@@ -106,7 +106,8 @@ A failed install is undone, so it can be run again once the problem it names is 
 
 The node trains with [OpenSplat](https://github.com/WebODM/OpenSplat). To train with
 [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) instead, add `--trainer lichtfeld` to the install
-command ([Trainers](splat-node.md#trainers)).
+command ([Trainers](splat-node.md#trainers)). For both, install a second node beside the first with
+`install --name lichtfeld --trainer lichtfeld`: users then choose the node when they train.
 
 **You should see**, on **Administration → SplatMe**, a green box: "The splat node is ready.", its address, your
 GPU and its memory, the trainer and the node's version, and "Idle".

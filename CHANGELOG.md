@@ -34,6 +34,9 @@ counts as OpenSplat, and nothing changes for it).
   form (the same values), LichtFeld Studio reads an OpenSplat model as it is, and either trains at the model's SH
   degree. A model it can't continue is refused with the reason; its `/info` says what a model needs
   (`continue_from`).
+- `splatnode.sh --name <name>` installs a splat node of its own beside the first (its own folder, container, port
+  and name on WebODM's network), for both trainers on one machine; every command takes it, and SplatMe lists the
+  node as `<name>` (a node installed without it, under its trainer's name).
 - A model's steps are read from what SplatMe keeps with it, not from OpenSplat's comment in the `.ply`: Edit Splats
   takes any trainer's model.
 

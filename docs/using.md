@@ -15,6 +15,10 @@
 
     ![The Train Splats dialog with Advanced open](assets/screenshots/train.png){ width="400" }
 
+    With two or more splat nodes set up (Administration → SplatMe), **Splat Node** at the top of the dialog
+    chooses the one that trains, the default first; the options below are its trainer's, and SplatMe keeps each
+    trainer's own saved options. Two nodes on one GPU share its memory: two trainings at once may run out of it.
+
     **Advanced** has the steps, the image size and the most gaussians as numbers:
 
     - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
@@ -77,8 +81,14 @@
     again, or fewer, adds no gaussians (the dialog says so in place of the steps table). To grow it again, set
     **Grow Until** from 1,000 steps after the model's to 3,000 before the new total (4,000 more steps at least). A model that lacks detail everywhere is still better
     started over at a higher Quality. Processing the task again, or uploading another model in WebODM's Splats dialog, ends what can
-    be continued, and so does a splat node that trains with another trainer than the one that made the model: the
-    dialog then says so and starts over. A task processed again while its splats train has that training canceled (its model would not
+    be continued.
+
+    **Continue From Step** is offered on any splat node whose trainer can read the model, whichever trainer made
+    it: a node of 0.3.0 continues a model of OpenSplat or LichtFeld Studio, at the model's SH degree (OpenSplat
+    takes 1 to 3, LichtFeld Studio 0 to 3). A node that can't (an older node, given another trainer's model, or a
+    model of an SH degree its trainer can't take) says why and names the nodes that can; on it the training
+    starts over. Train Splats opens on a node that can when the default can't. A model continued on the other trainer keeps the options that trainer has,
+    and the training names the ones it left out. A task processed again while its splats train has that training canceled (its model would not
     fit the new results), and is trained again on the new results when it is set to Train Splats When Completed.
 
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
