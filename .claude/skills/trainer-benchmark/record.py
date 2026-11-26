@@ -1,9 +1,12 @@
 """
-record.py: adds a scored run to dev/benchmarks/check-task.json (see SKILL.md). Numbers only: photos are numbered
-in name order, never named.
+record.py: adds a scored run to dev/benchmarks/check-task.json, or the --results file (see SKILL.md). Numbers only:
+photos are numbered in name order, never named.
 
     python3 record.py --work <W> --name <timings name> --ply out/<model>.ply --eval out/eval-<name>
-        --trainer lichtfeld|opensplat --options '<json>' [--corrected out/<run folder>] [--notes "..."]
+        --trainer lichtfeld|opensplat --options '<json>' [--corrected out/<run folder>] [--growth] [--notes "..."]
+        [--results dev/benchmarks/<dataset>.json]
+
+--growth records an OpenSplat run's count after every growth round and final prune, from out/<name>.log.
 
 --eval is a `LichtFeld-Studio eval` folder (the model as a viewer shows it); --corrected is LichtFeld's own training
 folder, whose last evaluation applies its exposure correction: recorded as a second run, "<name>+corrected".
@@ -54,6 +57,28 @@ def scores(m, corrected=False):
     return out
 
 
+GROWTH_LINE = re.compile(r"^(?:Densify (\d+): \+clone (\d+) \+split (\d+) -prune (\d+), total (\d+)"
+                         r"|Final prune (\d+): -(\d+), remaining (\d+))$")
+
+
+def growth(log):
+    """OpenSplat's count through training: [step, added, removed, total] per growth round and final prune, from its
+    log (lines as in ignored/spike-lichtfeld/samples/opensplat-30k.log, OpenSplat e33f9dd)."""
+    rows = []
+    with open(log, errors="replace") as f:
+        for line in f:
+            m = GROWTH_LINE.match(line.strip())
+            if m and m.group(1):
+                step, clone, split, prune, total = (int(g) for g in m.groups()[:5])
+                rows.append([step, clone + split, prune, total])
+            elif m:
+                step, prune, total = (int(g) for g in m.groups()[5:])
+                rows.append([step, 0, prune, total])
+    if not rows:
+        raise SystemExit(f"no growth lines in {log}")
+    return rows
+
+
 def gaussians(ply):
     with open(ply, "rb") as f:
         header = f.read(4096)
@@ -75,6 +100,8 @@ def main():
         p.add_argument(arg, required=True)
     p.add_argument("--corrected")
     p.add_argument("--notes", default="")
+    p.add_argument("--growth", action="store_true")
+    p.add_argument("--results", default=RESULTS)
     a = p.parse_args()
     path = lambda rel: os.path.join(a.work, rel)
     seconds, mib = timing(a.work, a.name)
@@ -88,6 +115,8 @@ def main():
         "scored_with": "LichtFeld-Studio eval on the held-out photos, --undistort (the model as a viewer shows it)",
         "notes": a.notes,
     }  # fmt: skip
+    if a.growth:
+        run["growth"] = growth(path(os.path.join("out", a.name + ".log")))
     runs = [run]
     if a.corrected:
         runs.append({
@@ -96,11 +125,13 @@ def main():
             "per_photo": per_photo(path(a.corrected)),
             "scored_with": "LichtFeld's own last evaluation: its exposure correction applied from the nearest training photo",
         })  # fmt: skip
-    with open(RESULTS) as f:
+    if not os.path.exists(a.results):
+        raise SystemExit(f"{a.results} does not exist: start it with its 'about' and 'dataset' first")
+    with open(a.results) as f:
         results = json.load(f)
     ids = {r["id"] for r in runs}
     results["runs"] = [r for r in results["runs"] if r["id"] not in ids] + runs
-    with open(RESULTS, "w") as f:
+    with open(a.results, "w") as f:
         json.dump(results, f, indent=1)
         f.write("\n")
     for r in runs:
