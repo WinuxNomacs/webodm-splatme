@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import socket
 import struct
 import sys
@@ -32,6 +33,15 @@ def training_zip(
         if resume is not None:
             z.writestr("resume.ply", resume)
     return data.getvalue()
+
+
+def kill_listed(pid_file):
+    """Kills the process whose pid the file holds, if it still runs."""
+    try:
+        with open(pid_file) as f:
+            os.kill(int(f.read()), signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
 
 
 def fixture(name):
@@ -94,11 +104,13 @@ class NodeTestCase(unittest.TestCase):
 
     def request(self, method, path, body=None, token="secret"):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        self.addCleanup(conn.close)
         headers = {"Authorization": "Bearer " + token} if token else {}
-        conn.request(method, path, body=body, headers=headers)
-        response = conn.getresponse()
-        data = response.read()
+        try:
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            data = response.read()
+        finally:
+            conn.close()  # as SplatMe's requests do: an idle connection holds one of the node's threads
         if response.getheader("Content-Type") == "application/json" and data:
             data = json.loads(data)
         return response, data
@@ -441,16 +453,23 @@ class TestContinuingModels(NodeTestCase):
 
     def test_the_fast_rewrite_of_float_models_matches_the_general_one(self):
         properties = splat_properties(degree=2, normals=True)
-        rows = [tuple(float(v * 1000 + i) for i in range(len(properties))) for v in range(splatnode.REWRITE_CHUNK + 5)]
+        rows = [tuple(float(v * 1000 + i) for i in range(len(properties))) for v in range(305)]
         paths = []
-        for name, extra in (("fast", []), ("general", ["extra"])):  # a double the rewrite drops: the general path
-            path = os.path.join(self.data, name + ".ply")
-            with open(path, "wb") as f:
-                f.write(make_ply(properties + extra, [row + (1.0,) * len(extra) for row in rows], kinds={"extra": "double"}))
-            splatnode.rewrite_for_opensplat(path, splatnode.read_ply_header(path), 9, lambda: None)
-            paths.append(path)
-        with open(paths[0], "rb") as a, open(paths[1], "rb") as b:
-            self.assertEqual(a.read(), b.read())
+        # Chunks of 4 KiB: many of them, the last one short; and of 8 bytes: smaller than a vertex, one at a time (the
+        # chunk is in bytes, so a model of very wide vertices is read a little at a time too)
+        for chunk in (4096, 8):
+            for name, extra in (("fast", []), ("general", ["extra"])):  # a double the rewrite drops: the general path
+                path = os.path.join(self.data, f"{name}-{chunk}.ply")
+                with open(path, "wb") as f:
+                    f.write(make_ply(properties + extra, [row + (1.0,) * len(extra) for row in rows], kinds={"extra": "double"}))
+                with mock.patch.object(splatnode, "REWRITE_CHUNK", chunk):
+                    splatnode.rewrite_for_opensplat(path, splatnode.read_ply_header(path), 9, lambda: None)
+                paths.append(path)
+        contents = []
+        for path in paths:
+            with open(path, "rb") as f:
+                contents.append(f.read())
+        self.assertEqual(len(set(contents)), 1)
 
     def test_models_it_cant_continue_are_refused_with_the_reason_and_leave_nothing(self):
         degree_0 = make_ply(splat_properties(degree=0), [tuple(range(14))])
@@ -506,6 +525,108 @@ class TestFailures(NodeTestCase):
         setattr(owner, name, value)
         self.addCleanup(setattr, owner, name, original)
         return original
+
+    def test_a_small_upload_that_unpacks_to_more_than_its_splats_or_the_disk_is_refused_before_it_is_written(self):
+        # A model's header of two splats, then 50 MB that compress to almost nothing
+        header = fixture("opensplat-model.ply")
+        bomb = io.BytesIO()
+        with zipfile.ZipFile(bomb, "w", zipfile.ZIP_DEFLATED) as z:
+            for name in ("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin", "images/a.jpg"):
+                z.writestr(name, b"x")
+            z.writestr("resume.ply", header + bytes(50 << 20))
+        response, data = self.request("POST", "/jobs?steps=1000&resume_steps=500", body=bomb.getvalue())
+        self.assertEqual(response.status, 400, data)
+        self.assertIn("more data than its splats", data["error"])
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+        # A dataset that unpacks to more than the disk has left
+        big = io.BytesIO()
+        with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+            for name in ("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin"):
+                z.writestr(name, b"x")
+            z.writestr("images/a.jpg", bytes(20 << 20))
+        usage = shutil.disk_usage(self.data)
+        self.patch(shutil, "disk_usage", lambda path: usage._replace(free=10 << 20))
+        response, data = self.request("POST", "/jobs?steps=20", body=big.getvalue())
+        self.assertEqual(response.status, 507, data)
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+
+    def test_a_damaged_model_in_the_upload_is_refused_as_a_bad_request(self):
+        data = bytearray()
+        good = io.BytesIO()
+        with zipfile.ZipFile(good, "w", zipfile.ZIP_DEFLATED) as z:
+            for name in ("sparse/0/cameras.bin", "sparse/0/images.bin", "sparse/0/points3D.bin", "images/a.jpg"):
+                z.writestr(name, b"x")
+            z.writestr("resume.ply", fixture("opensplat-model.ply") + os.urandom(3000))
+        data[:] = good.getvalue()
+        at = data.find(b"resume.ply") + len("resume.ply") + 200  # inside its compressed data
+        data[at:at + 64] = b"\xff" * 64
+        response, answer = self.request("POST", "/jobs?steps=1000&resume_steps=500", body=bytes(data))
+        self.assertEqual(response.status, 400, answer)
+        self.assertIn("could not be read from the dataset", answer["error"])
+        self.assertEqual(os.listdir(os.path.join(self.data, "jobs")), [])
+
+    def test_what_the_trainer_leaves_running_is_killed_when_it_exits(self):
+        os.environ["FAKE_TRAINER"] = "orphan"
+        os.environ["FAKE_TRAINER_PID"] = pid_file = os.path.join(self.data, "orphan.pid")
+        self.addCleanup(os.environ.pop, "FAKE_TRAINER_PID", None)
+        self.addCleanup(kill_listed, pid_file)  # whatever happens below, the child does not outlive the test
+        started = time.monotonic()
+        job = self.wait(self.create()["id"])
+        self.assertEqual(job["state"], "completed", job["error"])
+        self.assertLess(time.monotonic() - started, 8)  # not 10 s more waiting for the output to end
+        with open(pid_file) as f:
+            pid = int(f.read())
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(pid, signal.SIGKILL)
+            self.fail("The trainer's child still runs")
+
+    def test_a_job_canceled_while_its_model_is_rewritten_starts_no_trainer(self):
+        node = self.server.node
+        canceling = threading.Event()
+
+        def slow_prepare(folder, job, beat):
+            canceling.set()
+            time.sleep(1.5)  # canceled meanwhile
+
+        self.patch(node.adapter, "prepare", slow_prepare)
+        job = self.create("steps=1000&resume_steps=500", body=training_zip(resume=fixture("opensplat-model.ply")))
+        self.assertTrue(canceling.wait(10))
+        self.request("POST", "/jobs/{}/cancel".format(job["id"]))
+        self.assertEqual(self.wait(job["id"])["state"], "canceled")
+        log = self.request("GET", "/jobs/{}/log".format(job["id"]))[1]
+        self.assertNotIn(b"Using CUDA", log if isinstance(log, bytes) else log.encode())
+
+    def test_clients_that_never_finish_their_request_hold_at_most_a_set_number_of_threads(self):
+        self.patch(splatnode, "MAX_CONNECTIONS", 3)
+        self.server.slots = threading.BoundedSemaphore(3)
+        idle = []
+        for _ in range(3):  # connected, a header begun, never finished (no token needed)
+            s = socket.create_connection(("127.0.0.1", self.port))
+            s.sendall(b"GET /info HTTP/1.1\r\nHost: x\r\n")
+            idle.append(s)
+            self.addCleanup(s.close)
+        time.sleep(0.3)
+        late = socket.create_connection(("127.0.0.1", self.port))
+        self.addCleanup(late.close)
+        late.settimeout(5)
+        self.assertIn(b"503", late.recv(100))
+        for s in idle:
+            s.close()
+        for _ in range(50):  # their threads end with them, and the node answers again
+            try:
+                if self.request("GET", "/info")[0].status == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.1)
+        else:
+            self.fail("The node did not answer once the idle clients left")
 
     def test_a_full_disk_as_a_job_starts_fails_that_job_and_the_next_one_trains(self):
         node = self.server.node
@@ -790,6 +911,22 @@ class TestTrainerOutput(unittest.TestCase):
         tail = b"".join(self.lines("opensplat-out-of-memory.txt")).decode()
         self.assertIn("ran out of memory", splatnode.explain(-6, tail))
 
+
+
+class TestOutputLimits(unittest.TestCase):
+    def test_output_that_never_ends_a_line_is_cut_into_lines_of_a_bounded_size(self):
+        chunks = [b"x" * 65536] * 40 + [b""]
+        started = time.monotonic()
+        pieces = list(splatnode.segments(iter(chunks).__next__))
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertLessEqual(max(len(line) for line, _ in pieces), splatnode.LINE_LIMIT + 65536)
+        self.assertEqual(sum(len(line) for line, complete in pieces if complete), 40 * 65536)
+
+    def test_a_progress_line_cut_mid_write_is_not_read_as_another_step(self):
+        adapter = splatnode.TRAINERS["lichtfeld"]
+        job = {"options": {"steps": 30000}, "resume": False}
+        self.assertIsNone(adapter.step_of(b"Training [00:01:00] 5% [=====>   ] 1500/30", job))
+        self.assertEqual(adapter.step_of(b"Training [00:01:00] 5% [=====>   ] 1500/30000 loss", job), (1500, 5))
 
 
 class TestSettings(unittest.TestCase):

@@ -4,7 +4,8 @@
 FAKE_TRAINER (environment): "fail" ends with an error, "oom" with CUDA's out-of-memory message, "slow" waits
 a long time between steps (for the tests that cancel). Misbehaving, for the tests that make failures happen:
 "stubborn" ignores SIGTERM, "silent" stops printing without exiting; both give up after 60 s, so a run against a
-node that can't stop them leaves nothing behind for long.
+node that can't stop them leaves nothing behind for long. "orphan" trains, but first starts a child that ignores
+SIGTERM and keeps the output open for 60 s after the trainer exits (its pid in the file FAKE_TRAINER_PID names).
 """
 
 import os
@@ -42,6 +43,11 @@ if mode in ("stubborn", "silent"):
     print(f"Step 10: 0.2 [{1000 // steps}%]", flush=True)
     time.sleep(60)
     sys.exit(1)
+if mode == "orphan":
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"])
+    with open(os.environ["FAKE_TRAINER_PID"], "w") as f:
+        f.write(str(child.pid))
 if mode == "oom":
     print("CUDA out of memory. Tried to allocate 2.00 GiB", flush=True)
     sys.exit(134)

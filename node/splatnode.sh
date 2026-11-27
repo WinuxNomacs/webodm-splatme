@@ -98,9 +98,9 @@ env_value() { sed -n "s/^$1=//p" "$DIR/.env" 2>/dev/null | head -n 1 || true; } 
 # A local image is one built here: a name without a registry, or one no registry has. The published image is always
 # pulled, so a registry that does not answer is an error rather than an upgrade that did nothing.
 local_image() {
-    case "$IMAGE" in
+    case "${1:-$IMAGE}" in
         ghcr.io/winuxnomacs/*) false ;;
-        */*) [ -n "$(docker image ls -q "$IMAGE")" ] && ! docker manifest inspect "$IMAGE" >/dev/null 2>&1 ;;
+        */*) [ -n "$(docker image ls -q "${1:-$IMAGE}")" ] && ! docker manifest inspect "${1:-$IMAGE}" >/dev/null 2>&1 ;;
         *) true ;;
     esac
 }
@@ -279,15 +279,22 @@ wait_healthy() {
     fail "The node did not answer on port $port."
 }
 
+# The node's /info, or nothing when it does not answer. The token goes to curl on its standard input, not on its
+# command line, which other users of the machine can read (ps)
+node_info() {
+    printf 'header = "Authorization: Bearer %s"\n' "$(env_value SPLATNODE_TOKEN | sed 's/[\\"]/\\&/g')" \
+        | curl -fsS -K - "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null || true
+}
+
 node_version() {
-    curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
+    node_info \
         | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' || true  # nothing when the node does not answer
 }
 
 # The trainer the node says it runs (its /info's trainer), or what install chose when it does not answer
 node_trainer() {
     local said
-    said="$(curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
+    said="$(node_info \
         | sed -n 's/.*"trainer": *"\([^"]*\)".*/\1/p' || true)"
     [ -n "$said" ] || case "$(installed_trainer)" in lichtfeld) said="LichtFeld Studio" ;; *) said="OpenSplat" ;; esac
     printf '%s\n' "$said"
@@ -305,8 +312,7 @@ image_size() { docker image inspect -f '{{.Size}}' "$1" 2>/dev/null | awk 'NF { 
 
 # Whether the node trains a job now (its /info names the running job, or says null)
 node_training() {
-    curl -fsS -H "Authorization: Bearer $(env_value SPLATNODE_TOKEN)" "http://127.0.0.1:$(env_value SPLATNODE_PORT)/info" 2>/dev/null \
-        | grep -q '"running": *"'
+    node_info | grep -q '"running": *"'
 }
 
 # The name SplatMe lists the node under: its --name, else its trainer's
@@ -402,8 +408,14 @@ connect() {
 
 # The first port from 3100 that nothing on this machine listens on
 free_port() {
-    local port
+    local port other taken=" "
+    # The ports the other nodes installed here have, running or not (a stopped one would fail to start again)
+    for other in "$HOME"/splatnode "$HOME"/splatnode-*; do
+        [ -f "$other/.env" ] && [ "$other" != "$DIR" ] || continue
+        taken="$taken$(sed -n 's/^SPLATNODE_PORT=//p' "$other/.env" | head -n 1) "
+    done
     for port in $(seq 3100 3199); do
+        case "$taken" in *" $port "*) continue ;; esac
         port_in_use "$port" || { say "$port"; return; }
     done
     fail "No free port from 3100 to 3199: choose one with --port."
@@ -563,7 +575,10 @@ cmd_uninstall() {
     fi
     local size
     size="$(image_size "$image")"
-    if yes_to "Delete the image $image${size:+ ($size on disk)}?"; then
+    if [ "${ASSUME_YES:-}" = 1 ] && local_image "$image"; then
+        # Built here: it can't be pulled again, and a build takes long. --yes doesn't delete it unasked
+        say "The image $image was built on this machine: kept. Delete it with: docker image rm $image"
+    elif yes_to "Delete the image $image${size:+ ($size on disk)}?"; then
         if docker image rm "$image" >/dev/null 2>&1; then say "Image deleted."; else say "The image is in use by another container: kept."; fi
     fi
     rm -f -- "${DIR:?}/compose.yml" "${DIR:?}/.env"
