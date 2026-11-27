@@ -100,8 +100,8 @@ are almost invisible, or (after step 3,000) too large, become candidates for rem
 removed, mostly those with the worst error. Opacity is then capped at 80%. **Max Gaussians** only stops the
 copying, once the count has reached it.
 
-For example, **Standard** (7,000 steps) grows the model at steps 1,000 to 3,000 (with an opacity reset at 3,000)
-until step 3,500; the optimiser applies every step until then, every 32 steps until about step 4,670, then every
+For example, **Standard** (7,000 steps) grows the model every 500 steps from step 1,000 until step 3,500
+(with an opacity reset at 3,000); the optimiser applies every step until then, every 32 steps until about step 4,670, then every
 64; the final pruning runs at step 6,000. **High** (30,000 steps) grows until step 15,000, with four opacity resets,
 and prunes at steps 18,000, 21,000, 24,000 and 27,000.
 
@@ -120,9 +120,9 @@ trained at its SH degree; OpenSplat cannot continue a model of SH degree 0.
 
 ## 3. With LichtFeld Studio
 
-The splat node runs it as `LichtFeld-Studio --headless -d <dataset> -o <folder> --export ply --undistort -i <Steps>`,
-with **Max Gaussians** as `--max-cap`, and **Strategy**, **SH Degree** and **Exposure Correction** when they are
-set. Its three strategies (**MRNF**, the default, **MCMC** and **IGS+**) share how the scene is prepared and how a
+The splat node runs it as `LichtFeld-Studio --headless -d <dataset> -o <folder> --export ply --undistort --log-level info -i <Steps>`,
+with **Max Gaussians** as `--max-cap`, **Strategy**, **SH Degree** and **Exposure Correction** when they are set,
+`--mask-mode ignore` with **Ignore Sky**, and, when continuing, `--init <the model>` with `-i` the steps left. Its three strategies (**MRNF**, the default, **MCMC** and **IGS+**) share how the scene is prepared and how a
 step trains; they differ in how the model grows, and in some of their defaults.
 
 ### Preparing the Scene

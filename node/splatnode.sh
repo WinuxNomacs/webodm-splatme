@@ -359,7 +359,7 @@ print_settings() {
     [ -n "$host" ] || host="$(hostname -I 2>/dev/null | awk '{print $1}')"
     [ -n "$host" ] || host="<this machine's address>"
     say ""
-    say "Enter these on SplatMe's page in WebODM (Administration > SplatMe), then press Test Connection:"
+    say "On SplatMe's page in WebODM (Administration > SplatMe), press Add a Splat Node, enter these, then Test Connection:"
     say "  Address: http://$host:$(env_value SPLATNODE_PORT)"
     say "  Token:   $(env_value SPLATNODE_TOKEN)"
 }

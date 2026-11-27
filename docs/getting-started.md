@@ -68,13 +68,13 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install
     ```
 
-    It downloads the node's image (4 GB the first time; 6.6 GB once unpacked), checks the GPU, and starts the node
+    It downloads the node's image (4 GB the first time; 10.4 GB once unpacked), checks the GPU, and starts the node
     on WebODM's Docker network. Its last lines include:
 
     ```
     WebODM found: webapp (network webodm_default)
     The splat node 0.3.0 runs with OpenSplat 1.2.2 (git commit e33f9dd) (folder /home/you/splatnode).
-    SplatMe in WebODM (webapp) now trains on this node: http://splat-node:3100
+    SplatMe in WebODM (webapp) has this node as OpenSplat: http://splat-node:3100
     ```
 
     There is nothing to enter: **reload Administration → SplatMe**. With several WebODMs on the machine, the
@@ -88,29 +88,29 @@ set yet, **Set Up a Splat Node** shows the commands, each with a **Copy** button
     curl -fsSL https://github.com/WinuxNomacs/webodm-splatme/releases/latest/download/splatnode.sh | bash -s install --standalone
     ```
 
-    It downloads the node's image (4 GB the first time; 6.6 GB once unpacked), checks the GPU, starts the node on port 3100
+    It downloads the node's image (4 GB the first time; 10.4 GB once unpacked), checks the GPU, starts the node on port 3100
     (`--port` for another), and prints its address and token:
 
     ```
-    Enter these on SplatMe's page in WebODM (Administration > SplatMe), then press Test Connection:
+    On SplatMe's page in WebODM (Administration > SplatMe), press Add a Splat Node, enter these, then Test Connection:
       Address: http://192.168.1.20:3100
       Token:   3f9c…
     ```
 
-    On **Administration → SplatMe**, enter them as **Node Address** and **Token**, press **Test Connection**
+    On **Administration → SplatMe**, press **Add a Splat Node**, enter them as **Node Address** and **Token**, press **Test Connection**
     ("The splat node answers and can train."), then **Save**. The connection is plain HTTP: let only WebODM's
     machine reach that port, or put an [HTTPS proxy](splat-node.md#https-to-a-node-on-another-machine) in front
     of it.
 
 A failed install is undone, so it can be run again once the problem it names is fixed.
 
-The node trains with [OpenSplat](https://github.com/WebODM/OpenSplat). To train with
-[LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) instead, add `--trainer lichtfeld` to the install
-command ([Trainers](splat-node.md#trainers)). For both, install a second node beside the first with
-`install --name lichtfeld --trainer lichtfeld`: users then choose the node when they train.
+The node trains with [OpenSplat](https://github.com/WebODM/OpenSplat). `--trainer lichtfeld` installs one with
+[LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) instead (a 1.4 GB image), and `--name` installs a
+second node beside the first: [Trainers](splat-node.md#trainers).
 
-**You should see**, on **Administration → SplatMe**, a green box: "The splat node is ready.", its address, your
-GPU and its memory, the trainer and the node's version, and "Idle".
+**You should see**, on **Administration → SplatMe**, the node under its trainer's name ("OpenSplat") in a green
+box: "The splat node is ready.", its address, your GPU and its memory, the trainer and the node's version, and
+"Idle".
 
 ![Administration → SplatMe, connected to the splat node](assets/screenshots/admin.png)
 
@@ -136,14 +136,15 @@ Upgrade between trainings: a training running during an upgrade picks up again o
 settings, users' options, tasks' trainings, trained models and edits are kept: they are in WebODM's database and in
 the tasks, not in the plugin's folder.
 
-### From 0.3.0 or Earlier to 0.4.0
+### From 0.4.0 or Earlier to 0.5.0
 
-0.4.0 needs splat node 0.2.3 for Grow Until and for datasets over 2 GB: upgrade the node too.
+0.5.0 trains on splat node 0.2.0 or later; node 0.3.0 adds continuing a model the other trainer made, and
+LichtFeld Studio. Upgrade the node too.
 
 1. **The plugin**, on **Administration → Plugins**:
     - If **Install Plugins** shows **Update** for SplatMe, press it.
-    - Otherwise delete SplatMe (its row's bin), then send `splatme-0.4.0.zip` from the
-      [0.4.0 release](https://github.com/WinuxNomacs/webodm-splatme/releases/tag/v0.4.0) with **Load Plugin
+    - Otherwise delete SplatMe (its row's bin), then send `splatme-0.5.0.zip` from the
+      [0.5.0 release](https://github.com/WinuxNomacs/webodm-splatme/releases/tag/v0.5.0) with **Load Plugin
       (.zip)**. WebODM refuses the zip while SplatMe is still installed, so delete it first.
 2. **Restart WebODM once**, with the options it was started with, as in a [fresh install](#3-restart-webodm-once).
    Until then, **Update the Model** and **Continue From Step** fail: WebODM's worker still runs the old plugin.
@@ -157,12 +158,13 @@ the tasks, not in the plugin's folder.
     image. It ends with:
 
     ```
-    The splat node runs version 0.2.3 (it was 0.2.2). Its jobs and token are kept.
+    The splat node runs version 0.3.0 (it was 0.2.3). Its jobs and token are kept.
     The previous image was deleted.
     ```
 
-**You should see**, on **Administration → SplatMe**, "The splat node is ready." with node 0.2.3, and on
-**SplatMe → Tasks**, **Edit** on each task with a textured 3D model or splats SplatMe trained.
+**You should see**, on **Administration → SplatMe**, the node you had, now named after its trainer ("OpenSplat"),
+with "The splat node is ready." and node 0.3.0. To add a LichtFeld Studio node beside it, see
+[Trainers](splat-node.md#trainers).
 
 ### Later Versions
 

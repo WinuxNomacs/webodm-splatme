@@ -5,41 +5,36 @@ where a release needs a newer one.
 
 ## Unreleased
 
-Ready for splat nodes that train with another trainer than OpenSplat (splat node 0.3.0 says which; an older node
-counts as OpenSplat, and nothing changes for it).
+LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio
+node side by side and choose which trains. Needs splat node 0.3.0 for LichtFeld Studio and for continuing a model
+the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test Connection** says what it lacks).
 
-- The forms show only the options the node's trainer has; Ignore Sky only when it takes masks; OpenSplat's steps
-  table and times only with OpenSplat. An option saved for another trainer (Grow Until, in SplatMe → Settings or a
-  task's Change dialog) is left out of a training, which names it, instead of refusing to start; saving the form
-  clears it.
-- With a LichtFeld Studio node, the forms (Train Splats, Change, SplatMe's panel, SplatMe → Settings and the
-  admin page) offer **Strategy** and **Exposure Correction** (ticked by default for MRNF, unticked for MCMC and IGS+, as
-  LichtFeld Studio's own defaults); continuing a model trains only the steps after its
-  own. **SH Degree** is now in the forms for either trainer.
+- **LichtFeld Studio**: `splatnode.sh install --trainer lichtfeld` installs a node that trains with it (its image,
+  `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, 1.4 GB, is published with each release beside OpenSplat's). Its
+  first training on a GPU starts about 2 minutes late, as it builds its GPU code for that GPU. With it, the forms
+  offer **Strategy** and **Exposure Correction**, and show only the options it has (no Grow Until nor steps
+  table).
+- **SH Degree** is in the forms, for either trainer.
+- **Several splat nodes**: Administration → SplatMe lists every node, and adds, edits, tests, removes and reorders
+  them (**Add a Splat Node**, **Make Default**); a node training a task is neither removed nor moved to another
+  address. The node set up before becomes the first, the default, named after its trainer. `splatnode.sh --name
+  <name>` installs a node of its own beside the first, for both trainers on one machine.
+- With two or more nodes, **Splat Node** in Train Splats, Change, SplatMe's panel and SplatMe → Settings chooses
+  the one that trains; the options shown are its trainer's, and each trainer keeps its own saved options. A node
+  removed since leaves the settings that chose it on the default.
+- **Continue From Step** works on any node whose trainer can read the model, whichever trainer made it (node 0.3.0
+  rewrites a LichtFeld Studio model for OpenSplat; LichtFeld Studio reads OpenSplat's as it is), keeping the
+  model's Image Size, Crop to Boundary, Ignore Sky and palette; the dialog names the nodes that can when the chosen
+  one can't.
+- An option saved for another trainer is left out of a training, which names it, instead of refusing to start.
+- Splat nodes' addresses are shown to superusers only.
 - Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
-- `splatnode.sh install --trainer lichtfeld` installs a splat node that trains with LichtFeld Studio (its image,
-  `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, is published with each release beside OpenSplat's); `status`
-  names a node's trainer.
-- SplatMe keeps a list of splat nodes: the node set up before becomes its first, the default, named after its
-  trainer ("OpenSplat") once it answers (a node added with no name too; a name given on the panel is kept). Each training
-  remembers the node it was sent to, and its progress, log and model come from that node. In the API: `GET nodes`,
-  `node` on `train` and `auto`, and `check`'s `nodes`, with whether each can continue the task's model.
-- The **Splat Node** panel lists every node and its state (SplatMe → Settings), and on Administration → SplatMe
-  adds, edits, tests, removes and reorders them (**Add a Splat Node**, **Make Default**); a node training a task is
-  not removed.
-- With two or more splat nodes, **Splat Node** chooses the one that trains, in Train Splats, Change, SplatMe's panel
-  and SplatMe → Settings; the options shown are its trainer's, and each trainer keeps its own saved options.
-  **Continue From Step** is offered on any node whose trainer can read the task's model (Train Splats starts on
-  one when the default can't), and says which node can when the chosen one can't.
-- Splat node 0.3.0 continues a model either trainer made: OpenSplat rewrites a LichtFeld Studio model into its own
-  form (the same values), LichtFeld Studio reads an OpenSplat model as it is, and either trains at the model's SH
-  degree. A model it can't continue is refused with the reason; its `/info` says what a model needs
-  (`continue_from`).
-- `splatnode.sh --name <name>` installs a splat node of its own beside the first (its own folder, container, port
-  and name on WebODM's network), for both trainers on one machine; every command takes it, and SplatMe lists the
-  node as `<name>` (a node installed without it, under its trainer's name).
-- A model's steps are read from what SplatMe keeps with it, not from OpenSplat's comment in the `.ply`: Edit Splats
-  takes any trainer's model.
+- The splat node refuses an upload that would unpack to more than its disk or its model's size, kills what a
+  trainer leaves running, and serves at most 128 connections at once. `splatnode.sh uninstall --yes` keeps an
+  image built on the machine, and the script no longer puts the token on `curl`'s command line.
+- API: `GET nodes`, `POST nodes`, `POST` and `DELETE nodes/<id>`; `node` on `train`, `auto` and `automation`;
+  `check`'s `nodes` with `continue_problem`. The node's `/info` says what a model needs to be continued
+  (`continue_from`), and a job takes `resume_steps`.
 
 ## 0.4.0 (2026-11-23)
 
