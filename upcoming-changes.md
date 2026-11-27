@@ -20,8 +20,8 @@ None open.
    is done ("Release review of 0.5.0", findings A to AK, fixed but AB, AC and AF), the release workflow run by hand
    (46032454011, 2026-11-27: all jobs passed; LichtFeld's image 66 minutes, OpenSplat's 12; the node job now has
    `timeout-minutes: 130`), and the release check ("Release check of 0.5.0", with its two fixes). Branch
-   `release/0.5.0` (the manifest's version, the changelog's date) is ready to merge into `main`; then the user pushes
-   and tags `v0.5.0`, and the directory entry follows.
+   `release/0.5.0` (the manifest's version, the changelog's date) is merged into `main` (dacc448); the user pushes
+   and tags `v0.5.0`, then the directory entry follows.
 
 1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
    `splatnode.sh`, node 0.2.3 on ghcr.io, the docs). The published zip's SHA-256 is `9bd1319d…` (the same files as
@@ -53,6 +53,9 @@ joins older holes.
    from LichtFeld Studio and Splatshop (proposed)".
 2. Surfaces that build walls, floors and ceilings in a model (asked 2026-11-26): plan the tool with the user. See
    "26. Surfaces for walls, floors and ceilings (asked 2026-11-26, to plan)".
+3. Measuring on splats (asked 2026-11-27): a Measure tool that aims on the splats and takes its coordinates from
+   the point cloud; the approach is decided, the details are planned with the user. See "28. Measuring on splats
+   (approach decided 2026-11-27, to plan)".
 
 **Later**
 
@@ -5046,3 +5049,40 @@ open decisions).
 - For A: which trainer first on Windows, and the service wrapper.
 - Conversion on the app: `splat-tools` for Windows (how it is installed, given the plugin rules) or the node's
   conversion.
+
+### 28. Measuring on splats (approach decided 2026-11-27, to plan)
+
+**The request (2026-11-27):** splats cannot be measured accurately; WebODM gets around this by measuring the point
+cloud. Is this or another approach possible?
+
+**What WebODM does** (`app/static/app/js/ModelView.jsx`, 4.0.1, `setPointCloudsVisible`): with Splats shown in
+View in 3D, the point cloud stays in the scene drawn with EDL opacity 0, so Potree's measuring tools still pick
+its points; on mobile the cloud is hidden and measuring stops. So measurements already come from the cloud, but
+the user aims at a different surface: a click where the cloud has a hole picks what lies behind, and Crop to
+Boundary and SplatMe's edits cut only the splats, so a click can snap to points removed from view.
+
+**Measured (2026-11-27, read only):** the check task's trained model (`data/splatme/splatme-model.ply`, 216,865
+splats, a short training) against its `odm_georeferenced_model.laz` (3,607,510 points, minus `coords.txt`'s
+offset), nearest neighbours with scipy's `cKDTree` in `sm-webapp`:
+
+- The cloud's own point spacing: median 1.4 cm, 90th percentile 3.1 cm.
+- Splat centre to the nearest cloud point, all splats: median 8.0 cm, 90th percentile 33 cm.
+- Opaque splats (opacity over 0.5) smaller than 5 cm (4,617): median 3.3 cm, 90th percentile 18.5 cm.
+- Mean shift from those splats to the cloud: 0.1 cm, -0.4 cm, -1.8 cm (x, y, z): the same frame and scale.
+- Splat size (largest axis): median 11.5 cm, 90th percentile 22.5 cm.
+
+Spark 2.4's `SplatMesh.raycast` (vendored) picks splats above `minRaycastOpacity` (0.2 by default) and returns
+where the ray meets a splat's ellipsoid, not the surface: up to half a splat's size more error. WebODM's own splat
+renderer (`threedgs.umd.min.js`) shows no raycast code. Not measured: a longer training (likely tighter).
+
+**Decided (the user, 2026-11-27):** aim on the splats, snap to the cloud. The pick is Spark's raycast on the shown
+splats; SplatMe's server returns the nearest point cloud point to it (a `cKDTree` on the task's `.laz`, read with
+the image's PDAL, as `edits.py` does for Remove Floaters), so a measurement has the point cloud's precision and
+lands on what the user sees, with the task's edits and crop respected. Within the plugin rules: no change to
+WebODM.
+
+**To plan with the user:** where the tool lives (Edit Splats, its own page, or also View in 3D through
+`ModelView.addActionButton`); which measurements (distance, height, area, volume, an angle) and their units;
+how far a snap may move a pick, and what happens where the cloud has no point near it; whether measurements are
+saved with the task and exported; the cloud's index (built per request or kept, its memory on a large task) and
+how the docs state accuracy (relative lengths; absolute positions as good as the georeferencing).
