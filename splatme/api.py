@@ -170,6 +170,10 @@ class Check(TaskView):
         # the default) is what the form shows. Only an administrator can fix a node, and its address is theirs to know
         chosen = request.query_params.get("node") or None
         out["nodes"], picked = [], None
+        if not request.user.has_perm("change_project", task.project):
+            # Only those who may train need the nodes (Train Splats, Change): a viewer of a public task asks none
+            out["node_error"] = UNAVAILABLE
+            return Response(out)
         for entry, info, error in training.check_nodes():
             item = {"id": entry["id"], "name": entry["name"], "trainer_kind": None, "continue_problem": None,
                     "error": None if error is None else (error if request.user.is_superuser else UNAVAILABLE)}
@@ -235,7 +239,7 @@ class Auto(TaskView):
         task = self.get_and_check_task(request, pk)
         check_project_perms(request, task.project, perms=("change_project",))
         try:
-            training.set_auto(task.id, request.user.username, is_true(request.data.get("enabled")), request.data)
+            training.set_auto(task.id, request.user, is_true(request.data.get("enabled")), request.data)
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe_auto(training.get_auto(task.id, request.user)))
@@ -641,13 +645,13 @@ class NodeSettings(APIView):
     permission_classes = (IsAuthenticated,)
 
     def describe(self, request, node):
-        out = {"admin": request.user.is_superuser, "node": None, "error": None, "url": node.url}
+        out = {"admin": request.user.is_superuser, "node": None, "error": None}
         try:
             out["node"] = node_state(node.check())
         except NodeError as e:
             out["error"] = str(e) if request.user.is_superuser else UNAVAILABLE
-        if request.user.is_superuser:
-            out["token_set"] = bool(node.token)
+        if request.user.is_superuser:  # its address is an administrator's to know, as in GET nodes
+            out.update(url=node.url, token_set=bool(node.token))
         return out
 
     def get(self, request):

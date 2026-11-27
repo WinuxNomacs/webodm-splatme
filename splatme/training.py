@@ -216,8 +216,9 @@ def name_after_trainers(results):
     name. {id: new name} of those renamed."""
     wanted = {entry["id"]: trainer_label(node_kind(info)) for entry, info, _ in results
               if entry.get("named") is False and info and info.get("trainer")}
-    if not any(names_differ(entry, wanted) for entry, _, _ in results):
-        return {}
+    entries = [entry for entry, _, _ in results]
+    if all(free_name(entries, wanted[e["id"]], e) == e["name"] for e in entries if e["id"] in wanted):
+        return {}  # as they are (a number included): nothing to write, no lock taken
 
     def change(listed):
         renamed = {}
@@ -231,13 +232,19 @@ def name_after_trainers(results):
     return change_nodes(change)
 
 
-def names_differ(entry, wanted):
-    return entry["id"] in wanted and entry["name"] != wanted[entry["id"]]
+
+# A record from before plan 25 has no node: it was sent to SplatMe's one node, which the list keeps as "default"
+OLD_JOB_NODE = "default"
+
+
+def job_node_id(job):
+    return (job or {}).get("node") or OLD_JOB_NODE
 
 
 def job_node(job):
-    """The node a training was sent to: its record's, or the default for a record from before plan 25."""
-    return get_node((job or {}).get("node"))
+    """The node a training was sent to: its record's (the node moved from before plan 25 for a record from then,
+    wherever it is in the list now)."""
+    return get_node(job_node_id(job))
 
 
 def change_nodes(change):
@@ -264,6 +271,9 @@ def set_node(url, token=None, node_id=None):
 
     def change(listed):
         entry = next((e for e in listed if e["id"] == node_id), None) if node_id else (listed[0] if listed else None)
+        if entry is not None and entry["url"].rstrip("/") != url.rstrip("/") and training_on(entry["id"]):
+            raise TrainingError("A training is under way on this splat node: stop it, or let it end, before changing "
+                                "its address.")
         if entry is None:
             if node_id:
                 raise TrainingError("That splat node is not set up.")
@@ -359,26 +369,30 @@ def make_default_node(node_id):
 
 
 def remove_node(node_id):
-    """Removes a node; refused while a training on it is under way."""
-    default = find_node()
-    for task_id, job in active_jobs():
-        if (job.get("node") or (default or {}).get("id")) == node_id:
-            raise TrainingError("A training is under way on this splat node: stop it, or let it end, first.")
-
+    """Removes a node; refused while a training on it is under way (one waiting to be taken over included). Checked
+    under the records' lock, which start() takes too, so no training starts on it meanwhile."""
     def change(listed):
         if not any(e["id"] == node_id for e in listed):
             raise TrainingError("That splat node is not set up.")
+        if training_on(node_id):
+            raise TrainingError("A training is under way on this splat node: stop it, or let it end, first.")
         listed[:] = [e for e in listed if e["id"] != node_id]
 
     change_nodes(change)
 
 
-def active_jobs():
-    """[(task id, record)] of every training under way."""
+def active_jobs(stale=False):
+    """[(task id, record)] of every training under way; with stale, also those that lost their worker (revive takes
+    them over)."""
     prefix = store().db_key(job_key(""))
     records = PluginDatum.objects.filter(key__startswith=prefix, user=None).values_list("key", "json_value")
     return [(key[len(prefix) :], job) for key, job in records
-            if isinstance(job, dict) and job.get("state") in ACTIVE and not is_stale(job)]  # fmt: skip
+            if isinstance(job, dict) and job.get("state") in ACTIVE and (stale or not is_stale(job))]  # fmt: skip
+
+
+def training_on(node_id):
+    """Whether a training is under way on a node, or waits to be taken over there."""
+    return any(job_node_id(job) == node_id for _, job in active_jobs(stale=True))
 
 
 # Training automatically: a task's own setting, chosen in SplatMe's panel above WebODM's New Task panel (opened
@@ -434,15 +448,19 @@ def described_setting(setting):
     """What the pages are given of a setting: node, options and by_kind."""
     setting = setting or {}
     by_kind = setting.get("by_kind") if isinstance(setting.get("by_kind"), dict) else {}
-    return {"node": setting.get("node"), "options": setting.get("options") or dict(DEFAULTS), "by_kind": by_kind}
+    return {"node": listed_node(setting.get("node")), "options": setting.get("options") or dict(DEFAULTS), "by_kind": by_kind}
+
+
+def listed_node(node_id):
+    """A setting's node, or None (the default) when it is no longer set up: a node removed since leaves the settings
+    that chose it on the default, as an automatic training then is."""
+    return node_id if node_id and find_node(node_id) is not None else None
 
 
 def saved_setting(previous, given):
     """A setting saved from a form: its node (checked), and its options as the chosen node's trainer's, beside the
     other trainers' it already had. The trainer is the node's when it answers, else the form's (trainer_kind)."""
-    node_id = given.get("node") or None
-    if node_id is not None and find_node(node_id) is None:
-        raise TrainingError("That splat node is not set up in SplatMe.")
+    node_id = listed_node(given.get("node"))  # a form opened before the node was removed: the default
     try:
         info = get_node(node_id).check()
     except NodeError:
@@ -450,7 +468,11 @@ def saved_setting(previous, given):
     said = given.get("trainer_kind")
     kind = node_kind(info) if info is not None else said if said in TRAINER_LABELS else DEFAULT_KIND
     options = parse_options(given, info)
-    by_kind = dict(described_setting(previous)["by_kind"])
+    before = described_setting(previous)
+    by_kind = dict(before["by_kind"])
+    if not by_kind and isinstance((previous or {}).get("options"), dict):
+        # Saved before plan 25: its options served every trainer, and still serve those not saved for now
+        by_kind = {other: dict(previous["options"]) for other in TRAINER_LABELS if other != kind}
     by_kind[kind] = options
     return {"node": node_id, "options": options, "by_kind": by_kind}
 
@@ -479,7 +501,8 @@ def own_options(user):
 
 
 def set_own_options(user, given):
-    UserDataStore(NAME, user).set_json("new_task", saved_setting(own_setting(user), given))
+    # A user's first own setting starts from what their form showed: the administrators' (each trainer's options)
+    UserDataStore(NAME, user).set_json("new_task", saved_setting(own_setting(user) or new_task_setting(user), given))
 
 
 def reset_own_options(user):
@@ -505,9 +528,10 @@ def get_auto(task_id, user=None):
     return {**saved, **described_setting(saved)}
 
 
-def set_auto(task_id, username, enabled, given):
-    previous = store().get_json(auto_key(task_id), None) or new_task_setting()
-    setting = {"enabled": bool(enabled), "user": username, **saved_setting(previous, given)}
+def set_auto(task_id, user, enabled, given):
+    # A task's first setting starts from what the user's form showed: their own, else the administrators'
+    previous = store().get_json(auto_key(task_id), None) or new_task_setting(user)
+    setting = {"enabled": bool(enabled), "user": user.username, **saved_setting(previous, given)}
     store().set_json(auto_key(task_id), setting)
 
 
@@ -1058,9 +1082,9 @@ def start(task, username, given, auto=False, by_kind=None):
             raise TrainingError(
                 "The options this task's model was trained with are not known. Start the training over."
             )
-        if trained_kind(task) != node_kind(node_info):
-            # Another trainer's options: only those this node's trainer has too (steps, SH degree) carry over
-            model_options = {k: v for k, v in model_options.items() if k in node_info.get("options", {})}
+        # Another trainer's model: parse_options below leaves out the trainer's options this node's trainer does not
+        # have (skipped_options names them), and keeps SplatMe's own (Image Size, Crop to Boundary, Ignore Sky, the
+        # palette), which the photos and the model were made with
         grow_until = given.get("densify_until")
         given = {**model_options, "steps": resume + more}
         if grow_until not in (None, ""):
@@ -1618,9 +1642,19 @@ def follow_all(frun, seen):
     jobs = handed_jobs()
     if not jobs and follower_done(frun):
         return False
+    silent = set()  # the nodes that did not answer in this look: their other jobs wait for the next look
     for task_id, job in jobs:
+        memory = seen.setdefault(job["node_job"], {})
         try:
-            follow_job(task_id, job["run"], job_node(job), job["node_job"], seen.setdefault(job["node_job"], {}))
+            if job_node_id(job) in silent:
+                # Asked again next look; its silence counts from now, so it fails on time if the node stays silent
+                memory.setdefault("silent", time.time())
+                if time.time() - memory["silent"] > NODE_PATIENCE:
+                    raise NodeError("The splat node did not answer.")
+                continue
+            follow_job(task_id, job["run"], job_node(job), job["node_job"], memory)
+            if "silent" in memory:
+                silent.add(job_node_id(job))
         except Superseded:
             seen.pop(job["node_job"], None)
         except Canceled:

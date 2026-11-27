@@ -1,6 +1,8 @@
 """
 The splat node's HTTP API (node/splatnode.py in this plugin's repository), as the plugin uses it.
 """
+import re
+
 import requests
 
 # The oldest node this plugin works with
@@ -8,16 +10,48 @@ MIN_VERSION = (0, 2, 0)
 # The first node that keeps a job's ref (to find a job whose upload's answer was lost)
 REF_VERSION = (0, 2, 2)
 # The node this SplatMe was released with: an older one trains, without what came since
-CURRENT_VERSION = (0, 2, 3)
+CURRENT_VERSION = (0, 3, 0)
+# What each node version added that SplatMe uses, for the notice to an older node's administrator
+ADDED = (((0, 2, 3), "Grow Until and datasets over 2 GB"),
+         ((0, 3, 0), "continuing another trainer's model"))
 CREATE_TIMEOUT = 600  # seconds the node may take to answer a new job, once its zip is sent
+KIND = re.compile(r"^[a-z0-9_-]{1,32}$")
 
 
 def update_note(version):
     """What a node older than this SplatMe's lacks, for the administrator, or None."""
-    if parse_version(version) >= CURRENT_VERSION:
+    have = parse_version(version)
+    if have >= CURRENT_VERSION:
         return None
-    return (f"Node {version} trains, but has no Grow Until and cannot train datasets over 2 GB: update it to "
+    lacks = [what for added, what in ADDED if have < added]
+    return (f"Node {version} trains, but lacks {'; '.join(lacks)}: update it to "
             f"{'.'.join(str(n) for n in CURRENT_VERSION)} or later.")
+
+
+def checked_info(info):
+    """A node's /info with what SplatMe reads from it in the form it reads it: an option without a whole-number range
+    or with choices that are not text, a trainer kind that is not a short name, and a continue_from that does not
+    read are left out, so a broken (or hostile) node cannot fail the pages that ask it."""
+    out = dict(info)
+    options = {}
+    for name, limits in (info.get("options") if isinstance(info.get("options"), dict) else {}).items():
+        if not isinstance(name, str) or not isinstance(limits, dict):
+            continue
+        if "choices" in limits:
+            if isinstance(limits["choices"], list) and all(isinstance(c, str) for c in limits["choices"]):
+                options[name] = limits
+        elif limits.get("type") == "bool" or all(isinstance(limits.get(k), int) and not isinstance(limits.get(k), bool) for k in ("min", "max")):
+            options[name] = limits
+    out["options"] = options
+    if "trainer_kind" in out and not (isinstance(out["trainer_kind"], str) and KIND.match(out["trainer_kind"])):
+        del out["trainer_kind"]
+    wants = out.get("continue_from")
+    if wants is not None:
+        properties, degrees = (wants.get("properties"), wants.get("sh_degrees")) if isinstance(wants, dict) else (None, None)
+        if not (isinstance(properties, list) and all(isinstance(p, str) for p in properties)
+                and (degrees is None or isinstance(degrees, list) and all(isinstance(d, int) for d in degrees))):
+            del out["continue_from"]
+    return out
 
 
 class NodeError(Exception):
@@ -97,7 +131,7 @@ class Node:
             raise NodeError("The splat node's trainer does not run. Check the node's logs.")
         if not info.get("gpu"):
             raise NodeError("The splat node has no GPU it can use. Check its NVIDIA driver and Docker's GPU access.")
-        return info
+        return checked_info(info)
 
     def create_job(self, body, length, options):
         """Sends a training zip (an iterable of bytes of a known length) and answers the node's new job."""
@@ -117,7 +151,11 @@ class Node:
     def log(self, job_id, offset=0):
         """The trainer's output from a byte on, and the offset to ask from next."""
         res = self.request("GET", f"/jobs/{job_id}/log", params={"offset": offset})
-        return res.text, int(res.headers.get("X-Log-Offset", offset + len(res.content)))
+        try:
+            after = int(res.headers.get("X-Log-Offset", ""))
+        except ValueError:
+            after = offset + len(res.content)
+        return res.text, after
 
     def result(self, job_id, dest):
         try:
