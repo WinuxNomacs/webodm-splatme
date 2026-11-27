@@ -4,6 +4,9 @@ import { _ } from 'webodm/classes/gettext';
 import { request, downloadUrl } from './api';
 import { newBox, cleanRing, editLabel, sizeText, applyText, modelText, MAX_HOLE, MAX_FLOATING, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
 import SizeField from './SizeField';
+import Workers from 'webodm/classes/Workers';
+import { unitSystem, onUnitSystemChanged, offUnitSystemChanged } from 'webodm/classes/Units';
+import { MEASURES, VOLUME_BASES, leastPoints, measureLines, snapNote, copyText, volumeErrorText } from './measure';
 import './Editor.scss';
 
 const SAVE_AFTER = 600;  // ms after the last change before the edits are saved
@@ -108,6 +111,9 @@ class EditorPanel extends React.Component {
             starting: false, drafts: {}, lassoing: false, floaters: null, floatersError: null,
             brushing: false, brushSize: BRUSH_SIZE, brushMode: "remove",
             painting: null,  // the surface brush: {mode, radius, step, source, normal}
+            // Measure: the measurement being clicked ({kind, points}), those finished this visit (not saved), the
+            // Volume's base, and why a point could not be moved onto the point cloud
+            measuring: null, measurements: [], volumeBase: "triangulate", measureNote: null,
             history: newHistory()  // the edits before each change, for Undo, and those taken back, for Redo
         };
     }
@@ -116,6 +122,7 @@ class EditorPanel extends React.Component {
         this._mounted = true;
         window.addEventListener("beforeunload", this.handleLeave);
         window.addEventListener("keydown", this.handleKey);
+        onUnitSystemChanged(this.handleUnits);
         request("GET", this.path("edits")).then(info => {
             if (!this._mounted) return;
             this.savedEdits = info.edits;
@@ -130,6 +137,7 @@ class EditorPanel extends React.Component {
 
     componentDidUpdate(_props, prev){
         if (prev.edits !== this.state.edits || prev.loaded !== this.state.loaded) this.showFloaters();
+        if (this.viewer && prev.measurements !== this.state.measurements) this.viewer.setMeasurements(this.state.measurements);
     }
 
     // The edits' floaters hidden in the view, asked of the server once for each strength
@@ -160,11 +168,13 @@ class EditorPanel extends React.Component {
         this._mounted = false;
         window.removeEventListener("beforeunload", this.handleLeave);
         window.removeEventListener("keydown", this.handleKey);
+        offUnitSystemChanged(this.handleUnits);
         clearTimeout(this.saveTimer);
         clearTimeout(this.busyTimer);
         clearTimeout(this.pollTimer);
         clearTimeout(this.trainingTimer);
         clearTimeout(this.thumbnailTimer);
+        clearTimeout(this.copiedTimer);
         if (this.viewer) this.viewer.dispose();
     }
 
@@ -176,8 +186,11 @@ class EditorPanel extends React.Component {
         }
     };
 
+    // WebODM's units changed (on its map): the measurements are shown in the new ones
+    handleUnits = () => this.forceUpdate();
+
     // The page's keys, unless typing in a field: Ctrl+Z Undo, Ctrl+Shift+Z or Ctrl+Y Redo, Delete the selected edit,
-    // B L P X the Brush, Lasso, Polygon and Box (the view has a tool's own keys: Esc, Enter, [ and ])
+    // B L P X the Brush, Lasso, Polygon and Box, M Measure (the view has a tool's own keys: Esc, Enter, Backspace, [ and ])
     handleKey = e => {
         const target = e.target;
         if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
@@ -192,7 +205,8 @@ class EditorPanel extends React.Component {
             return;
         }
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const action = {delete: () => this.removeSelected(), b: this.brush, l: this.lasso, p: this.drawPolygon, x: this.addBox}[key];
+        const action = {delete: () => this.removeSelected(), b: this.brush, l: this.lasso, p: this.drawPolygon, x: this.addBox,
+            m: () => this.measure(this.lastMeasure || "distance")}[key];
         if (!action) return;
         e.preventDefault();
         action();
@@ -223,6 +237,11 @@ class EditorPanel extends React.Component {
                 },
                 onPaintRadius: radius => this.setState({painting: this.state.painting && {...this.state.painting, radius}}),
                 onPaintEnd: () => this.setState({painting: null}),
+                snap: this.snapPick,
+                // From the state as React will have it: startMeasure tells the first while measure's own change waits
+                onMeasurePoints: points => this.setState(state => ({measuring: state.measuring && {...state.measuring, points}})),
+                onMeasure: this.handleMeasure,
+                onMeasureEnd: () => this.setState({measuring: null}),
                 onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}}),
                 onModelError: modelError => this.setState({modelError}),
                 onModelBusy: modelBusy => {
@@ -240,6 +259,7 @@ class EditorPanel extends React.Component {
             if (!this._mounted || !loaded) return;
             this.setState({loading: false, loaded});
             this.viewer.setEdits(this.state.edits, this.state.selected);
+            this.viewer.setMeasurements(this.state.measurements);
             if (this.state.info.applied !== false && !this.isModel()) this.queueThumbnail();
         }).catch(e => {
             if (this._mounted) this.setState({loading: false, error: _("The model did not load:") + " " + ((e && e.message) || e)});
@@ -301,10 +321,87 @@ class EditorPanel extends React.Component {
         this.change([...this.state.edits, {type: "lasso", keep: false, ring, view, camera, ...op}], -1);
     };
 
-    // The tool in use: "lasso", "brush", "polygon" or null
+    // The tool in use: "lasso", "brush", "polygon", "line", "measure" or null
     activeTool(){
-        const { lassoing, brushing, drawing, lining, painting } = this.state;
-        return lassoing ? "lasso" : brushing || painting ? "brush" : drawing !== null ? "polygon" : lining ? "line" : null;
+        const { lassoing, brushing, drawing, lining, painting, measuring } = this.state;
+        return lassoing ? "lasso" : brushing || painting ? "brush" : drawing !== null ? "polygon" : lining ? "line" : measuring ? "measure" : null;
+    }
+
+    // A Measure button: ends the tool in use; starts measuring kind unless it was the measurement being clicked
+    measure(kind){
+        const was = this.state.measuring && this.state.measuring.kind;
+        this.endTool();
+        if (was === kind || !this.viewer || !this.state.loaded) return;
+        this.lastMeasure = kind;
+        this.setState({measuring: {kind, points: []}, selected: -1});
+        this.viewer.setEdits(this.state.edits, -1);
+        this.viewer.startMeasure(kind, leastPoints(kind));
+    }
+
+    // A pick in the view moved onto the task's point cloud by the server: a promise of {point, snapped}
+    snapPick = pick => {
+        const v = vector => vector.toArray().map(n => n.toFixed(4)).join(",");
+        const query = "origin=" + v(pick.origin) + "&direction=" + v(pick.direction) + "&hit=" + v(pick.hit) + "&radius=" + pick.radius.toFixed(4);
+        return request("GET", "task/" + this.props.taskId + "/snap?" + query).then(found => {
+            if (found.reason && this._mounted) this.setState({measureNote: found.reason});
+            return found;
+        }, e => {
+            if (this._mounted) this.setState({measureNote: _("A point could not be moved onto the point cloud:") + " " + e.message});
+            throw e;
+        });
+    };
+
+    handleMeasure = (kind, points) => {
+        this.measureSeq = (this.measureSeq || 0) + 1;
+        const measurement = {id: this.measureSeq, kind, points, base: kind === "volume" ? this.state.volumeBase : null};
+        this.setState({measuring: null, measurements: [...this.state.measurements, measurement]});
+        if (kind === "volume") this.calculateVolume(measurement);
+    };
+
+    // WebODM's own volume (its map's) of a Volume's polygon on the task's DSM, worked out by its worker
+    calculateVolume(measurement){
+        const update = changes => {
+            if (this._mounted) this.setState({measurements: this.state.measurements.map(m => (m.id === measurement.id ? {...m, ...changes} : m))});
+        };
+        const words = e => _(volumeErrorText(typeof e === "string" ? e : (e && (e.message || e.statusText)) || "The request failed."));
+        request("POST", "task/" + this.props.taskId + "/volume", {ring: measurement.points.map(p => [p.point[0], p.point[1]]), base: measurement.base})
+            .then(({ celery_task_id }) => new Promise((resolve, reject) => {
+                Workers.waitForCompletion(celery_task_id, error => {
+                    if (error) return reject(error);
+                    Workers.getOutput(celery_task_id, (failed, output) => (failed ? reject(failed) : resolve(output)));
+                });
+            }))
+            .then(volume => update({volume: Number(volume), volumeError: null}))
+            .catch(e => update({volumeError: _("The volume could not be calculated:") + " " + words(e)}));
+    }
+
+    removeMeasurement(id){
+        this.setState({measurements: this.state.measurements.filter(m => m.id !== id)});
+    }
+
+    copyMeasurement(measurement){
+        const text = copyText(measurement, this.measureLabel(measurement), unitSystem());
+        const fallback = () => {
+            // Without a secure page (WebODM over plain HTTP) the clipboard API is missing: a selected field copied
+            const field = document.createElement("textarea");
+            field.value = text;
+            field.style.cssText = "position: fixed; opacity: 0;";
+            document.body.appendChild(field);
+            field.select();
+            try { document.execCommand("copy"); } finally { document.body.removeChild(field); }
+        };
+        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).catch(fallback);
+        else fallback();
+        this.setState({copied: measurement.id});
+        clearTimeout(this.copiedTimer);
+        this.copiedTimer = setTimeout(() => this._mounted && this.setState({copied: null}), 1500);
+    }
+
+    measureLabel(measurement){
+        const label = _(MEASURES.find(([k]) => k === measurement.kind)[1]);
+        const base = measurement.base ? " (" + _(VOLUME_BASES.find(([b]) => b === measurement.base)[1]) + ")" : "";
+        const same = this.state.measurements.filter(m => m.kind === measurement.kind);
+        return label + " " + (same.indexOf(measurement) + 1) + base;
     }
 
     // Straighten's traced line, clicks on the model (handleLine): for Straighten edit index, or a new one (-1)
@@ -351,7 +448,8 @@ class EditorPanel extends React.Component {
         this.viewer.cancelPolygon();
         this.viewer.cancelLine();
         this.viewer.endPaint();
-        this.setState({lassoing: false, brushing: false, drawing: null, lining: false, painting: null});
+        this.viewer.cancelMeasure();
+        this.setState({lassoing: false, brushing: false, drawing: null, lining: false, painting: null, measuring: null});
     }
 
     // A tool's button: ends the tool in use; starts it unless it was the one in use
@@ -1108,6 +1206,7 @@ class EditorPanel extends React.Component {
                     </button>
                 </div>
                 {loaded ? <p className="splatme-editor-hint">{_("Drag to turn, right-drag to move, scroll to zoom, double-click to centre.")}</p> : ""}
+                {this.renderMeasure()}
                 <h4>{_("Edits")}</h4>
                 {info.unreadable ?
                     <p className="text-warning">{info.unreadable} {_("They may be from another version of SplatMe: ask an administrator to restart WebODM. A change here replaces them.")}</p> : ""}
@@ -1151,6 +1250,68 @@ class EditorPanel extends React.Component {
                                 <i className="fa fa-cube fa-fw"></i> {_("View in 3D")}
                             </a> : ""}
                     </div> : ""}
+            </div>
+        );
+    }
+
+    // Measure: Distance, Height, Area and Volume, clicked on the model; the points move onto the task's point cloud
+    renderMeasure(){
+        const { loaded, measuring, measurements, volumeBase, measureNote, copied } = this.state;
+        const units = unitSystem();
+        const lines = m => measureLines(m, units).map(([name, text]) => [_(name), _(text)]);
+        const kindOf = kind => MEASURES.find(([k]) => k === kind);
+        return (
+            <div className="splatme-editor-measure">
+                <h4>{_("Measure")}</h4>
+                <div className="splatme-editor-tools" role="group" aria-label={_("Measure")}>
+                    {MEASURES.map(([kind, label, icon]) =>
+                        <button key={kind} type="button" className={"btn btn-sm " + (measuring && measuring.kind === kind ? "btn-primary active" : "btn-default")}
+                                disabled={!loaded} aria-pressed={!!measuring && measuring.kind === kind} onClick={() => this.measure(kind)}
+                                title={_(kindOf(kind)[4]) + (kind === "distance" ? " (M)" : "")}>
+                            <i className={"fa " + icon + " fa-fw"}></i> {_(label)}
+                        </button>)}
+                </div>
+                {measuring ?
+                    <div className="alert alert-info splatme-editor-drawing">
+                        {_(kindOf(measuring.kind)[4])} {_("Backspace takes back the last point.")}
+                        {measuring.kind === "volume" ?
+                            <label className="splatme-editor-volume-base">
+                                {_("Base")}{" "}
+                                <select className="form-control input-sm" value={volumeBase} onChange={e => this.setState({volumeBase: e.target.value})}>
+                                    {VOLUME_BASES.map(([base, label]) => <option key={base} value={base}>{_(label)}</option>)}
+                                </select>
+                            </label> : ""}
+                        {measuring.points.length >= leastPoints(measuring.kind) && measuring.kind !== "volume" ?
+                            <ul className="splatme-editor-measure-lines">{lines(measuring).map(([name, text]) => <li key={name}>{name}: {text}</li>)}</ul> : ""}
+                        <div className="splatme-editor-drawing-actions">
+                            {measuring.kind !== "height" ?
+                                <button type="button" className="btn btn-sm btn-primary" disabled={measuring.points.length < leastPoints(measuring.kind)}
+                                        onClick={() => this.viewer.finishMeasure()}>{_("Finish")}</button> : ""}
+                            <button type="button" className="btn btn-sm btn-default" onClick={() => this.endTool()}>{_("Cancel")}</button>
+                        </div>
+                    </div> : ""}
+                {measuring || measurements.length ?
+                    <p className="splatme-editor-hint">{_("Each point moves onto the task's point cloud under the pointer, which is more precise than the splats. A point drawn in red could not be, and is on the splats only.")}</p> : ""}
+                {measureNote ? <p className="text-warning">{measureNote}</p> : ""}
+                {measurements.length ?
+                    <ul className="list-unstyled splatme-editor-measurements">
+                        {measurements.map(m =>
+                            <li key={m.id}>
+                                <strong><i className={"fa " + kindOf(m.kind)[2] + " fa-fw"}></i> {this.measureLabel(m)}</strong>
+                                <ul className="splatme-editor-measure-lines">{lines(m).map(([name, text]) => <li key={name}>{name}: {text}</li>)}</ul>
+                                {snapNote(m.points) ? <p className="text-warning">{_(snapNote(m.points))}</p> : ""}
+                                <button type="button" className="btn btn-xs btn-default" onClick={() => this.copyMeasurement(m)} title={_("Copy its numbers")}>
+                                    <i className={"fa " + (copied === m.id ? "fa-check" : "fa-copy") + " fa-fw"}></i> {copied === m.id ? _("Copied") : _("Copy")}
+                                </button>{" "}
+                                <button type="button" className="btn btn-xs btn-default" onClick={() => this.removeMeasurement(m.id)} aria-label={_("Delete")} title={_("Delete this measurement")}>
+                                    <i className="fa fa-trash fa-fw"></i>
+                                </button>
+                            </li>)}
+                    </ul> : ""}
+                {measurements.length ?
+                    <button type="button" className="btn btn-sm btn-default" onClick={() => this.setState({measurements: []})}>
+                        <i className="fa fa-eraser fa-fw"></i> {_("Clear Measurements")}
+                    </button> : ""}
             </div>
         );
     }

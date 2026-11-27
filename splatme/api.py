@@ -39,18 +39,26 @@ The plugin's API, under /api/plugins/splatme/.
     GET  task/<id>/model-original the textured model's original GLB, before any update (those who may edit)
     POST task/<id>/model-apply   makes the task's textured model again from its original files and the edits; with
                                  cancel, stops the one that runs
+    GET  task/<id>/snap      a point picked in Edit Splats moved onto the task's point cloud (measure.py): ?origin=,
+                             direction= (the view's ray), hit= (where it met the splats or the model, x,y,z in the
+                             model's frame) and radius= (metres); answers {point, snapped, moved, reason}
+    POST task/<id>/volume    WebODM's own volume (the map's) of a polygon (ring: corners [x, y] in the model's frame)
+                             on the task's DSM, with base (WebODM's base methods); answers {celery_task_id}, for
+                             WebODM's /api/workers/check and /api/workers/get
     GET  tasks               the tasks SplatMe can train that the user may see (training.compatible), by project, each
                              with its processing (status, progress, error) and its splats as task/<id>/status gives
                              them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
                              projects the user may add a task to (New Task With Splats). ?project=<id> for one project
 
-Starting, canceling, editing and applying need the right to change the task's project; the node's token never leaves the server.
+Starting, canceling, editing and applying need the right to change the task's project (measuring, to see the task); the node's token never leaves the server.
 """
 import logging
+import os
 
 from app.api.common import check_project_perms
 from app.models import Project
 from app.plugins.views import TaskView
+from app.plugins.worker import run_function_async
 from django.http import FileResponse, HttpResponse
 from django.utils.text import slugify
 from guardian.shortcuts import get_objects_for_user
@@ -59,7 +67,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import crop, edits, meshes, thermal, training
+from . import crop, edits, measure, meshes, thermal, training
 from .node import Node, NodeError, update_note
 
 logger = logging.getLogger("app.logger")
@@ -339,6 +347,43 @@ class Apply(TaskView):
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe(request, task, training.get_job(task.id)))
+
+
+class Snap(TaskView):
+    """A point picked in Edit Splats' Measure, moved onto the task's point cloud."""
+
+    def get(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        query = request.query_params
+        try:
+            found = measure.snap(task, measure.vector(query.get("origin"), "The origin"),
+                                 measure.vector(query.get("direction"), "The direction"),
+                                 measure.vector(query.get("hit"), "The hit"), query.get("radius"))  # fmt: skip
+        except measure.MeasureError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(found)
+
+
+class Volume(TaskView):
+    """WebODM's own volume of a polygon measured in Edit Splats, worked out as WebODM's map does."""
+
+    def post(self, request, pk=None):
+        task = self.get_and_check_task(request, pk)
+        data = request.data if isinstance(request.data, dict) else {}
+        base = data.get("base") or "triangulate"
+        if base not in measure.BASES:
+            return Response({"error": "The base must be one of: " + ", ".join(measure.BASES) + "."}, status=status.HTTP_400_BAD_REQUEST)
+        if task.dsm_extent is None:
+            return Response({"error": "This task has no surface model (DSM), which a volume is calculated on."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            corners = measure.volume_corners(task, data.get("ring"))
+        except measure.MeasureError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        from coreplugins.measure.volume import calc_volume
+
+        dsm = os.path.abspath(task.get_asset_download_path("dsm.tif"))
+        celery_task_id = run_function_async(calc_volume, input_dem=dsm, pts=corners, pts_epsg=4326, base_method=base).task_id
+        return Response({"celery_task_id": celery_task_id})
 
 
 class Download(TaskView):

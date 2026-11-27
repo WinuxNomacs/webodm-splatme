@@ -28,10 +28,12 @@ from .api import (
     OneNode,
     Revive,
     SharedAutomation,
+    Snap,
     Status,
     Tasks,
     Thumbnail,
     Train,
+    Volume,
 )
 
 # The server gives the files in public/ no Cache-Control, and a browser then keeps one for about a tenth of its age
@@ -39,7 +41,7 @@ from .api import (
 # scripts that change carry a version made from their files, which an upgrade or a rebuild changes.
 PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 # The editor's plain ES modules (not built by webpack)
-EDITOR_MODULES = ("editor/viewer.js", "editor/modelWorker.js", "meshEdits.js", "editShapes.js")
+EDITOR_MODULES = ("editor/viewer.js", "editor/modelWorker.js", "meshEdits.js", "editShapes.js", "measure.js")
 # The pages' bundles that WebODM's webpack builds into public/build, each a .js and a .css
 BUNDLES = ("Tasks", "Dashboard", "Editor")
 
@@ -134,6 +136,8 @@ class Plugin(PluginBase):
             MountPoint("task/(?P<pk>[^/.]+)/model-edits$", ModelEdits.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/model-original$", ModelOriginal.as_view()),
             MountPoint("task/(?P<pk>[^/.]+)/model-apply$", ModelApply.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/snap$", Snap.as_view()),
+            MountPoint("task/(?P<pk>[^/.]+)/volume$", Volume.as_view()),
             MountPoint("node$", NodeSettings.as_view()),
             MountPoint("nodes$", Nodes.as_view()),
             MountPoint("nodes/(?P<node_id>[0-9a-z_-]{1,32})$", OneNode.as_view()),
