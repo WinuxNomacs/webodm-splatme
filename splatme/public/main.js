@@ -7,9 +7,20 @@
     // and an immediate one from SplatMe would drop another plugin's button that answers after loading its script
     // Started once the page is parsed: plugins' scripts load in the page's head, and Dashboard.js watches
     // document.body, which a fast (cached) import could otherwise find missing
+    // Its bundle's URL carries the version plugin.py's bundles answers, so that a browser does not keep the old one
+    // after an upgrade; without an answer, the bundle as it is
     function startDashboard(){
-        PluginsAPI.SystemJS.import("splatme/build/Dashboard.css");
-        PluginsAPI.SystemJS.import("splatme/build/Dashboard.js").then(function(m){ (m["default"] || m)(); });
+        function load(version){
+            var query = version ? "?v=" + encodeURIComponent(version) : "", style = document.createElement("link");
+            style.rel = "stylesheet";
+            style.href = "/plugins/splatme/build/Dashboard.css" + query;
+            document.head.appendChild(style);
+            PluginsAPI.SystemJS.import("splatme/build/Dashboard.js" + query).then(function(m){ (m["default"] || m)(); });
+        }
+        if (!window.fetch) return load("");
+        fetch("/plugins/splatme/bundles", {credentials: "same-origin", cache: "no-store"}).then(function(response){
+            return response.ok ? response.json() : {};
+        }).then(function(versions){ load(versions.Dashboard); }, function(){ load(""); });
     }
     if (/^\/dashboard\//.test(window.location.pathname)){
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startDashboard);

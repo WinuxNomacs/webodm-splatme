@@ -60,7 +60,10 @@ it short; edit in place.
   WebODM's page names) and `TaskLine.jsx` (the task panel's Splats line, found by its
   Task ID). SplatMe answers none of WebODM's task panel hooks: WebODM keeps the first answer and drops the
   other plugins'. The `.jsx` are built by WebODM's webpack into `public/build`, which git ignores, as it does
-  the generated `webpack.config.js`. `restartText.js` holds the restart notice's words.
+  the generated `webpack.config.js`. The pages load each bundle by a URL with a version made from its built files
+  (plugin.py's `bundle_version`; main.js asks `/plugins/splatme/bundles`), since the server gives `public/` no
+  Cache-Control and a browser would keep the old bundle for hours after an upgrade. `restartText.js` holds the
+  restart notice's words.
   `public/trainingView.js` (what they show, as plain functions), `api.js` and `taskUpload.js` are what Jest tests.
 - **The splat node is `node/`**: `splatnode.py` (the HTTP job service, Python's standard library only, running
   on the image's Python 3.12), `Dockerfile` (OpenSplat built for CUDA 12.8, then a second stage with only what

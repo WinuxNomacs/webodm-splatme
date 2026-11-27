@@ -11,8 +11,12 @@ SplatMe → Tasks, for everyone: the tasks the user may see, with their splats a
 <script>
 (function(){
     var place = document.getElementById("splatme-tasks");
-    PluginsAPI.SystemJS.import("splatme/build/Tasks.css");
-    PluginsAPI.SystemJS.import("splatme/build/Tasks.js").then(function(m){
+    // Versioned (plugin.py): WebODM's loader takes a stylesheet only by a name ending in .css, so it is linked here
+    var version = "?v={{ bundle }}", style = document.createElement("link");
+    style.rel = "stylesheet";
+    style.href = "/plugins/splatme/build/Tasks.css" + version;
+    document.head.appendChild(style);
+    PluginsAPI.SystemJS.import("splatme/build/Tasks.js" + version).then(function(m){
         place.innerHTML = "";
         ReactDOM.render(React.createElement(m["default"] || m), place);
     }, function(){
