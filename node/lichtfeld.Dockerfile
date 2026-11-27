@@ -3,7 +3,7 @@
 # from SM 7.5 so one image runs on RTX 20 to RTX 50, installed with its own install rules; then a second stage with
 # only what runs. Build from the repository's root:
 #   docker build -f node/lichtfeld.Dockerfile -t splatme-node-lichtfeld:dev node
-FROM nvidia/cuda:12.8.0-devel-ubuntu24.04@sha256:9a8fffc32a955361aa66d754e7a0cda2513052eaf5aaf8f3ba69b80578d1c6a9 AS build
+FROM nvidia/cuda:12.8.2-devel-ubuntu24.04@sha256:7fc48a36965c6d0e5c9717dd899b2851cabb2dfef43d95dd12046a2d40bdc90f AS build
 
 # v0.5.4.3 (2026-11-23); the tag is fetched too, as LichtFeld names its version after it (git describe), or after
 # the commit alone
