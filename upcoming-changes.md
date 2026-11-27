@@ -16,6 +16,11 @@ None open.
 
 **Up next**
 
+0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0): the release review is done ("Release review
+   of 0.5.0", findings A to AK); the user chose 2026-11-27 to fix all but AB (their run by hand), AC (deferred) and
+   AF (dev only); next, the fixes, built on `review-plugin`, `review-pages`, `review-node`, `review-release`, then the user's run by hand
+   of the release workflow, the release check (on WebODM 4.0.1 too), the release branch.
+
 1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
    `splatnode.sh`, node 0.2.3 on ghcr.io, the docs). The published zip's SHA-256 is `9bd1319d…` (the same files as
    the zip the release check used). The directory entry is branch `splatme-0.4.0` on the user's fork (373d6e9, from
@@ -888,6 +893,133 @@ anyone who may see the task, its file kept per task until the edits or the model
   frees the panel; the notice shows after a change and clears after Apply; Cancel stops an Apply and keeps the
   model; at 320 px the drawing controls stay in sight; a plain user who may not see the task gets the heading,
   the link back and the reason; no console error.
+
+### Release review of 0.5.0 (done 2026-11-26; fixes: all but AB, AC, AF, the user's choice 2026-11-27)
+
+`main` at f4ba2b1 (plugin 0.5.0 to be, node 0.3.0), against v0.4.0. Read by five readers in parallel (the plugin's
+Python, its pages, the splat node, the release and its pins, the docs), each finding checked again in the code
+before this record ("checked": confirmed in the code or made to happen by a script against the real code; "read":
+from reading only). Live sweep: Dashboard, SplatMe → Tasks, SplatMe → Settings, Administration → SplatMe, as
+`admin` and `testuser`, 320 and 1,280 px, with both dev nodes: no console error, no horizontal overflow, the plain
+user refused the admin page (403) and shown no node address.
+
+**The plugin**
+- **A (high, checked)**: Continue on the other trainer keeps only the options the node lists
+  (`training.py` `start`, the `trained_kind != node_kind` filter), so SplatMe's own options are lost: Image Size
+  falls back to 1,600, Crop to Boundary turns on, Ignore Sky and a thermal palette are dropped (the photos drawn in
+  other colours than the model learned). Filter only `NODE_OPTIONS`.
+- **B (high, checked)**: removing a node leaves its id in the administrators', the users' and the tasks' saved
+  settings; `saved_setting` then refuses it ("That splat node is not set up in SplatMe"). New Task With Splats
+  fails to create the task, and a task's Change dialog cannot save, not even to turn training off; with one node
+  left nothing on the page can fix it. Treat an id no longer set up as the default (as the automatic start does),
+  in the forms and in `saved_setting`.
+- **C (medium, checked)**: a setting from 0.4.0 (only `options`) loses them on its first save: `options` becomes
+  the trainer just saved, and the other trainer falls back to it (LichtFeld's steps and Max Gaussians shown and
+  sent to OpenSplat). Keep the options from before for the trainers not yet saved.
+- **D (medium, read)**: while a form switches node (up to 15 s when a node does not answer), Save sends the new
+  node with the old trainer's fields and files them under the new trainer (Change, New Task With Splats, SplatMe →
+  Settings); a failed switch leaves the select on the new node with the old form for good. Train Splats keeps the
+  old node's form after a failed switch, and swaps Continue's fields for Start Over's while switching. Disable Save
+  while switching, and on a failure say so and go back to the node before.
+- **E (low-medium, read)**: Change opens with the last saved options, not the chosen node's trainer's
+  (`settingOptions` is not applied on its first load).
+- **F (low-medium, checked)**: a training started before the upgrade (no `node` in its record) follows the
+  current default: once another node is made the default, it fails "no longer has this job" while the old node
+  trains on. A missing `node` means `default`, the id the moved node has.
+- **G (low-medium, read)**: a node's address can be changed while it trains (removal is refused); the training
+  then fails. Refuse a new address while it trains.
+- **H (low, checked)**: a numbered name ("OpenSplat 2") makes every GET of Check or Nodes rewrite the node list
+  under the records' lock (`names_differ` compares with the bare label).
+- **I (low, read)**: a broken or hostile node's `/info` can 500 Check, Train and saves (an option without
+  `min`/`max`, non-string choices or `continue_from` properties, a blank `trainer_kind` that then sets the whole
+  list aside on the next read, a non-numeric `X-Log-Offset`). Validate `/info` once, in `Node.check`.
+- **J (low-medium, checked)**: `GET node` still gives every user the default node's `url`; `GET nodes` gives
+  addresses to superusers only (and the docs say every user sees the address). One rule: superusers only.
+- **K (low, read)**: Check on a public task asks every node for an anonymous visitor (threads, 15 s timeouts) and
+  gives node names; only those who may train need `nodes`.
+- **L (low, read)**: the follower asks each node in turn, 15 s per job on a node that does not answer: with 5 jobs
+  on a dead node, healthy nodes' jobs lag about 75 s and a second follower starts.
+- **M (low, read)**: `remove_node` checks for trainings outside the lock and skips stale records (one waiting
+  for `revive`); a task's first automatic setting starts from the administrators' `by_kind`, not the user's.
+- **N (low, read)**: the Splat Node panel puts a failed Make Default or Remove's error in another node's open
+  form; removing the node being edited leaves its form posting to it (404).
+- **O (low, checked)**: a Continue on the other trainer names none of the options it left out (the filter runs
+  before `skipped_options`), though Using SplatMe says it does.
+- **P (medium, checked)**: Test Connection's "older node" notice stops at 0.2.3 (`node.py` `CURRENT_VERSION`):
+  a 0.2.3 node is not told what 0.3.0 adds (continuing the other trainer's model). Raise it with its own text.
+
+**The splat node** (made to happen by the reader with scripts against `splatnode.py`, unless "read")
+- **Q (medium)**: an upload's `resume.ply` and dataset entries are unpacked with no size limit: a 1 MB zip wrote a
+  1 GB file before the refusal (bzip2 or lzma would write far more), filling the disk under other jobs. Check the
+  declared sizes against free space and, for the model, against its header's size. Needs the token.
+- **R (medium-low)**: after the trainer exits, its children are not killed (the group is signalled only on a
+  cancel or stall) and the node waits 10 s for them; one could keep the GPU into the next job, and the reader
+  thread outlives its closed fd. Kill the group after the leader exits; close the fd after the reader ends.
+- **S (medium-low)**: the rewrite reads 65,536 vertices a chunk whatever a vertex's size: a model with 2,500 extra
+  properties took 1.3 GB of memory. Size the chunk in bytes.
+- **T (low)**: output with no line end is handled in quadratic time and unbounded memory (105 MB: 257 s); a
+  progress line cut mid-write can be read as another step. A damaged `resume.ply` answers 500, not 400; a
+  pseudo-terminal fd leaks each time LichtFeld can't start; a cancel during the unpack or the rewrite still starts
+  the trainer (checked in the code too).
+- **U (low-medium, read)**: `free_port` sees only ports listening now: with the first node stopped,
+  `install --name b` takes its port, and the first node then fails to start. Skip every `~/splatnode*/.env`'s port.
+- **V (low, read)**: `uninstall --yes` deletes a locally built image too (found in 25e's test, where it deleted
+  `splatme-node-lichtfeld:dev`): keep a local image under `--yes`, and say so.
+- **W (low, read)**: the token is on `curl`'s command line in `splatnode.sh` (visible in `ps` to local users);
+  pass the header on stdin.
+- **X (low, read)**: no limit on the HTTP server's threads: a slow client holds one, without the token
+  (`--standalone` nodes).
+
+**The release**
+- **Y (high, plausible)**: `splatme-node-lichtfeld` is a new package; GitHub's docs say a new package starts private,
+  while the plan records the first package as public "by inheriting the repository's access". If private,
+  `--trainer lichtfeld` fails the moment the release is out. Check an anonymous pull before the plugin's release
+  is made, or publish it once by hand and make it public before the tag.
+- **Z (medium-high, checked)**: the image matrix is `fail-fast: false`: one image can push its version and
+  `latest` while the other fails and the release is skipped; a 0.4.0 user's `upgrade` then gets node 0.3.0 with
+  no plugin 0.5.0 (that they work together is not verified). Build both, then push from a job that needs both.
+- **AA (medium, read)**: the "version not published yet" check has only seen a missing tag in an existing
+  package; LichtFeld's first run meets a missing package, whose error wording is not known.
+- **AB (medium, known)**: the LichtFeld build has never run on a GitHub runner (4 cores, 16 GB, its disk); no
+  `timeout-minutes`. The user's run by hand, before the tag; then a timeout.
+- **AC (medium, known, deferred)**: libtorch's notices are not in the OpenSplat image.
+- **AD (medium, read)**: `lichtfeld.Dockerfile` builds from `nvidia/cuda:12.8.0-devel`, a tag NVIDIA lists as
+  unsupported (deleted some months after); `node/Dockerfile`'s 12.8.2 is supported.
+- **AE (low)**: the manifest is still 0.4.0 (the release branch raises it); the image label `AGPL-3.0` is a
+  deprecated SPDX id (`AGPL-3.0-only`); no `concurrency` group; WebODM 4.0.1 (2026-11-15, security fixes) is out:
+  rehearse on it too.
+- **AF (low)**: Dependabot's minimatch alert (dev only, through Jest and babel-jest): no Jest release fixes it;
+  only an npm `overrides`. Not reachable (no untrusted patterns).
+
+**The documentation**
+- **AG (high)**: Getting Started quotes the old install output ("now trains on this node"; now "has this node as
+  OpenSplat"); its upgrade section is still 0.3.0 to 0.4.0; Using SplatMe's Continue paragraph (and Train Splats'
+  "Continuing sharpens the model it has") is OpenSplat's (LichtFeld restarts the schedule and grows again, and has
+  no Grow Until); `admin.png` shows the one-node form and node 0.2.3; `train.png` lacks SH Degree.
+- **AH (medium)**: "enter them as Node Address and Token" (Getting Started, Install, The Splat Node's HTTPS, and
+  the admin page's guide "enter them below") now needs **Add a Splat Node** or **Edit** first; Using SplatMe says
+  every user sees the node's address (J); the pages' introductions say "The splat node" for a list.
+- **AI (medium)**: Using SplatMe's times, memory and step notes are OpenSplat's but read as general (one sentence
+  for LichtFeld, from `dev/benchmarks/check-task.json`: Max Gaussians is its lever); the images' sizes disagree
+  (6.6 GB unpacked against "a seventh" for LichtFeld's 1.4 GB: measure again); the changelog lacks the node
+  version 0.5.0 needs, addresses for superusers only, LichtFeld's 2-minute first start, and leads with history.
+- **AJ (low)**: `api.md`: DELETE needs the CSRF token too, `POST node` is superusers', `check` lacks `has_splats`,
+  `defaults`, `problem`, `node_error`; `~/splatnode/.env` is `~/splatnode-<name>/.env` for a named node; How It
+  Works' LichtFeld command line lacks `--mask-mode ignore` and `--log-level info` (and `-i` is the steps left when
+  continuing); Full size is capped at 3,840 px by LichtFeld; "Crop To Boundary" in Using SplatMe.
+- **AK (economy)**: Install repeats Getting Started (keep it the reference: flags, `connect`, upgrade, uninstall);
+  the `--name` paragraph is in four places (full in The Splat Node, a line and a link elsewhere); The Splat Node's
+  first paragraph mixes the script and running without it; the README's feature list and section list are longer
+  than an introduction; How It Works' growing schedule sentence reads as a contradiction.
+
+**Found sound**: permissions on every new view (superusers for nodes, `change_project` for training and
+automation), CSRF on every write, no token sent to a page or a log; every change to the node list under the lock
+and its move from 0.4.0 done once; a list that does not read set aside; no `innerHTML` with data in the pages
+(names and errors as text); answers for a node no longer chosen dropped; hostile PLY headers (a fuzz of 3,000)
+refused cleanly with no temporary file left; zip paths checked twice; every node route but `/health` behind the
+token (constant-time); runtime images without build tools, as uid 1000; the workflow's triggers (a tag, by hand),
+least-privilege permissions, actions pinned by SHA (each the latest), the zip's single `splatme/` root without
+tests, the vendored libraries' hashes, both trainers pinned by commit and LichtFeld's licence in its image.
 
 ### Fixes from the release review of 0.4.0 (built)
 
