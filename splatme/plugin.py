@@ -106,7 +106,7 @@ class Plugin(PluginBase):
                 "title": "Edit Splats", "task_id": task_id, "modules": editor_modules(), "bundle": bundle_version("Editor"),
             })
 
-        # The bundles' versions, for main.js, a script WebODM 4.0.0 gives no version: asked each time
+        # The bundles' versions, for main.js, a script WebODM gives a version only from 4.0.1 on: asked each time
         def bundles(request):
             response = JsonResponse({name: bundle_version(name) for name in BUNDLES})
             response["Cache-Control"] = "no-cache"

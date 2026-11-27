@@ -8,7 +8,8 @@ with a terminal on WebODM's machine, and on the GPU machine if that is another o
 
 ### 1. Check What You Need
 
-- **WebODM 4.0.0 or later, running in Docker** (with `./webodm.sh`).
+- **WebODM 4.0.1 or later, running in Docker** (with `./webodm.sh`). Each SplatMe release is tested on the newest
+  WebODM of its day and needs that version or later.
 - **A machine with an NVIDIA GPU** (GTX 16 or RTX 20 to RTX 50 series): WebODM's machine or another one. It needs
   the GPU's driver, Docker with Docker Compose v2, and the
   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
@@ -136,10 +137,20 @@ Upgrade between trainings: a training running during an upgrade picks up again o
 settings, users' options, tasks' trainings, trained models and edits are kept: they are in WebODM's database and in
 the tasks, not in the plugin's folder.
 
+Update WebODM first when it is older than the release needs: a WebODM too old for SplatMe does not load it, and says
+so only in its log ("Plugin will not be loaded. Update WebODM."). In WebODM's folder:
+
+```
+./webodm.sh update
+```
+
+then start it again with the options it was started with (`./webodm.sh start`, with `--port`, `--hostname` and
+so on). Its version is under **About**.
+
 ### From 0.4.0 or Earlier to 0.5.0
 
-0.5.0 trains on splat node 0.2.0 or later; node 0.3.0 adds continuing a model the other trainer made, and
-LichtFeld Studio. Upgrade the node too.
+0.5.0 needs WebODM 4.0.1 or later: update WebODM first if it is 4.0.0 (above). It trains on splat node 0.2.0 or
+later; node 0.3.0 adds continuing a model the other trainer made, and LichtFeld Studio. Upgrade the node too.
 
 1. **The plugin**, on **Administration → Plugins**:
     - If **Install Plugins** shows **Update** for SplatMe, press it.
@@ -168,5 +179,5 @@ with "The splat node is ready." and node 0.3.0. To add a LichtFeld Studio node b
 
 ### Later Versions
 
-The same three steps: the plugin, a restart of WebODM, the splat node when the [changelog](changelog.md) says the
-release needs a newer one. **Test Connection** on **Administration → SplatMe** also says when the node is too old.
+The same steps: WebODM when the [changelog](changelog.md) says the release needs a newer one, the plugin, a restart
+of WebODM, the splat node when the changelog says the release needs a newer one. **Test Connection** on **Administration → SplatMe** also says when the node is too old.

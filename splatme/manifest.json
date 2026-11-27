@@ -1,6 +1,6 @@
 {
 	"name": "SplatMe",
-	"webodmMinVersion": "4.0.0",
+	"webodmMinVersion": "4.0.1",
 	"description": "Trains a task's Gaussian splats automatically.",
 	"version": "0.4.0",
 	"author": "Winux Nomacs",

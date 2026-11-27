@@ -1,6 +1,6 @@
 # Development
 
-SplatMe is developed against WebODM 4.0.0 in Docker. From a checkout of the
+SplatMe is developed against WebODM 4.0.1 in Docker. From a checkout of the
 [repository](https://github.com/WinuxNomacs/webodm-splatme), `dev/webodm.sh up` runs WebODM with the plugin
 mounted, on http://localhost:8008. The repository's
 [CLAUDE.md](https://github.com/WinuxNomacs/webodm-splatme/blob/main/CLAUDE.md) has the layout of the code, the

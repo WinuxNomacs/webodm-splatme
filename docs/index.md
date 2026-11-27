@@ -13,15 +13,15 @@ floating pieces and objects, fills holes, and straightens, smooths and moves sur
 
 ![A thermal task's trained splats in WebODM's 3D view](assets/screenshots/model.png)
 
-**Status: experimental.** It has been used on WebODM 4.0.0 in Docker with an 8 GB NVIDIA GPU. See the
+**Status: experimental.** It has been used on WebODM 4.0.0 and 4.0.1 in Docker with an 8 GB NVIDIA GPU. See the
 [releases](https://github.com/WinuxNomacs/webodm-splatme/releases) and the [changelog](changelog.md). Problems
 and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-splatme/issues).
 
 ## Requirements
 
-- **WebODM 4.0.0 or later, installed with Docker.** WebODM's native Windows app is not supported. On an older WebODM,
-  **Load Plugin (.zip)** says SplatMe was installed but WebODM then does not show it (and refuses it as already
-  there): update WebODM first.
+- **WebODM 4.0.1 or later, installed with Docker** (each release needs the newest WebODM of its day). WebODM's
+  native Windows app is not supported. On an older WebODM, **Load Plugin (.zip)** says SplatMe was installed but
+  WebODM then does not show it (and refuses it as already there): update WebODM first.
 - **An NVIDIA GPU that Docker can use**, for the training container (the "splat node"), on WebODM's machine or
   another one: GTX 16 or RTX 20 to RTX 50 series, its driver, Docker with Docker Compose v2, and the
   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).

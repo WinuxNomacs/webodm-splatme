@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The WebODM checkout in dev mode, with this repo's plugin mounted (see dev/compose.yml).
 #   [SM_GPU=auto|1|0] [SM_LICHTFELD=1|0] dev/webodm.sh up | down | logs [service] | ps | <any docker compose command>
-# WebODM 4.0.0: ignored/WebODM, port 8008, livereload 35737, containers sm-webapp, sm-worker, sm-db, sm-broker,
+# WebODM 4.0.1: ignored/WebODM, port 8008, livereload 35737, containers sm-webapp, sm-worker, sm-db, sm-broker,
 # sm-node-odx-1, sm-splat-node (with a GPU; port 3108) and sm-splat-node-lichtfeld (with a GPU unless
 # SM_LICHTFELD=0; port 3109), project and volumes webodm-splatme.
 # The processing node uses the GPU when there is one (SM_GPU=auto, the default: an NVIDIA GPU that nvidia-smi lists
@@ -14,7 +14,7 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 # the tests.
 webodm="$repo/ignored/WebODM" project=webodm-splatme port=8008 livereload=35737
 export SM_PREFIX=sm
-export SM_WEBAPP_IMAGE=webodm/webodm_webapp@sha256:4572838208348c189fce3bfeabd1eaa08285efd841520ff2f08460611aac14a5
+export SM_WEBAPP_IMAGE=webodm/webodm_webapp@sha256:29c6a79500ae40ef72a1a7f3827031f5c63743b8275dd543e28701e16ac6c508
 export SM_DB_IMAGE=webodm/webodm_db@sha256:6d43e32ec24c388c5d5975bf6462d21abd6959af3c43d146a2473c1db4d5019c
 export SM_BROKER_IMAGE=valkey/valkey@sha256:bf09d58e96d6b4524a15396b65b242bbe18beebbcc15a04d8ee75ddac62fae0b
 export SM_NODE_IMAGE=webodm/nodeodx@sha256:f3621054cec0829ff8d94272fa4ec9138621f034135ff9a792fe309bd7d964ad
