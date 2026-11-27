@@ -5,6 +5,7 @@ from app.plugins import Menu, MountPoint, PluginBase, signals
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.dispatch import receiver
+from django.http import JsonResponse
 from django.shortcuts import render
 
 from . import training
@@ -33,23 +34,35 @@ from .api import (
     Train,
 )
 
-# The editor's plain ES modules (not built by webpack): their URLs carry a version made from their files, so that a
-# browser fetches them again once they change (the server gives them no Cache-Control)
+# The server gives the files in public/ no Cache-Control, and a browser then keeps one for about a tenth of its age
+# without asking again: hours, after an upgrade, of a page's old script against the new API. So the URLs of the
+# scripts that change carry a version made from their files, which an upgrade or a rebuild changes.
+PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
+# The editor's plain ES modules (not built by webpack)
 EDITOR_MODULES = ("editor/viewer.js", "editor/modelWorker.js", "meshEdits.js", "editShapes.js")
+# The pages' bundles that WebODM's webpack builds into public/build, each a .js and a .css
+BUNDLES = ("Tasks", "Dashboard", "Editor")
+
+
+def file_version(*names):
+    """A version of these files of public/ (their times and sizes): "0" for a file that is missing."""
+    parts = []
+    for name in names:
+        try:
+            info = os.stat(os.path.join(PUBLIC, name))
+            parts.append(f"{info.st_mtime_ns}:{info.st_size}")
+        except OSError:
+            parts.append("0")
+    return hashlib.sha256(";".join(parts).encode()).hexdigest()[:12]
 
 
 def editor_modules():
     """The editor's modules as the page's import map gives them: {published path: path with its version}."""
-    public = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
-    out = {}
-    for name in EDITOR_MODULES:
-        try:
-            info = os.stat(os.path.join(public, name))
-            version = hashlib.sha256(f"{info.st_mtime_ns}:{info.st_size}".encode()).hexdigest()[:12]
-        except OSError:
-            version = "0"
-        out[f"/plugins/splatme/{name}"] = f"/plugins/splatme/{name}?v={version}"
-    return out
+    return {f"/plugins/splatme/{name}": f"/plugins/splatme/{name}?v={file_version(name)}" for name in EDITOR_MODULES}
+
+
+def bundle_version(name):
+    return file_version(f"build/{name}.js", f"build/{name}.css")
 
 
 class Plugin(PluginBase):
@@ -73,7 +86,7 @@ class Plugin(PluginBase):
 
         @login_required
         def tasks_page(request):
-            return render(request, self.template_path("tasks.html"), {"title": "SplatMe Tasks"})
+            return render(request, self.template_path("tasks.html"), {"title": "SplatMe Tasks", "bundle": bundle_version("Tasks")})
 
         @login_required
         def settings_page(request):
@@ -89,11 +102,19 @@ class Plugin(PluginBase):
         # Edit Splats: the API answers whether the user may see and change the task
         @login_required
         def editor_page(request, task_id):
-            return render(request, self.template_path("editor.html"), {"title": "Edit Splats", "task_id": task_id, "modules": editor_modules()})
+            return render(request, self.template_path("editor.html"), {
+                "title": "Edit Splats", "task_id": task_id, "modules": editor_modules(), "bundle": bundle_version("Editor"),
+            })
+
+        # The bundles' versions, for main.js, a script WebODM 4.0.0 gives no version: asked each time
+        def bundles(request):
+            response = JsonResponse({name: bundle_version(name) for name in BUNDLES})
+            response["Cache-Control"] = "no-cache"
+            return response
 
         return [
             MountPoint("$", tasks_page), MountPoint("settings/$", settings_page), MountPoint("admin/$", admin_page),
-            MountPoint("edit/(?P<task_id>[0-9a-f-]+)/$", editor_page),
+            MountPoint("edit/(?P<task_id>[0-9a-f-]+)/$", editor_page), MountPoint("bundles$", bundles),
         ]
 
     def api_mount_points(self):

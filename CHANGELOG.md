@@ -29,6 +29,8 @@ the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test
 - An option saved for another trainer is left out of a training, which names it, instead of refusing to start.
 - Splat nodes' addresses are shown to superusers only.
 - Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
+- After an upgrade, browsers load SplatMe's new pages at once instead of their old scripts from the cache, which
+  could last hours (before WebODM 4.0.1, the Dashboard's part only from the upgrade after 0.5.0).
 - A node that is training no longer shows as not answering, or as having no GPU, on a machine where `nvidia-smi`
   slows down under a training: Train Splats can queue another training then, and an automatic training no longer
   fails. Node 0.3.0 answers with its last GPU reading while it trains; with an older node, SplatMe accepts a busy

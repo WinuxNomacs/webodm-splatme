@@ -1856,6 +1856,30 @@ class TestSplatMe(BootTestCase):
         self.assertNotEqual(before["/plugins/splatme/meshEdits.js"], after["/plugins/splatme/meshEdits.js"])
         self.assertEqual(before["/plugins/splatme/editShapes.js"], after["/plugins/splatme/editShapes.js"])
 
+    def test_the_pages_load_their_bundles_by_urls_that_change_when_webpack_builds_them_again(self):
+        # Without Cache-Control a browser would otherwise keep the old bundle for hours after an upgrade
+        from coreplugins.splatme import plugin
+
+        for page, name in (("/plugins/splatme/", "Tasks"), ("/plugins/splatme/edit/b3a01458-ca71-4988-841f-83d0a22814e7/", "Editor")):
+            version = plugin.bundle_version(name)
+            content = self.client.get(page).content.decode()
+            self.assertIn(f'var version = "?v={version}"', content)
+            self.assertIn(f'"splatme/build/{name}.js" + version', content)
+            self.assertIn(f'"/plugins/splatme/build/{name}.css" + version', content)
+        res = APIClient().get("/plugins/splatme/bundles")  # main.js asks it on the Dashboard, each time
+        self.assertEqual((res.status_code, res["Cache-Control"]), (200, "no-cache"))
+        self.assertEqual(res.json(), {name: plugin.bundle_version(name) for name in plugin.BUNDLES})
+        with tempfile.TemporaryDirectory() as public, mock.patch.object(plugin, "PUBLIC", public):
+            missing = plugin.bundle_version("Tasks")
+            os.makedirs(os.path.join(public, "build"))
+            with open(os.path.join(public, "build", "Tasks.js"), "w") as f:
+                f.write("built")
+            built = plugin.bundle_version("Tasks")
+            with open(os.path.join(public, "build", "Tasks.css"), "w") as f:
+                f.write("built")
+            self.assertEqual(len({missing, built, plugin.bundle_version("Tasks")}), 3)  # its .js and its .css count
+            self.assertEqual(plugin.bundle_version("Dashboard"), missing)
+
     def test_the_tasks_and_settings_pages_are_in_the_menu_and_need_a_login(self):
         res = self.client.get("/plugins/splatme/")
         self.assertEqual(res.status_code, 200)
