@@ -1,14 +1,17 @@
 # The Splat Node
 
-[node/splatnode.sh](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/splatnode.sh) writes a compose file and its `.env` (with the token, readable by its
-owner only) to `~/splatnode` (`SPLATNODE_DIR`); `status` says whether the node answers, and `connect` gives
-SplatMe the node's address and token again (after installing SplatMe, or reinstalling WebODM, whose network the
-node then joins; `connect --webodm <container>` connects a node installed `--standalone` to a WebODM on the same
-machine, after asking, as the node then listens on that machine only; `--force` does not ask). The node's settings are read from that `.env` only, not from variables of the same names in the shell. Without the
-script: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d`, from a checkout (add `--build` to
-compile the image instead, which downloads libtorch and compiles [OpenSplat](https://github.com/WebODM/OpenSplat),
-v1.2.2 for CUDA 12.8: GTX 16 and RTX 20 to RTX 50 series; the build needs about 27 GB of disk). The image is
-`ghcr.io/winuxnomacs/splatme-node`, tagged with the node's version and `latest`.
+**With the script**, [node/splatnode.sh](https://github.com/WinuxNomacs/webodm-splatme/blob/main/node/splatnode.sh)
+([Install](install.md)): it writes a compose file and its `.env` (with the token, readable by its owner only) to
+`~/splatnode` (`SPLATNODE_DIR`; `~/splatnode-<name>` with `--name`). The node's settings are read from that `.env`
+only, not from variables of the same names in the shell. `status` says whether the node answers; `connect` adds
+the node to SplatMe again (after installing SplatMe, or reinstalling WebODM, whose network the node then joins);
+`connect --webodm <container>` connects a node installed `--standalone` to a WebODM on the same machine, after
+asking, as the node then listens on that machine only (`--force` does not ask).
+
+**Without the script**, from a checkout: `SPLATNODE_TOKEN=<a secret> docker compose -f node/compose.yml up -d`
+runs OpenSplat's node (`--build` compiles the image instead: it downloads libtorch and compiles
+[OpenSplat](https://github.com/WebODM/OpenSplat) v1.2.2 for CUDA 12.8, for GTX 16 and RTX 20 to RTX 50 series, and
+needs about 27 GB of disk).
 
 ## Trainers
 
@@ -21,23 +24,22 @@ it again with the other, or install the other beside it.
 container (`splatnode-<name>`), name on WebODM's network (`http://splat-node-<name>:3100`) and port (the first free
 one from 3100, unless `--port`). SplatMe lists it as `<name>`; the node installed without `--name` is listed under
 its trainer's name. Every command takes the same `--name` to act on that node (`upgrade --name lichtfeld`,
-`uninstall --name lichtfeld`), and `status` names the other nodes installed. SplatMe 0.4 keeps one node: the
-install then says to upgrade SplatMe and run `connect --name <name>`. The nodes share the GPU: two trainings at once
-may run out of its memory.
+`uninstall --name lichtfeld`), and `status` names the other nodes installed. The nodes share the GPU: two
+trainings at once may run out of its memory.
 
-| Trainer | Image |
-| --- | --- |
-| [OpenSplat](https://github.com/WebODM/OpenSplat) 1.2.2 | `ghcr.io/winuxnomacs/splatme-node` |
-| [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) v0.5.4.3 | `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, about a seventh of OpenSplat's size on disk |
+| Trainer | Image (tagged with the node's version and `latest`) | On disk |
+| --- | --- | --- |
+| [OpenSplat](https://github.com/WebODM/OpenSplat) 1.2.2 | `ghcr.io/winuxnomacs/splatme-node` | 10.4 GB (a 4 GB download) |
+| [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) v0.5.4.3 | `ghcr.io/winuxnomacs/splatme-node-lichtfeld` | 1.4 GB |
 
 LichtFeld Studio's first training on a GPU starts about 2 minutes late: it builds its GPU code for that GPU, then keeps it in the node's volume for the next ones.
-[How It Works](how-it-works.md) describes how each trainer trains. `node/compose.yml` runs OpenSplat's node only.
+[How It Works](how-it-works.md) describes how each trainer trains.
 
 ## Jobs
 
 The node trains one job at a time and queues the others, and deletes a finished job after 48 hours
 (`SPLATNODE_KEEP_HOURS`). A training whose trainer prints nothing for 30 minutes is stopped and fails with that
-reason (`SPLATNODE_STALL_MINUTES`). Both are set in `~/splatnode/.env`, then `splatnode.sh upgrade`; a value that is not
+reason (`SPLATNODE_STALL_MINUTES`). Both are set in the node's `.env` (`~/splatnode/.env`), then `splatnode.sh upgrade`; a value that is not
 a number, or is below 1, is logged and the default used. If the node's own worker stops or hangs, or a trainer
 cannot be stopped, the node exits and Docker starts it again; the training it was running fails with a message.
 `status` says how to start a node that is not running.
@@ -80,7 +82,7 @@ trusts: a public one, such as Let's Encrypt's (SplatMe checks the certificate, s
 With [Caddy](https://caddyserver.com/docs/install) and a domain name that points at the node's machine (ports 80
 and 443 reachable, for the certificate):
 
-1. Make the node listen on its own machine only: in `~/splatnode/.env` set `SPLATNODE_BIND=127.0.0.1:` (with
+1. Make the node listen on its own machine only: in its `.env` (`~/splatnode/.env`) set `SPLATNODE_BIND=127.0.0.1:` (with
     the colon), then run `splatnode.sh upgrade`, which restarts the node and keeps that setting.
 2. In `/etc/caddy/Caddyfile`, then `sudo systemctl reload caddy`:
 
@@ -90,7 +92,8 @@ and 443 reachable, for the certificate):
     }
     ```
 
-3. On **Administration → SplatMe**: Node Address `https://splatnode.example.com`, **Test Connection**, **Save**.
+3. On **Administration → SplatMe**, the node's **Edit** (or **Add a Splat Node**): Node Address
+    `https://splatnode.example.com`, **Test Connection**, **Save**.
 
 Caddy sets no limit on a request's size. Another proxy may need one lifted for the training zip, which holds the
 task's photos (nginx: `client_max_body_size 0;`).

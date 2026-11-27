@@ -8,9 +8,11 @@
     training needs (a point cloud, its photos), or when it already has splats; a project with no such task is not
     listed. **New Task With Splats** above the
     list creates a task in any project the user may change, listed or not. Choose a **Quality**: Draft
-    (3,000 steps), Standard (7,000), Fine (15,000) or High (30,000, the default: OpenSplat's own). On an 8 GB GPU
-    at the default image size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and 7 GB of GPU
-    memory, whatever the number of photos. The dialog says first if the task cannot be trained, and warns when
+    (3,000 steps), Standard (7,000), Fine (15,000) or High (30,000, the default: OpenSplat's own). With OpenSplat
+    on an 8 GB GPU at the default image size, training takes about 2, 5, 10 and 25 minutes and up to 3, 5, 5 and
+    7 GB of GPU memory, whatever the number of photos. With LichtFeld Studio, **Max Gaussians** sets the time and
+    memory most: on a 217-photo task at 30,000 steps, a limit of 300,000 took about half the time of its own
+    5,000,000, and made a 74 MB model with 1.9 GB of GPU memory instead of 1.2 GB with 5 GB. The dialog says first if the task cannot be trained, and warns when
     nearly all photos point straight down.
 
     ![The Train Splats dialog with Advanced open](assets/screenshots/train.png){ width="400" }
@@ -21,18 +23,18 @@
 
     **Advanced** has the steps, the image size and the most gaussians as numbers:
 
-    - **Steps**: the trainer grows the model (adds gaussians where the photos show detail it lacks) in the first
+    - **Steps**: OpenSplat grows the model (adds gaussians where the photos show detail it lacks) in the first
       half of the steps, up to step 15,000 unless **Grow Until** says otherwise, then refines it. A table under
       the number gives the share of the steps in each stage (**Warm-up**, **Growing**, **Refining**,
       **Polishing**), with how many times the model is grown; each heading's hover tip says what the stage does. A number of steps the trainer handles badly
       gets a note: up to 2,000 steps grows no new gaussians, and 3,001 to 5,999 trains worse than 3,000.
     - **Image Size** (1,600 by default): the photos' longer side as the trainer sees them. Larger photos are
       scaled down whole, so each keeps its full view: nothing is cropped, only fine detail is lost; smaller ones
-      are not enlarged, and left blank (Full size) keeps them as they are. It is what to lower when the GPU runs out of memory, which
+      are not enlarged, and left blank (Full size) keeps them as they are (LichtFeld Studio still scales a side
+      over 3,840 pixels down). It is what to lower when the GPU runs out of memory, which
       depends on it most. A table under the number gives the task's photo size (one row per camera), its size
-      at the Image Size entered, and how much the longer side and the pixels change. Full-size photos cost far
-      more: a training of 12-megapixel photos at 30,000 steps ran about 15 times slower than at 1,600 and
-      filled an 8 GB GPU before its model had finished growing.
+      at the Image Size entered, and how much the longer side and the pixels change. Full-size photos train many
+      times slower and can fill an 8 GB GPU.
     - **Max Gaussians**: the most gaussians the model may grow to, a limit for very large scenes.
     - **Grow Until** (blank by default: half the steps, at most 15,000): the step the model stops growing at,
       from 1,000 to 3,000 less than **Steps**, so the training still has time to settle after the last growing.
@@ -75,7 +77,9 @@
 
     A task SplatMe has trained can be trained further instead of starting over: **Train Splats Again** then opens with
     **Start Over** and **Continue From Step** (the steps the model has), and continuing asks for **More
-    Steps** and, optionally, **Grow Until**. The other options stay as the model was trained. Continuing sharpens
+    Steps** (and, with OpenSplat, optionally **Grow Until**). The other options stay as the model was trained.
+    With LichtFeld Studio, continuing trains the model's gaussians again from the start of its schedule, so the
+    model grows again ([How It Works](how-it-works.md#3-with-lichtfeld-studio)). With OpenSplat, continuing sharpens
     the model the task has. Left blank, Grow Until stays as the model was trained; a model trained without one
     grows only before half the new total of steps, and before step 15,000. So continuing a model by as many steps
     again, or fewer, adds no gaussians (the dialog says so in place of the steps table). To grow it again, set
@@ -87,8 +91,8 @@
     it: a node of 0.3.0 continues a model of OpenSplat or LichtFeld Studio, at the model's SH degree (OpenSplat
     takes 1 to 3, LichtFeld Studio 0 to 3). A node that can't (an older node, given another trainer's model, or a
     model of an SH degree its trainer can't take) says why and names the nodes that can; on it the training
-    starts over. Train Splats opens on a node that can when the default can't. A model continued on the other trainer keeps the options that trainer has,
-    and the training names the ones it left out. A task processed again while its splats train has that training canceled (its model would not
+    starts over. Train Splats opens on a node that can when the default can't. A model continued on the other
+    trainer keeps the options that trainer has, and the task's line names the ones it left out. A task processed again while its splats train has that training canceled (its model would not
     fit the new results), and is trained again on the new results when it is set to Train Splats When Completed.
 
 2. **Follow it**: the task's row shows the stage (while training, the step, such as "Step 4,650 of 7,000,
@@ -114,7 +118,7 @@
     photos, with a GCP file and other text files if the task has them. WebODM's own New Task panel opens (name,
     processing node, options, resize, alignment), with SplatMe's panel above it: **Train Splats When
     Completed**, ticked, with the Quality, Ignore Sky (or Thermal Colours when the photos picked are TIFFs), Crop
-    To Boundary and Advanced. While Train Splats When Completed is ticked, photos SplatMe cannot train (not JPEG,
+    to Boundary and Advanced. While Train Splats When Completed is ticked, photos SplatMe cannot train (not JPEG,
     nor all DJI Thermal Analyzer's TIFFs) are named there and hold up Start Processing. On **Start Processing**,
     SplatMe creates the task through WebODM's API, saves its training setting, uploads the files and starts its processing; the row then follows the
     processing (its progress, and WebODM's error if it fails) and the training. If some files still fail,
@@ -134,6 +138,6 @@ task's size.
 
 Trainings waiting on the node do not hold up WebODM's own processing.
 
-Every user sees on **SplatMe → Settings** whether the node is ready, its address, its GPU and its queue (never the
-token, and what is wrong with the node only as "ask an administrator"). The node's address and token are on
-**Administration → SplatMe** (staff see it, superusers change it).
+Every user sees on **SplatMe → Settings** each splat node's name, whether it is ready, its GPU and its queue (never
+its address or token, and what is wrong with it only as "ask an administrator"). The nodes' addresses and tokens
+are on **Administration → SplatMe**, for superusers (staff see the page without them).
