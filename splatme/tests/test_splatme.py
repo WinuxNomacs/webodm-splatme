@@ -1536,7 +1536,7 @@ class TestSplatMe(BootTestCase):
         self.assertEqual((res.status_code, res.data["node"]), (200, None))
 
     def test_a_removed_node_leaves_the_settings_that_chose_it_on_the_default(self):
-        other, other_id = self.second_node()
+        _, other_id = self.second_node()
         task = make_task(self.user, status=status_codes.RUNNING)
         self.client.post(f"{API}/automation", {"node": other_id, "steps": 3000, "image_size": 800}, format="json")
         self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "true", "node": other_id, "steps": 3000, "image_size": 800}, format="json")
