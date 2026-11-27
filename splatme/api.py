@@ -235,7 +235,7 @@ class Auto(TaskView):
         task = self.get_and_check_task(request, pk)
         check_project_perms(request, task.project, perms=("change_project",))
         try:
-            training.set_auto(task.id, request.user.username, is_true(request.data.get("enabled")), request.data)
+            training.set_auto(task.id, request.user, is_true(request.data.get("enabled")), request.data)
         except training.TrainingError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(describe_auto(training.get_auto(task.id, request.user)))

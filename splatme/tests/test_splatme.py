@@ -1330,11 +1330,36 @@ class TestSplatMe(BootTestCase):
             training.run(*started[0][1:])
             with self.assertRaisesRegex(training.TrainingError, "A training is under way on this splat node"):
                 training.remove_node(other_id)
+            with self.assertRaisesRegex(training.TrainingError, "before changing its address"):
+                training.set_node("http://elsewhere:3100", None, other_id)
+            training.set_node(other.url, "new-token", other_id)  # the same address: a new token is fine
+            training.set_node(other.url, other.token, other_id)
+            # A training that lost its worker (taken over by revive) still holds its node
+            training.change_job(str(task.id), lambda job: job.update(updated=time.time() - training.STALE - 5))
+            with self.assertRaisesRegex(training.TrainingError, "A training is under way on this splat node"):
+                training.remove_node(other_id)
             training.change_nodes(lambda listed: listed.pop())  # removed by other means (an edit of the store)
             training.follow_all(started[1][1], {})
         status = self.status(task)
         self.assertEqual(status["state"], "failed")
         self.assertIn("no longer set up in SplatMe", status["error"])
+
+    def test_a_training_from_before_several_nodes_stays_with_the_node_it_was_sent_to(self):
+        other, other_id = self.second_node()
+        self.node.script = [("running", {"progress": 50, "step": 5})]
+        task = make_task(self.user)
+        started = []
+        with mock.patch.object(training, "run_function_async", side_effect=lambda f, *a: started.append(a)):
+            self.assertEqual(self.train(task, steps=10).status_code, 200)
+            training.run(*started[0][1:])
+            training.change_job(str(task.id), lambda job: job.pop("node"))  # as 0.4.0 wrote it
+            training.make_default_node(other_id)
+            self.assertEqual(training.job_node(training.store().get_json(training.job_key(str(task.id)))).id, "default")
+            with self.assertRaisesRegex(training.TrainingError, "A training is under way on this splat node"):
+                training.remove_node("default")
+            training.follow_all(started[1][1], {})
+        self.assertNotEqual(self.status(task)["state"], "failed")
+        self.assertEqual(other.jobs, {})
 
     def test_any_node_whose_trainer_reads_the_models_data_continues_it(self):
         self.node.run_030("opensplat")
@@ -1358,11 +1383,14 @@ class TestSplatMe(BootTestCase):
         res = self.train(task, resume="true", steps=5)
         self.assertEqual(res.data["error"], "OpenSplat can't continue this task's model: it has no rot_3. Start the training over.")
         lichtfeld.splats = (3, ())
-        self.assertEqual(self.train(task, steps=10, image_size=16, node=lichtfeld_id, strategy="mcmc").status_code, 200)
+        self.assertEqual(self.train(task, steps=10, image_size=16, crop="false", node=lichtfeld_id, strategy="mcmc").status_code, 200)
         res = self.train(task, resume="true", steps=5)  # LichtFeld's model on OpenSplat: its Strategy is not OpenSplat's
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(self.node.jobs["job2"]["options"], {"steps": 15, "resume_steps": 10})
-        self.assertEqual(self.status(task)["skipped"], [])
+        status = self.status(task)
+        self.assertEqual(status["skipped"], ["Strategy"])  # named, as for any training
+        # SplatMe's own options carry over whichever trainer continues: the photos as the model learned them
+        self.assertEqual((status["options"]["image_size"], status["options"]["crop"]), (16, False))
 
     def test_check_shows_the_chosen_nodes_trainer_and_every_nodes_state(self):
         other, other_id = self.second_node()
@@ -1493,7 +1521,10 @@ class TestSplatMe(BootTestCase):
                                                     "strategy": "mcmc"}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data["node"], other_id)
-        self.assertEqual(res.data["by_kind"], {"lichtfeld": {"steps": 30000, "image_size": 1600, "max_gaussians": 300000, "strategy": "mcmc"}})
+        # The options saved before stay OpenSplat's, not yet saved for it (LichtFeld's never reach it)
+        self.assertEqual(res.data["by_kind"], {"lichtfeld": {"steps": 30000, "image_size": 1600, "max_gaussians": 300000, "strategy": "mcmc"},
+                                               "opensplat": {"steps": 3000, "image_size": 800}})
+        self.assertEqual(self.client.get(f"{API}/automation?ranges=1").data["by_kind"]["opensplat"], {"steps": 3000, "image_size": 800})
         res = self.client.post(f"{API}/automation", {"steps": 7000, "image_size": 1600}, format="json")  # the default: OpenSplat
         self.assertEqual(sorted(res.data["by_kind"]), ["lichtfeld", "opensplat"])
         self.assertEqual(res.data["by_kind"]["opensplat"], {"steps": 7000, "image_size": 1600})
@@ -1501,8 +1532,22 @@ class TestSplatMe(BootTestCase):
         other.close()  # a node that does not answer: the form says its trainer
         res = self.client.post(f"{API}/automation", {"node": other_id, "trainer_kind": "lichtfeld", "steps": 20000}, format="json")
         self.assertEqual(res.data["by_kind"]["lichtfeld"]["steps"], 20000)
-        res = self.client.post(f"{API}/automation", {"node": "nope", "steps": 20000}, format="json")
-        self.assertEqual((res.status_code, res.data["error"]), (400, "That splat node is not set up in SplatMe."))
+        res = self.client.post(f"{API}/automation", {"node": "nope", "steps": 20000}, format="json")  # removed since the form opened
+        self.assertEqual((res.status_code, res.data["node"]), (200, None))
+
+    def test_a_removed_node_leaves_the_settings_that_chose_it_on_the_default(self):
+        other, other_id = self.second_node()
+        task = make_task(self.user, status=status_codes.RUNNING)
+        self.client.post(f"{API}/automation", {"node": other_id, "steps": 3000, "image_size": 800}, format="json")
+        self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "true", "node": other_id, "steps": 3000, "image_size": 800}, format="json")
+        training.remove_node(other_id)
+        self.assertIsNone(self.client.get(f"{API}/automation").data["node"])
+        self.assertIsNone(self.client.get(f"{API}/task/{task.id}/auto").data["node"])
+        # The forms save again, with the node they still name (opened before the removal) as the default
+        res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "false", "node": other_id, "steps": 3000}, format="json")
+        self.assertEqual((res.status_code, res.data["node"]), (200, None))
+        res = self.client.post(f"{API}/automation", {"node": other_id, "steps": 3000}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
 
     def test_a_task_trained_when_it_completes_uses_the_options_of_the_trainer_that_trains_it(self):
         _, other_id = self.second_node()
@@ -1521,7 +1566,7 @@ class TestSplatMe(BootTestCase):
         other, other_id = self.second_node()
         tasks = [make_task(self.user, status=status_codes.RUNNING) for _ in range(2)]
         res = self.client.post(f"{API}/task/{tasks[0].id}/auto", {"enabled": "true", "steps": 10, "image_size": 16, "node": "nope"})
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual((res.status_code, res.data["node"]), (200, None))  # no longer set up: the default
         for task in tasks:
             res = self.client.post(f"{API}/task/{task.id}/auto", {"enabled": "true", "steps": 10, "image_size": 16, "node": other_id})
             self.assertEqual(res.data["node"], other_id)
@@ -3527,7 +3572,7 @@ class TestSplatMe(BootTestCase):
         task = make_task(self.user)
         Task.objects.filter(pk=task.pk).update(public=True)
         self.lost_job(task, self.node.add_job())
-        training.set_node("http://127.0.0.1:9")  # nothing answers there
+        training.change_nodes(lambda listed: listed[0].update(url="http://127.0.0.1:9"))  # nothing answers there now
         res = APIClient().get(f"{API}/task/{task.id}/log")
         self.assertEqual(res.status_code, 502)
         self.assertNotIn("127.0.0.1", res.data["error"])
