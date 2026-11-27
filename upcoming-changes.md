@@ -17,9 +17,9 @@ None open.
 **Up next**
 
 0a. Measuring on splats, before the release (the user, 2026-11-27): a Measure tool in Edit Splats that aims on the
-   splats and takes its coordinates from the point cloud. Built 2026-11-27 (branch `measure`, merged). Left: the
-   version it ships as (0.5.0 is merged but not tagged; the changelog has it under Unreleased), then the release
-   check again on the zip that will be tagged (shipped code changed). See "28. Measuring on splats (built
+   splats and takes its coordinates from the point cloud. Built 2026-11-27 (branch `measure`, merged). It ships in
+   0.5.0 (the user, 2026-11-27): left, the release review of the new code and the release check again on the zip
+   that will be tagged. See "28. Measuring on splats (built
    2026-11-27)".
 
 0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0; WebODM 4.0.1 or later): the release review

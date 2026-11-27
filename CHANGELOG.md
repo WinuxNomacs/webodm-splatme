@@ -3,12 +3,6 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
-## Unreleased
-
-- **Measure** in Edit Splats (on the splats and on the 3D model): **Distance**, **Height**, **Area** and
-  **Volume**, clicked on the model. Each point moves onto the task's point cloud under the pointer, which is more
-  precise than the splats; Volume is WebODM's own (its map's), on the task's DSM. In WebODM's units; not saved.
-
 ## 0.5.0 (2026-11-27)
 
 LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio
@@ -17,6 +11,9 @@ needs the newest WebODM of its day; an older one does not load SplatMe). Needs s
 Studio and for continuing a model the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test
 Connection** says what it lacks).
 
+- **Measure** in Edit Splats (on the splats and on the 3D model): **Distance**, **Height**, **Area** and
+  **Volume**, clicked on the model. Each point moves onto the task's point cloud under the pointer, which is more
+  precise than the splats; Volume is WebODM's own (its map's), on the task's DSM. In WebODM's units; not saved.
 - **LichtFeld Studio**: `splatnode.sh install --trainer lichtfeld` installs a node that trains with it (its image,
   `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, 1.4 GB, is published with each release beside OpenSplat's). Its
   first training on a GPU starts about 2 minutes late, as it builds its GPU code for that GPU. With it, the forms
