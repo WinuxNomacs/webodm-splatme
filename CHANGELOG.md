@@ -6,7 +6,8 @@ where a release needs a newer one.
 ## Unreleased
 
 LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio
-node side by side and choose which trains. Needs splat node 0.3.0 for LichtFeld Studio and for continuing a model
+node side by side and choose which trains. **Needs WebODM 4.0.1 or later**: update WebODM first (each release now
+needs the newest WebODM of its day; an older one does not load SplatMe). Needs splat node 0.3.0 for LichtFeld Studio and for continuing a model
 the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test Connection** says what it lacks).
 
 - **LichtFeld Studio**: `splatnode.sh install --trainer lichtfeld` installs a node that trains with it (its image,
@@ -30,7 +31,7 @@ the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test
 - Splat nodes' addresses are shown to superusers only.
 - Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
 - After an upgrade, browsers load SplatMe's new pages at once instead of their old scripts from the cache, which
-  could last hours (before WebODM 4.0.1, the Dashboard's part only from the upgrade after 0.5.0).
+  could last hours.
 - A node that is training no longer shows as not answering, or as having no GPU, on a machine where `nvidia-smi`
   slows down under a training: Train Splats can queue another training then, and an automatic training no longer
   fails. Node 0.3.0 answers with its last GPU reading while it trains; with an older node, SplatMe accepts a busy

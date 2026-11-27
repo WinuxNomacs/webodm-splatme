@@ -25,8 +25,9 @@ it short; edit in place.
     async work through `run_function_async` (`app/plugins/worker.py`).
   - The manifest says `"experimental": true` until the user decides otherwise; licence AGPL-3.0.
   - The guide's "no tests unless asked" does not apply: the user's rules ask for tests.
-- **WebODM 4.0.0, Docker installs** (Python 3.14, Django 5.2, DRF 3.18): `webodmMinVersion` is 4.0.0 and Ruff
-  targets py314. The native Windows app is not supported (it has no `splat-tools` and cannot build a plugin's
+- **WebODM 4.0.1, Docker installs** (Python 3.14, Django 5.2, DRF 3.18): `webodmMinVersion` is 4.0.1 and Ruff
+  targets py314. Each release is tested on the newest WebODM only and raises `webodmMinVersion` to it (the user's
+  decision, 2026-11-27): an older WebODM does not load the plugin, and Getting Started says to update WebODM first. The native Windows app is not supported (it has no `splat-tools` and cannot build a plugin's
   page scripts); 3.3.2 is not supported yet.
 - **WebODM's own splat code is reused, not copied**: the export (`app/splats.py`, `prepare_export`), the
   conversion (`splat-tools`, run as `worker/tasks.py`'s `process_splats` runs it, on the `.ply` the trainer writes) and the asset (`splats.rad`,
@@ -121,12 +122,12 @@ it short; edit in place.
 
 ## Dev environment
 
-- `ignored/WebODM` is a checkout of https://github.com/WebODM/WebODM (ignored by git) at tag `v4.0.0`, the commit
+- `ignored/WebODM` is a checkout of https://github.com/WebODM/WebODM (ignored by git) at tag `v4.0.1`, the commit
   the pinned image was built from. The dev server runs that checkout, so a branch checked out there (a PR to
   WebODM) is live. `ignored/WebODM-3.3.2` is the same at `v3.3.2` (for reference; nothing runs it),
   `ignored/WebODM-Docs` is https://github.com/WebODM/Docs and `ignored/WebODM-Plugins`
   https://github.com/WebODM/WebODM-Plugins (the directory, its guidance and other plugins' source).
-- `dev/webodm.sh up | down | logs [service] | ps` runs WebODM 4.0.0 in dev mode with `splatme/` mounted as
+- `dev/webodm.sh up | down | logs [service] | ps` runs WebODM 4.0.1 in dev mode with `splatme/` mounted as
   `/webodm/coreplugins/splatme`, on http://localhost:8008, containers `sm-webapp`, `sm-worker`, `sm-db`,
   `sm-broker`, `sm-node-odx-1`, project and volumes `webodm-splatme`, so it runs beside other WebODMs. The images
   are pinned by digest in `dev/webodm.sh`. The processing node uses the GPU when the machine has one Docker can

@@ -1,4 +1,4 @@
-# WebODM 4.0.0 runs Python 3.14
+# WebODM 4.0.1 runs Python 3.14
 target-version = "py314"
 line-length = 120
 extend-exclude = ["ignored"]

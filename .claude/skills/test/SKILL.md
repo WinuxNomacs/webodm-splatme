@@ -5,7 +5,7 @@ description: Run the SplatMe plugin's checks (Ruff, ESLint, Jest, the splat node
 
 # Tests and checks
 
-From the repo root, with the dev stack up (`dev/webodm.sh ps`; start it with `dev/webodm.sh up`): WebODM 4.0.0,
+From the repo root, with the dev stack up (`dev/webodm.sh ps`; start it with `dev/webodm.sh up`): WebODM 4.0.1,
 `sm-webapp`, http://localhost:8008.
 
 1. **Ruff**: `.venv/bin/ruff check .`

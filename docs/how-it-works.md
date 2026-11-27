@@ -226,5 +226,5 @@ view, it cuts a copy to the task's boundary (**Crop to Boundary**) and by the ta
 converts it with WebODM's `splat-tools`, as WebODM's own import of a model does, into
 the level-of-detail `.rad` that the 3D view, the download and the share links use.
 
-*As of WebODM 4.0.0 (`app/splats.py`), OpenSplat 1.2.2 at the commit the splat node is built from (`e33f9dd`), and
+*As of WebODM 4.0.1 (`app/splats.py`), OpenSplat 1.2.2 at the commit the splat node is built from (`e33f9dd`), and
 LichtFeld Studio v0.5.4.3 (`06c9a04`), with the command line the splat node gives it.*

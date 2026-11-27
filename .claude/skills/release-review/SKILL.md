@@ -14,7 +14,7 @@ phase.
 - **What changed since the last release** (`git diff v<last>..main`), read in full.
 - **Then a fresh read of the whole product for weak areas**, not only the diff: a weakness that has been there
   since 0.1.0 is still one.
-- The parts, each read against the code it depends on (WebODM 4.0.0 in `ignored/WebODM`, OpenSplat at the node's
+- The parts, each read against the code it depends on (WebODM in `ignored/WebODM`, the version `dev/webodm.sh` pins, OpenSplat at the node's
   pin):
   - the plugin's Python (`splatme/*.py`);
   - its pages (`splatme/public`, `splatme/templates`);
