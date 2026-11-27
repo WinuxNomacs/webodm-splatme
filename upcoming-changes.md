@@ -18,8 +18,9 @@ None open.
 
 0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0): the release review is done ("Release review
    of 0.5.0", findings A to AK); the user chose 2026-11-27 to fix all but AB (their run by hand), AC (deferred) and
-   AF (dev only); next, the fixes, built on `review-plugin`, `review-pages`, `review-node`, `review-release`, then the user's run by hand
-   of the release workflow, the release check (on WebODM 4.0.1 too), the release branch.
+   AF (dev only); the fixes built 2026-11-27 ("Fixes from the release review of 0.5.0"). Next: the user's run by
+   hand of the release workflow (the LichtFeld build on a GitHub runner, then a `timeout-minutes`), the release
+   check (on WebODM 4.0.1 too), the release branch.
 
 1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
    `splatnode.sh`, node 0.2.3 on ghcr.io, the docs). The published zip's SHA-256 is `9bd1319d…` (the same files as
@@ -893,6 +894,35 @@ anyone who may see the task, its file kept per task until the edits or the model
   frees the panel; the notice shows after a change and clears after Apply; Cancel stops an Apply and keeps the
   model; at 320 px the drawing controls stay in sight; a plain user who may not see the task gets the heading,
   the link back and the reason; no console error.
+
+### Fixes from the release review of 0.5.0 (built 2026-11-27)
+
+All but AB (the user's run by hand), AC (deferred) and AF (dev only), each with a test seen failing on the code
+before (Django in `test_splatme.py`, the node's in `node/tests`), merged branch by branch:
+- `review-plugin` (A to C, F to M, O, P; `training.py`, `api.py`, `node.py`): `start` no longer filters a model's
+  options (`parse_options` and `skipped_options` already do); `listed_node` (a removed node is the default for the
+  settings that chose it); `saved_setting` keeps the options from before for trainers not yet saved, and a first
+  own or task setting starts from what the form showed (`set_auto` takes the user); `job_node_id` (a record from
+  before plan 25 means `default`); `training_on` (removal and a new address refused while a training is under way
+  or waits for `revive`, under the lock); `name_after_trainers` takes no lock when nothing changes;
+  `node.checked_info` (a broken `/info` cannot fail the pages); `GET node`'s address for superusers only; Check asks
+  no node for those who may not train; `follow_all` asks a silent node once a look; `CURRENT_VERSION` 0.3.0 with
+  `ADDED` (what an older node lacks).
+- `review-pages` (D, E, N): Save and the new task wait while a node switch is answered, and a failed switch goes back;
+  Train Splats shows "Checking the splat node" while switching; Change opens with the chosen node's trainer's
+  options; the node panel's errors beside their button, and a removed node's open form closed. Checked live with
+  the node's answers delayed and failed in the browser.
+- `review-node` (Q to X): `extract_resume` reads the header first and checks the model's size against its splats
+  and the disk, and the dataset's unpacked size is checked at upload and before unpacking; the trainer's process
+  group is killed after it exits; the rewrite's chunk is 64 MB; `segments` caps a line at 64 KB; a LichtFeld
+  progress line counts only with the job's total; a damaged model is a 400; a cancel after the unpack or the
+  rewrite starts no trainer; the pty master is closed when the trainer cannot start; `Server` (at most 128
+  connections); `splatnode.sh`: `free_port` skips other installs' ports, `uninstall --yes` keeps a local image,
+  `node_info` passes the token on curl's stdin.
+- `review-release` (Y, Z, AA, AD, AE): images pushed under `run-<run id>`, then the `publish` job tags both and
+  checks an anonymous pull before the plugin's release; a package never published is recognised through the API;
+  `lichtfeld.Dockerfile` builds from CUDA 12.8.2 (the tag OpenSplat's uses); `AGPL-3.0-only`; a concurrency group.
+- `review-docs` (AG to AK) and the two screenshots retaken (`admin.png`, `train.png`).
 
 ### Release review of 0.5.0 (done 2026-11-26; fixes: all but AB, AC, AF, the user's choice 2026-11-27)
 
