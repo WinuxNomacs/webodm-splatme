@@ -3,7 +3,7 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
-## Unreleased
+## 0.5.0 (2026-11-27)
 
 LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio
 node side by side and choose which trains. **Needs WebODM 4.0.1 or later**: update WebODM first (each release now
