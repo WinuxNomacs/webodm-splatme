@@ -35,6 +35,15 @@ def training_zip(
     return data.getvalue()
 
 
+def kill_listed(pid_file):
+    """Kills the process whose pid the file holds, if it still runs."""
+    try:
+        with open(pid_file) as f:
+            os.kill(int(f.read()), signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+
+
 def fixture(name):
     with open(os.path.join(os.path.dirname(__file__), name), "rb") as f:
         return f.read()
@@ -558,6 +567,7 @@ class TestFailures(NodeTestCase):
         os.environ["FAKE_TRAINER"] = "orphan"
         os.environ["FAKE_TRAINER_PID"] = pid_file = os.path.join(self.data, "orphan.pid")
         self.addCleanup(os.environ.pop, "FAKE_TRAINER_PID", None)
+        self.addCleanup(kill_listed, pid_file)  # whatever happens below, the child does not outlive the test
         started = time.monotonic()
         job = self.wait(self.create()["id"])
         self.assertEqual(job["state"], "completed", job["error"])
