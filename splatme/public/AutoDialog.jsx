@@ -20,7 +20,7 @@ export default class AutoDialog extends React.Component {
     constructor(props){
         super(props);
         this.state = {enabled: !!props.auto.enabled, form: formFromOptions(props.auto.options), ranges: null, showCrop: true,
-                      advanced: false, saving: false, error: null, nodeId: props.auto.node || null, nodes: null};
+                      advanced: false, saving: false, error: null, nodeId: props.auto.node || null, nodes: null, switching: false};
     }
 
     componentDidMount(){
@@ -29,16 +29,22 @@ export default class AutoDialog extends React.Component {
     }
 
     // The chosen node's trainer and ranges, to show its options and name a wrong number before saving (without them
-    // the server still checks); a node chosen here shows the options saved for its trainer
+    // the server still checks); the form shows the options saved for that node's trainer. Until the node answers,
+    // Save waits (it would file the previous trainer's options under this one); a failure goes back to the node before
     ask(nodeId, switched){
-        this.setState({nodeId});
+        const before = this.state.nodeId;
+        this.setState({nodeId, switching: true, error: null});
         request("GET", "task/" + this.props.taskId + "/check" + (nodeId ? "?node=" + encodeURIComponent(nodeId) : "")).then(check => {
             if (!this._mounted || (this.state.nodeId || null) !== (nodeId || null)) return;
             const kind = check.node ? check.node.trainer_kind || "opensplat" : null;
-            const changes = {ranges: check.ranges, node: check.node, nodes: check.nodes, showCrop: !!check.boundary, thermal: !!check.thermal, photoSizes: check.photo_sizes};
-            if (switched && kind) changes.form = formFromOptions(settingOptions(this.props.auto, kind));
+            const changes = {ranges: check.ranges, node: check.node, nodes: check.nodes, showCrop: !!check.boundary, thermal: !!check.thermal,
+                             photoSizes: check.photo_sizes, switching: false};
+            if (kind) changes.form = formFromOptions(settingOptions(this.props.auto, kind));
             this.setState(changes);
-        }).catch(() => {});
+        }).catch(e => {
+            if (!this._mounted || (this.state.nodeId || null) !== (nodeId || null)) return;
+            this.setState(switched ? {nodeId: before, switching: false, error: e.message} : {switching: false});
+        });
     }
 
     componentWillUnmount(){
@@ -46,7 +52,7 @@ export default class AutoDialog extends React.Component {
     }
 
     handleSave = () => {
-        if (this.state.saving) return;  // Enter in a field submits the form too
+        if (this.state.saving || this.state.switching) return;  // Enter in a field submits the form too
         const { options, error } = optionsFromForm(this.state.form, this.state.ranges, this.state.node);
         if (error && this.state.enabled){
             this.setState({error: _(error), advanced: true});
@@ -62,12 +68,12 @@ export default class AutoDialog extends React.Component {
     };
 
     render(){
-        const { enabled, form, advanced, saving, error, showCrop, thermal } = this.state;
+        const { enabled, form, advanced, saving, error, showCrop, thermal, switching } = this.state;
         const footer = (
             <React.Fragment>
                 <button type="button" className="btn btn-default" disabled={saving} onClick={this.props.onClose}>{_("Close")}</button>
-                <button type="button" className="btn btn-primary" disabled={saving} onClick={this.handleSave}>
-                    <i className={saving ? "fa fa-circle-notch fa-spin fa-fw" : "fa fa-save fa-fw"}></i> {_("Save")}
+                <button type="button" className="btn btn-primary" disabled={saving || switching} onClick={this.handleSave}>
+                    <i className={saving || switching ? "fa fa-circle-notch fa-spin fa-fw" : "fa fa-save fa-fw"}></i> {_("Save")}
                 </button>
             </React.Fragment>
         );

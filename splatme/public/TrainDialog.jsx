@@ -37,6 +37,7 @@ export default class TrainDialog extends React.Component {
 
     // The task and a node (null: the default) checked again: the node's trainer, its options and Continue
     ask(nodeId){
+        const before = this.state.nodeId;  // a failed switch goes back to it, with the form that is its
         if (this.state.check) this.setState({switching: true, nodeId, error: null});
         return request("GET", "task/" + this.props.taskId + "/check" + (nodeId ? "?node=" + encodeURIComponent(nodeId) : "")).then(check => {
             if (!this._mounted || (nodeId || null) !== (this.state.nodeId || null) && this.state.check) return null;
@@ -49,7 +50,8 @@ export default class TrainDialog extends React.Component {
                            more: trained ? String(defaultMoreSteps(trained, check.ranges)) : "", form: {...this.state.form, ...form}});
             return check;
         }).catch(e => {
-            if (this._mounted) this.setState({check: this.state.check || {}, switching: false, error: e.message});
+            if (!this._mounted || (nodeId || null) !== (this.state.nodeId || null) && this.state.check) return null;
+            this.setState({check: this.state.check || {}, nodeId: this.state.check ? before : nodeId, switching: false, error: e.message});
             return null;
         });
     }
@@ -136,7 +138,9 @@ export default class TrainDialog extends React.Component {
                                     <StagesTable total={total} from={trained} growUntil={String(growUntil).trim() || modelGrowUntil} /> :
                                     <p className="help-block">{_("The model grows no more in these steps: they refine it. Grow Until makes it grow again.")}</p>}
                                 <span className="help-block">
-                                    {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {_("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.")}
+                                    {_("The model then has") + " " + total.toLocaleString() + " " + _("steps.")} {view.opensplat ?
+                                        _("The other options stay as the model was trained. Continuing sharpens the model it has; it replaces the task's when the training succeeds.") :
+                                        _("The other options stay as the model was trained. Continuing trains the model's gaussians again from the start of the trainer's schedule, so it grows again; it replaces the task's when the training succeeds.")}
                                 </span>
                             </div>
                         </div> : ""}
@@ -154,6 +158,8 @@ export default class TrainDialog extends React.Component {
                                 </span>
                             </div>
                         </div> :
+                        switching ? <p><i className="fa fa-circle-notch fa-spin fa-fw"></i> {_("Checking the splat node")}</p> :
+                        resume && trained > 0 ? "" :
                         <OptionsFields form={form} advanced={advanced} showCrop={!!(check || {}).boundary} thermal={!!(check || {}).thermal} photoSizes={(check || {}).photo_sizes} node={(check || {}).node} onChange={this.setField} onAdvanced={open => this.setState({advanced: open})} />}
                 </form>
             </Dialog>

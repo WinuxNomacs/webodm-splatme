@@ -62,13 +62,19 @@ export default class NewTask extends React.Component {
         this.change(fill ? {form: formFromOptions(kind ? settingOptions(this.saved, kind) : (this.saved || {}).options)} : {});
     }
 
-    // Splat Node changed: that node's trainer, and the options saved for it
+    // Splat Node changed: that node's trainer, and the options saved for it. Until it answers the task waits (it
+    // would be set to train with the previous trainer's options); a failure goes back to the node before
     handleNode = nodeId => {
         this.touched = true;
-        this.setState({nodeId});
+        const before = this.state.nodeId;
+        this.change({nodeId, switching: true, error: null});
         request("GET", "automation?ranges=1&node=" + encodeURIComponent(nodeId)).then(answer => {
-            if (this._mounted && this.state.nodeId === nodeId) this.useTrainer(answer.trainer, nodeId, true);
-        }).catch(() => {});
+            if (!this._mounted || this.state.nodeId !== nodeId) return;
+            this.setState({switching: false});
+            this.useTrainer(answer.trainer, nodeId, true);
+        }).catch(e => {
+            if (this._mounted && this.state.nodeId === nodeId) this.change({nodeId: before, switching: false, error: e.message});
+        });
     };
 
     componentDidUpdate(prevProps, prevState){
@@ -116,7 +122,8 @@ export default class NewTask extends React.Component {
     change(values){
         const next = Object.assign({}, this.state, values);
         // Photos SplatMe cannot train: a task trained when it completes would only fail then
-        const error = optionsFromForm(next.form, this.ranges, this.node).error || photoProblem(this.props.files);
+        const error = (next.switching ? "Checking the splat node." : null) || optionsFromForm(next.form, this.ranges, this.node).error ||
+            photoProblem(this.props.files);
         this.setState(Object.assign(values, {formError: next.enabled ? error && _(error) : null}));
     }
 
@@ -124,7 +131,7 @@ export default class NewTask extends React.Component {
     setting(){
         if (!this.state.enabled) return null;
         const { options, error } = optionsFromForm(this.state.form, this.ranges, this.node);
-        if (error || photoProblem(this.props.files)) return undefined;
+        if (error || photoProblem(this.props.files) || this.state.switching) return undefined;
         const node = {node: this.state.nodeId || "", trainer_kind: this.node ? this.node.trainer_kind || "opensplat" : ""};
         return Object.assign({enabled: true}, node, options);
     }

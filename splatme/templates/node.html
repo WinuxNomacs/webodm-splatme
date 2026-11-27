@@ -254,13 +254,16 @@ the default (what trains when none is chosen). A token is never shown.
     function shown(data){
         nodes = data.nodes || [];
         admin = !!data.admin;
+        // The node being edited was removed (here, or by another administrator): its form closes
+        if (editing && !nodes.some(function(n){ return n.id === editing; })) editing = null, form.style.display = "none";
         render();
         // The options form on the same page (options.html) offers the nodes too
         document.dispatchEvent(new CustomEvent("splatme-nodes", {detail: nodes}));
     }
     function send(method, address, values, by){
+        var fromForm = !!by && form.contains(by);  // Save and Test Connection; Make Default and Remove are in the list
         if (by) by.disabled = true;
-        formError.textContent = "";
+        if (fromForm) formError.textContent = "";
         $.ajax({url: address, type: method, contentType: "application/json", headers: {"X-CSRFToken": CSRF},
                 data: values ? JSON.stringify(values) : undefined})
             .done(function(data){
@@ -274,8 +277,8 @@ the default (what trains when none is chosen). A token is never shown.
                 shown(data);
             })
             .fail(function(xhr){
-                if (editing !== null) formError.textContent = reason(xhr);
-                else window.alert(reason(xhr));
+                if (fromForm) formError.textContent = reason(xhr);
+                else window.alert(reason(xhr));  // beside the button that failed, not in another node's open form
             })
             .always(function(){ if (by) by.disabled = false; });
     }
