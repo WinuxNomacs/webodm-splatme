@@ -129,7 +129,8 @@ class Node:
             )
         if not info.get("trainer"):
             raise NodeError("The splat node's trainer does not run. Check the node's logs.")
-        if not info.get("gpu"):
+        # A node that trains has a GPU: nvidia-smi can be too slow to answer then, and a node before 0.3.0 says none
+        if not info.get("gpu") and not info.get("running"):
             raise NodeError("The splat node has no GPU it can use. Check its NVIDIA driver and Docker's GPU access.")
         return checked_info(info)
 

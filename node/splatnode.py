@@ -42,7 +42,10 @@ How it stays up (each has a test in tests/test_splatnode.py that makes the failu
   Files are never deleted under the lock: they are moved to trash/ (a rename) and deleted by the worker.
 - A job's saved file that doesn't read is moved to broken/ at start; the node starts all the same. A setting that
   is not a number, or is too small, is logged and its default used.
-- Every request is answered, an unexpected error included (500, or 507 for a full disk).
+- Every request is answered, an unexpected error included (500, or 507 for a full disk). A client that hangs up
+  before its answer is sent is logged in one line.
+- /info never waits on nvidia-smi while a job trains (under a training it was seen taking 10 to 31 s, longer than
+  a client waits): it answers with the last reading, which a background thread renews every GPU_REFRESH seconds.
 - A job's zip is unpacked by the node, between entries checking for a cancel or a stop; a zip that can't be unpacked
   (a damaged entry, a full disk) fails its job with the reason, and the trainer never sees it.
 - A trainer that prints its progress only to a terminal (LichtFeld) is given a pseudo-terminal; one that can't be
@@ -336,6 +339,7 @@ GRACE_SECONDS = 20  # SIGTERM to SIGKILL; inside compose's stop_grace_period (30
 KILL_WAIT = 60  # SIGKILL to giving up on the trainer
 STALL_MINUTES = 30  # the trainer's longest silence measured, with a margin (see upcoming-changes.md)
 SOCKET_TIMEOUT = 120  # one read or write on a client's connection
+GPU_REFRESH = 30  # seconds a GPU reading is used before nvidia-smi is asked again
 
 
 class Refused(Exception):
@@ -682,6 +686,11 @@ class Node:
         self.stopping = False
         self.worker_died = False
         self.heartbeat = time.monotonic()
+        # The GPU as nvidia-smi last read it, changed only in refresh_gpu
+        self.gpu_lock = threading.Lock()
+        self.gpu = None
+        self.gpu_at = None
+        self.gpu_refreshing = False
         for folder in (self.jobs_dir, self.trash_dir, self.broken_dir):
             os.makedirs(folder, exist_ok=True)
         self.load()
@@ -874,7 +883,7 @@ class Node:
             "name": "SplatMe splat node", "version": VERSION, "trainer": self.trainer_version(),
             "trainer_kind": self.adapter.kind, "supports": dict(self.adapter.supports),
             "continue_from": {"properties": list(SPLAT_PROPERTIES), "sh_degrees": list(self.adapter.continue_sh)},
-            "gpu": gpu_info(), "running": running[0] if running else None, "queued": queued,
+            "gpu": self.gpu_reading(bool(running)), "running": running[0] if running else None, "queued": queued,
             "options": {n: describe_option(s) for n, s in self.adapter.options.items()},
         }
 
@@ -882,6 +891,34 @@ class Node:
         silent = time.monotonic() - self.heartbeat
         ok = self.worker.is_alive() and not self.worker_died and silent < self.HEARTBEAT_LIMIT
         return {"ok": ok, "worker_silent_seconds": round(silent)}
+
+    def gpu_reading(self, busy):
+        """The GPU's last reading, renewed once it is GPU_REFRESH old: in the background when there is a reading to
+        answer with meanwhile or a job trains (nvidia-smi is then slow), else at once (it is quick when idle)."""
+        with self.gpu_lock:
+            reading = self.gpu
+            due = not self.gpu_refreshing and (self.gpu_at is None or time.monotonic() - self.gpu_at >= GPU_REFRESH)
+            if due:
+                self.gpu_refreshing = True
+        if due and (reading is not None or busy):
+            threading.Thread(target=self.refresh_gpu, args=(busy,), daemon=True).start()
+        elif due:
+            reading = self.refresh_gpu(busy)
+        return reading
+
+    def refresh_gpu(self, busy):
+        """Asks nvidia-smi. No answer while a job trains keeps the last reading; no answer when idle means no GPU."""
+        try:
+            reading = gpu_info()
+        except Exception:  # noqa: BLE001 (gpu_info answers None itself; a reading must never end the thread silently)
+            log("Reading the GPU failed:\n" + traceback.format_exc())
+            reading = None
+        with self.gpu_lock:
+            if reading is not None or not busy:
+                self.gpu = reading
+            self.gpu_at = time.monotonic()
+            self.gpu_refreshing = False
+            return self.gpu
 
     def trainer_version(self):
         """The trainer's version, asked once (it loads libtorch, which takes seconds); a failure is asked again."""
@@ -1272,6 +1309,9 @@ class Handler(BaseHTTPRequestHandler):
             return getattr(self, name)(params, **match.groupdict())
         except Refused as e:
             self.answer_error(e.status, e.message)
+        except (BrokenPipeError, ConnectionResetError):
+            log(f"{self.command} {url.path}: the client hung up before its answer")
+            self.close_connection = True
         except Exception as e:  # noqa: BLE001 (every request is answered)
             log(f"{self.command} {url.path} failed:\n" + traceback.format_exc())
             full = isinstance(e, OSError) and e.errno == errno.ENOSPC
