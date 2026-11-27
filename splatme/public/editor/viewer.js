@@ -20,6 +20,7 @@ const CORNER_PIXELS = 10;  // a click this close to the first corner closes the 
 const LINE_LEAST = 3;  // points Straighten's traced line needs
 const STROKE_PIXELS = 3;  // a lasso's corners at least this far apart
 const PICK_PIXELS = 12;  // how far from the pointer a double click finds a splat to centre on
+const DOUBLE_CLICK_MS = 500;  // a click this soon after the last, about where it was, is a double click's second
 const BRUSH_STEP = 1.25;  // the [ and ] keys' change of the brush's size
 
 export const PAINT_RADII = [0.02, 5];  // metres: the surface brush's radius, smallest and largest (meshes.py's within)
@@ -798,7 +799,7 @@ export function createViewer(container, handlers){
         cancelLine();
         cancelMeasure();
         transform.detach();
-        measuring = {kind, least, points: [], chain: Promise.resolve(), object: null, finishing: false};
+        measuring = {kind, least, points: [], chain: Promise.resolve(), object: null, finishing: false, lastClick: null};
         canvas.style.cursor = "crosshair";
         if (handlers.onMeasurePoints) handlers.onMeasurePoints([]);
     }
@@ -861,6 +862,10 @@ export function createViewer(container, handlers){
         return {hit, origin: raycaster.ray.origin.clone(), direction: raycaster.ray.direction.clone(), radius};
     }
     function measureClick(event){
+        // A double click's second click (or a double tap's, a pixel or two off) adds no point: it finishes
+        const now = performance.now(), last = measuring.lastClick;
+        measuring.lastClick = {x: event.clientX, y: event.clientY, at: now};
+        if (last && now - last.at < DOUBLE_CLICK_MS && Math.hypot(event.clientX - last.x, event.clientY - last.y) <= CLICK_PIXELS * 2) return;
         const pick = measurePick(event);
         if (!pick) return;
         const state = measuring;
@@ -868,9 +873,7 @@ export function createViewer(container, handlers){
         // The points join in the order they were clicked, each once its snap answers (or fails: the pick stays)
         state.chain = state.chain.then(() => asked.catch(() => ({point: pick.hit.toArray(), snapped: false}))).then(found => {
             if (measuring !== state) return;
-            const last = state.points[state.points.length - 1];
             const point = found.point.map(round4);
-            if (last && Math.hypot(point[0] - last.point[0], point[1] - last.point[1], point[2] - last.point[2]) < 0.001) return;  // a double click's second
             state.points.push({point, snapped: !!found.snapped});
             drawMeasuring();
             if (handlers.onMeasurePoints) handlers.onMeasurePoints(state.points.slice());
@@ -1568,8 +1571,10 @@ export function createViewer(container, handlers){
             return new Promise(resolve => {
                 if (!mesh) return resolve(null);
                 const helper = transform.getHelper();
-                const was = [shapes.visible, helper.visible, measured.visible];
+                const clicking = measuring && measuring.object;
+                const was = [shapes.visible, helper.visible, measured.visible, clicking && clicking.visible];
                 shapes.visible = helper.visible = measured.visible = false;
+                if (clicking) clicking.visible = false;
                 renderer.render(scene, camera);
                 // Copied before the browser shows the frame, which clears the drawing buffer
                 const w = Math.min(width, canvas.width), h = Math.max(1, Math.round(canvas.height * w / canvas.width));
@@ -1578,6 +1583,7 @@ export function createViewer(container, handlers){
                 out.height = h;
                 out.getContext("2d").drawImage(canvas, 0, 0, w, h);
                 [shapes.visible, helper.visible, measured.visible] = was;
+                if (clicking) clicking.visible = was[3];
                 out.toBlob(resolve, "image/jpeg", 0.8);
             });
         },
@@ -1610,6 +1616,7 @@ export function createViewer(container, handlers){
             clearGroup(shapes);
             clearGroup(measured);
             if (measuring) clearMeasuring();
+            measuring = null;  // a snap that answers after this finds no measurement, and adds nothing
             if (mesh) mesh.dispose();
             if (model){
                 if (model.worker) model.worker.terminate();

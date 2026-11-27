@@ -82,9 +82,9 @@ picture until the page is opened again.
 
 **Measure** has **Distance**, **Height**, **Area** and **Volume**, measured on the model as it is shown (what the
 edits remove is passed through). Click the points on the model; the view still turns, moves and zooms between
-clicks. A double-click or **Finish** ends a Distance, an Area or a Volume, a Height ends at its second point,
-Backspace takes back the last point, and Escape or **Cancel** stops. **M** starts the last kind used (Distance at
-first).
+clicks. A double-click, Enter or **Finish** ends a Distance, an Area or a Volume, a Height ends at its second
+point, Backspace takes back the last point, and Escape or **Cancel** stops. **M** starts the last kind used
+(Distance at first), or stops it while it is being clicked.
 
 - **Distance**: the length along the points, in 3D and seen from above, and the height change from the first to
   the last.
@@ -95,7 +95,7 @@ first).
   with the base chosen while you click (WebODM's base methods). It needs the DSM, and its corners within it.
 
 Each point moves onto the task's point cloud (the one WebODM's 3D view shows) where the cloud is under the
-pointer, within a few pixels and close to the surface clicked. The point cloud is a sharper surface than the splats:
+pointer: of the cloud's points within a few pixels of the pointer, the one nearest the surface clicked. The point cloud is a sharper surface than the splats:
 on a task of 217 photos with a short training, half the splats' centres were 8 cm or more from it, against
 1.4 cm between the cloud's points.
 A point drawn in red could not be moved (no point of the cloud there, as at an edge or over the sky) and is on the
@@ -104,7 +104,7 @@ task's georeferencing; lengths, heights and areas depend on it much less.
 
 The numbers are in WebODM's units: metric or imperial, as last chosen on WebODM's map. Each measurement in the
 list has **Copy** (its numbers as one line of text) and **Delete**; **Clear Measurements** removes them all.
-Measurements are not saved: they last until the page is left.
+Measurements are not saved: they last until the page is left, or **Splats** and **3D Model** are switched.
 
 ## Updating the Model
 

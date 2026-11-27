@@ -66,8 +66,10 @@ def read_box(path, low, high):
 
 def nearest_on_ray(points, origin, direction, hit, radius, window):
     """
-    Of points (rows x, y, z, in the frame of the others), the one nearest the ray from origin along direction (a
-    unit vector) that lies within radius of it and within window of the hit's distance along it; None when none does.
+    Of points (rows x, y, z, in the frame of the others) within radius of the ray from origin along direction (a unit
+    vector) and within window of the hit's distance along it, the one nearest the hit's depth (its distance across
+    added: of two at the same depth, the one nearer the ray); None when none is. Nearest the depth, not the ray: a
+    wall seen from above has points all down the ray, and the one clicked is at the top, where the view met it.
     """
     if not len(points):
         return None
@@ -77,7 +79,7 @@ def nearest_on_ray(points, origin, direction, hit, radius, window):
     near = (across <= radius) & (np.abs(along - depth) <= window)
     if not near.any():
         return None
-    index = np.flatnonzero(near)[np.argmin(across[near])]
+    index = np.flatnonzero(near)[np.argmin(np.abs(along[near] - depth) + across[near])]
     return points[index]
 
 

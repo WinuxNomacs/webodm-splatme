@@ -4,7 +4,6 @@ import { _ } from 'webodm/classes/gettext';
 import { request, downloadUrl } from './api';
 import { newBox, cleanRing, editLabel, sizeText, applyText, modelText, MAX_HOLE, MAX_FLOATING, newHistory, recordChange, undoChange, redoChange, floatersStrength, addStroke, colourEdit, colourText, newColour, LARGE_MODEL, MAX_EDITS, STRENGTHS, BRUSH_SIZES, COLOURS } from './editShapes';
 import SizeField from './SizeField';
-import Workers from 'webodm/classes/Workers';
 import { unitSystem, onUnitSystemChanged, offUnitSystemChanged } from 'webodm/classes/Units';
 import { MEASURES, VOLUME_BASES, leastPoints, measureLines, snapNote, copyText, volumeErrorText } from './measure';
 import './Editor.scss';
@@ -78,6 +77,8 @@ const stepsOf = edit => edit.type === "straighten" ? "straighten" : edit.op;
 const BRUSH_SIZE = 30;  // the Brush's size at first, in pixels across
 const THUMBNAIL_WIDTH = 320;  // the picture of the model on its row in SplatMe → Tasks, in pixels across
 const THUMBNAIL_AFTER = 2000;  // ms after the model shows before its picture is taken (the splats settle)
+const VOLUME_POLL = 2000;  // ms between looks at a Volume WebODM's worker works out
+const VOLUME_WAIT = 10 * 60 * 1000;  // ms before a Volume the worker has not finished is given up
 
 // Edit Splats (templates/editor.html, Edit on a task's row in SplatMe → Tasks): the task's trained model in a 3D view
 // (editor/viewer.js, loaded by loadViewer through the page's import map) and this panel beside it, below it on a
@@ -195,8 +196,14 @@ class EditorPanel extends React.Component {
         const target = e.target;
         if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
         const { info, loaded } = this.state;
-        if (!info || !info.can_edit || info.editable || !loaded) return;
         const key = e.key.toLowerCase();
+        // Measure works whenever the model shows, even while it cannot be edited (as its buttons)
+        if (key === "m" && !e.ctrlKey && !e.metaKey && !e.altKey && loaded && this.viewer){
+            e.preventDefault();
+            this.measure(this.lastMeasure || "distance");
+            return;
+        }
+        if (!info || !info.can_edit || info.editable || !loaded) return;
         if ((e.ctrlKey || e.metaKey) && !e.altKey){
             if (key === "z" && !e.shiftKey) this.undo();
             else if ((key === "z" && e.shiftKey) || key === "y") this.redo();
@@ -205,8 +212,7 @@ class EditorPanel extends React.Component {
             return;
         }
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const action = {delete: () => this.removeSelected(), b: this.brush, l: this.lasso, p: this.drawPolygon, x: this.addBox,
-            m: () => this.measure(this.lastMeasure || "distance")}[key];
+        const action = {delete: () => this.removeSelected(), b: this.brush, l: this.lasso, p: this.drawPolygon, x: this.addBox}[key];
         if (!action) return;
         e.preventDefault();
         action();
@@ -239,9 +245,9 @@ class EditorPanel extends React.Component {
                 onPaintEnd: () => this.setState({painting: null}),
                 snap: this.snapPick,
                 // From the state as React will have it: startMeasure tells the first while measure's own change waits
-                onMeasurePoints: points => this.setState(state => ({measuring: state.measuring && {...state.measuring, points}})),
+                onMeasurePoints: points => this._mounted && this.setState(state => ({measuring: state.measuring && {...state.measuring, points}})),
                 onMeasure: this.handleMeasure,
-                onMeasureEnd: () => this.setState({measuring: null}),
+                onMeasureEnd: () => this._mounted && this.setState({measuring: null}),
                 onModelMasked: (removed, floating) => this.setState({modelResult: {removed, floating}}),
                 onModelError: modelError => this.setState({modelError}),
                 onModelBusy: modelBusy => {
@@ -333,7 +339,9 @@ class EditorPanel extends React.Component {
         this.endTool();
         if (was === kind || !this.viewer || !this.state.loaded) return;
         this.lastMeasure = kind;
-        this.setState({measuring: {kind, points: []}, selected: -1});
+        // Enter finishes: the button pressed keeps no focus for Enter to press it again
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        this.setState({measuring: {kind, points: []}, selected: -1, measureNote: null});
         this.viewer.setEdits(this.state.edits, -1);
         this.viewer.startMeasure(kind, leastPoints(kind));
     }
@@ -352,6 +360,7 @@ class EditorPanel extends React.Component {
     };
 
     handleMeasure = (kind, points) => {
+        if (!this._mounted) return;
         this.measureSeq = (this.measureSeq || 0) + 1;
         const measurement = {id: this.measureSeq, kind, points, base: kind === "volume" ? this.state.volumeBase : null};
         this.setState({measuring: null, measurements: [...this.state.measurements, measurement]});
@@ -363,16 +372,33 @@ class EditorPanel extends React.Component {
         const update = changes => {
             if (this._mounted) this.setState({measurements: this.state.measurements.map(m => (m.id === measurement.id ? {...m, ...changes} : m))});
         };
-        const words = e => _(volumeErrorText(typeof e === "string" ? e : (e && (e.message || e.statusText)) || "The request failed."));
+        const gone = () => !this._mounted || !this.state.measurements.some(m => m.id === measurement.id);
+        const worker = path => fetch("/api/workers/" + path, {credentials: "same-origin"}).then(res => {
+            if (!res.ok) throw new Error("WebODM answered " + res.status + ".");
+            return res.json();
+        });
+        const started = Date.now();
+        // WebODM's worker endpoints, as its Workers helper asks them, but with a deadline, and no longer once the
+        // measurement is deleted or the page left; a few failed looks in a row (WebODM restarting) are borne
+        const wait = (id, failures = 0) => new Promise(resolve => setTimeout(resolve, VOLUME_POLL)).then(() => {
+            if (gone()) return null;
+            if (Date.now() - started > VOLUME_WAIT) throw new Error("WebODM's worker did not finish it in " + VOLUME_WAIT / 60000 + " minutes.");
+            return worker("check/" + id).then(result => {
+                if (result.error) throw new Error(result.error);
+                return result.ready ? worker("get/" + id) : wait(id);
+            }, e => {
+                if (failures >= 10) throw e;
+                return wait(id, failures + 1);
+            });
+        });
         request("POST", "task/" + this.props.taskId + "/volume", {ring: measurement.points.map(p => [p.point[0], p.point[1]]), base: measurement.base})
-            .then(({ celery_task_id }) => new Promise((resolve, reject) => {
-                Workers.waitForCompletion(celery_task_id, error => {
-                    if (error) return reject(error);
-                    Workers.getOutput(celery_task_id, (failed, output) => (failed ? reject(failed) : resolve(output)));
-                });
-            }))
-            .then(volume => update({volume: Number(volume), volumeError: null}))
-            .catch(e => update({volumeError: _("The volume could not be calculated:") + " " + words(e)}));
+            .then(({ celery_task_id }) => wait(celery_task_id))
+            .then(result => {
+                if (!result) return;
+                if (result.error || result.output === undefined) throw new Error(result.error || "WebODM's worker gave no volume.");
+                update({volume: Number(result.output), volumeError: null});
+            })
+            .catch(e => update({volumeError: _("The volume could not be calculated:") + " " + _(volumeErrorText(e.message))}));
     }
 
     removeMeasurement(id){
@@ -1267,7 +1293,7 @@ class EditorPanel extends React.Component {
                     {MEASURES.map(([kind, label, icon]) =>
                         <button key={kind} type="button" className={"btn btn-sm " + (measuring && measuring.kind === kind ? "btn-primary active" : "btn-default")}
                                 disabled={!loaded} aria-pressed={!!measuring && measuring.kind === kind} onClick={() => this.measure(kind)}
-                                title={_(kindOf(kind)[4]) + (kind === "distance" ? " (M)" : "")}>
+                                title={_(kindOf(kind)[4]) + (kind === (this.lastMeasure || "distance") ? " (M)" : "")}>
                             <i className={"fa " + icon + " fa-fw"}></i> {_(label)}
                         </button>)}
                 </div>
@@ -1309,7 +1335,7 @@ class EditorPanel extends React.Component {
                             </li>)}
                     </ul> : ""}
                 {measurements.length ?
-                    <button type="button" className="btn btn-sm btn-default" onClick={() => this.setState({measurements: []})}>
+                    <button type="button" className="btn btn-sm btn-default" onClick={() => this.setState({measurements: [], measureNote: null})}>
                         <i className="fa fa-eraser fa-fw"></i> {_("Clear Measurements")}
                     </button> : ""}
             </div>
