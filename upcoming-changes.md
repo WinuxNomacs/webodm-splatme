@@ -18,8 +18,8 @@ None open.
 
 0a. Measuring on splats, before the release (the user, 2026-11-27): a Measure tool in Edit Splats that aims on the
    splats and takes its coordinates from the point cloud. Built 2026-11-27 (branch `measure`, merged). It ships in
-   0.5.0 (the user, 2026-11-27): left, the release review of the new code and the release check again on the zip
-   that will be tagged. See "28. Measuring on splats (built
+   0.5.0 (the user, 2026-11-27). Its release review is done (findings A to L in section 28; all fixed but I and L,
+   the user's choice); left, the release check again on the zip that will be tagged. See "28. Measuring on splats (built
    2026-11-27)".
 
 0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0; WebODM 4.0.1 or later): the release review
@@ -5139,4 +5139,33 @@ the model's, with a corner past the DSM's edge (the DSM stops 3 m short of the c
 40 random squares straight through `calc_volume` failed only where a corner was off the DSM. Copy, Delete and Clear
 worked; no console errors. Found and fixed during the check: the panel dropped the measurement it had just started
 (a state update raced the view's first callback), and the numbers read NaN (points as the view gives them).
+
+**Release review (2026-11-27, a fresh reviewer on `git diff dacc448..main -- splatme`, each finding checked again in
+the code; fixed on branch `measure-fixes` but I and L, the user's choice):**
+
+- A (medium, fixed): the snap took the cloud point nearest the ray whatever its depth, so the top of a wall seen
+  from above could snap part-way down. It now takes the one nearest the hit's depth (its distance across added).
+  Test: the wall's top.
+- B (medium, fixed): WebODM's `get_and_check_task` skips the check for a public task, so a visitor could call snap
+  (a PDAL process for up to 15 s in a web worker) and volume. Both now need the right to change the project, as
+  Edit Splats does. Tests: a viewer and a public task's visitor refused (WebODM answers 404).
+- C (fixed): a snap answering after the page switched Splats and 3D Model drove the old panel: `dispose` drops the
+  measurement, and the panel's handlers check it is mounted.
+- D (fixed): a double click's second click could add a point when it snapped elsewhere: it is now told by time
+  and place on screen.
+- E (fixed): a Volume whose worker never answered showed "Calculating…" forever: the panel polls WebODM's
+  `/api/workers` itself, with a 10-minute deadline, and stops once the measurement is deleted or the page left.
+- F (fixed): a snap's warning stayed for the visit: cleared by a new measurement and by Clear Measurements.
+- G (fixed): the measurement being clicked could be in the thumbnail: hidden while it is taken.
+- H (fixed): M did nothing while the model could not be edited; it now works whenever the model shows, and "(M)"
+  is on the kind it starts.
+- J (fixed): Enter also pressed the Measure button that kept the focus: the button's focus is dropped.
+- K (fixed): the docs: Enter, M stopping, measurements lost on switching Splats and 3D Model, the snap's rule, the
+  radius taken as 0.002 to 2.
+- I (low, left): a pinch whose second finger lifts first can add a point; Straighten has the same, to fix together.
+- L (low, left): a missing DSM file's error shows its server path, as WebODM's own map does.
+
+Checked live again (a copy of the check task, deleted after): M starts and stops, a double click ends a Distance,
+Enter ends an Area, a Volume came back through the new polling (28.7 m3), switching views mid-measurement left no
+errors. 221 Django tests, 248 Jest tests, the node's tests, Ruff and ESLint pass.
 

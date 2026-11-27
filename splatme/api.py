@@ -50,7 +50,7 @@ The plugin's API, under /api/plugins/splatme/.
                              them (SplatMe's Tasks page, in one request); a project with none is left out. Also the
                              projects the user may add a task to (New Task With Splats). ?project=<id> for one project
 
-Starting, canceling, editing and applying need the right to change the task's project (measuring, to see the task); the node's token never leaves the server.
+Starting, canceling, editing, applying and measuring need the right to change the task's project; the node's token never leaves the server.
 """
 import logging
 import os
@@ -350,10 +350,12 @@ class Apply(TaskView):
 
 
 class Snap(TaskView):
-    """A point picked in Edit Splats' Measure, moved onto the task's point cloud."""
+    """A point picked in Edit Splats' Measure, moved onto the task's point cloud. As the page, only for those who may
+    change the task's project: a public task's visitors could otherwise start PDAL at will."""
 
     def get(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
         query = request.query_params
         try:
             found = measure.snap(task, measure.vector(query.get("origin"), "The origin"),
@@ -369,6 +371,7 @@ class Volume(TaskView):
 
     def post(self, request, pk=None):
         task = self.get_and_check_task(request, pk)
+        check_project_perms(request, task.project, perms=("change_project",))
         data = request.data if isinstance(request.data, dict) else {}
         base = data.get("base") or "triangulate"
         if base not in measure.BASES:

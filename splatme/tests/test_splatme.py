@@ -3822,6 +3822,16 @@ class TestMeasure(BootTestCase):
         self.assertTrue(res.data["snapped"])
         self.assertAlmostEqual(res.data["point"][2], 12.0, places=3)
 
+    def test_the_top_of_a_wall_seen_from_above_snaps_to_its_top_not_part_way_down(self):
+        # A wall's face under a ray looking straight down: points every 10 cm down from its top at height 10, the
+        # one nearest the ray a metre down. The hit is where the view met the top.
+        rows = [[0.015, 0, 10 - 0.1 * i] for i in range(15)]
+        rows[10][0] = 0.001
+        points = np.array(rows)
+        found = measure.nearest_on_ray(points, np.array([0.0, 0, 20]), np.array([0.0, 0, -1]), np.array([0.0, 0, 10.03]),
+                                       radius=0.03, window=2.0)  # fmt: skip
+        self.assertEqual(found.tolist(), [0.015, 0, 10])
+
     def test_a_task_without_a_point_cloud_keeps_the_hit_and_says_why(self):
         res = self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10))
         self.assertEqual(res.status_code, 200)
@@ -3844,14 +3854,26 @@ class TestMeasure(BootTestCase):
             self.assertEqual(res.status_code, 400, (origin, direction, hit, radius))
             self.assertIn("error", res.data)
 
-    def test_only_those_who_may_see_the_task_may_measure_it(self):
+    def test_only_those_who_may_change_the_tasks_project_may_measure_it_as_they_alone_may_open_its_editor(self):
         other = APIClient()
         other.login(username="testuser2", password="test1234")
+        volume = {"ring": [[0, 0], [1, 0], [1, 1]]}
         self.assertIn(self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10), client=other).status_code, (403, 404))
-        res = other.post(f"{API}/task/{self.task.id}/volume", {"ring": [[0, 0], [1, 0], [1, 1]]}, format="json")
-        self.assertIn(res.status_code, (403, 404))
+        self.assertIn(other.post(f"{API}/task/{self.task.id}/volume", volume, format="json").status_code, (403, 404))
         assign_perm("view_project", User.objects.get(username="testuser2"), self.task.project)
+        # WebODM's check_project_perms answers a refusal as not found
+        self.assertEqual(self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10), client=other).status_code, 404)
+        self.assertEqual(other.post(f"{API}/task/{self.task.id}/volume", volume, format="json").status_code, 404)
+        assign_perm("change_project", User.objects.get(username="testuser2"), self.task.project)
         self.assertEqual(self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10), client=other).status_code, 200)
+
+    def test_a_public_tasks_visitors_may_not_measure_it(self):
+        self.task.public = True
+        self.task.save()
+        anonymous = APIClient()
+        self.assertIn(self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10), client=anonymous).status_code, (401, 403, 404))
+        res = anonymous.post(f"{API}/task/{self.task.id}/volume", {"ring": [[0, 0], [1, 0], [1, 1]]}, format="json")
+        self.assertIn(res.status_code, (401, 403, 404))
 
     def test_a_volume_is_worked_out_by_webodms_own_on_the_dsm_with_its_corners_in_longitude_and_latitude(self):
         from pyproj import Transformer
@@ -3894,7 +3916,7 @@ class TestMeasure(BootTestCase):
             self.assertEqual(res.status_code, 400, data)
             run.assert_not_called()
 
-    def test_the_point_nearest_the_ray_within_the_window_is_chosen(self):
+    def test_the_point_nearest_the_hits_depth_within_the_ray_and_window_is_chosen(self):
         points = np.array([[0.0, 0, 0], [0.01, 0, 0], [0.002, 0, 0.5], [0.0, 0, -0.3]])
         origin, direction = np.array([0.0, 0, 10]), np.array([0.0, 0, -1])
         found = measure.nearest_on_ray(points, origin, direction, np.array([0.0, 0, 0.05]), radius=0.02, window=0.25)
