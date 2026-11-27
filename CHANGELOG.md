@@ -29,6 +29,10 @@ the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test
 - An option saved for another trainer is left out of a training, which names it, instead of refusing to start.
 - Splat nodes' addresses are shown to superusers only.
 - Train Splats no longer resets Steps or Image Size typed in before the dialog finished loading.
+- A node that is training no longer shows as not answering, or as having no GPU, on a machine where `nvidia-smi`
+  slows down under a training: Train Splats can queue another training then, and an automatic training no longer
+  fails. Node 0.3.0 answers with its last GPU reading while it trains; with an older node, SplatMe accepts a busy
+  node that reports no GPU.
 - The splat node refuses an upload that would unpack to more than its disk or its model's size, kills what a
   trainer leaves running, and serves at most 128 connections at once. `splatnode.sh uninstall --yes` keeps an
   image built on the machine, and the script no longer puts the token on `curl`'s command line.

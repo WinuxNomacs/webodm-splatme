@@ -1443,6 +1443,17 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.client.get(f"{API}/task/{task.id}/check?node=nope").data["node_error"],
                          "That splat node is not set up in SplatMe.")
 
+    def test_a_busy_node_without_a_gpu_reading_trains_and_an_idle_one_is_refused(self):
+        # Under a training nvidia-smi can be too slow to answer, and a node before 0.3.0 then says it has no GPU
+        task = make_task(self.user)
+        self.node.gpu, self.node.running = None, "another"
+        self.assertIsNone(self.client.get(f"{API}/nodes").data["nodes"][0]["error"])
+        self.assertIsNone(self.client.get(f"{API}/task/{task.id}/check").data["node_error"])
+        self.assertEqual(self.train(task, steps=20).status_code, 200)
+        self.node.running = None
+        self.assertEqual(self.client.get(f"{API}/nodes").data["nodes"][0]["error"], api.UNAVAILABLE)
+        self.assertEqual(self.client.get(f"{API}/task/{task.id}/check").data["node_error"], api.UNAVAILABLE)
+
     def test_the_nodes_list_never_gives_a_token_and_gives_addresses_to_administrators_only(self):
         self.second_node()
         data = self.client.get(f"{API}/nodes").data

@@ -61,6 +61,8 @@ class FakeNode:
         self.trainer_kind = None  # its info's trainer_kind and supports: None, as a node before 0.3.0 says neither
         self.supports = None
         self.continue_from = None  # what a model needs for it to continue it: None, as a node before 0.3.0
+        self.gpu = {"name": "Fake GPU"}  # its info's GPU reading and running job
+        self.running = None
         self.splats = None  # (SH degree, properties left out) of the models it gives, with a splat model's header
         self.script = [("queued", {"position": 1}), ("running", {"progress": 50, "step": 5}), ("completed", {})]
         self.failures = []  # statuses its next job status requests answer with a page (a proxy's 502 while the node restarts)
@@ -162,7 +164,7 @@ class FakeNode:
     def info(self):
         info = {
             "name": "SplatMe splat node", "version": self.version, "trainer": "OpenSplat fake",
-            "gpu": {"name": "Fake GPU"}, "running": None, "queued": 0, "options": self.options,
+            "gpu": self.gpu, "running": self.running, "queued": 0, "options": self.options,
         }  # fmt: skip
         if self.trainer_kind is not None:
             info["trainer_kind"] = self.trainer_kind

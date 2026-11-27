@@ -715,6 +715,54 @@ class TestFailures(NodeTestCase):
             saved = json.load(f)
         self.assertEqual((saved["state"], saved["error"]), ("failed", "The splat node was stopped while this job was training"))
 
+    def test_info_answers_at_once_while_nvidia_smi_is_slow_under_a_training(self):
+        node = self.server.node
+        reading = {"name": "GPU", "memory_total": 8000, "memory_used": 100}
+        self.patch(splatnode, "gpu_info", lambda: dict(reading))
+        self.assertEqual(self.request("GET", "/info")[1]["gpu"], reading)  # idle: asked at once
+        os.environ["FAKE_TRAINER"] = "slow"
+        job = self.create("steps=100")
+        self.wait_for_a_step(job["id"])
+        released = threading.Event()
+        self.addCleanup(released.set)
+        self.patch(splatnode, "gpu_info", lambda: released.wait(30) and None)  # slower than a client waits
+        self.patch(splatnode, "GPU_REFRESH", 0)
+        for _ in range(3):
+            started = time.monotonic()
+            info = self.request("GET", "/info")[1]
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertEqual((info["gpu"], info["running"]), (reading, job["id"]))
+        released.set()  # it answers nothing in the end: the reading from before the training stands
+        for _ in range(100):
+            if not node.gpu_refreshing:
+                break
+            time.sleep(0.05)
+        self.assertEqual(self.request("GET", "/info")[1]["gpu"], reading)
+
+    def test_a_node_whose_gpu_stops_answering_while_idle_says_it_has_none(self):
+        node = self.server.node
+        self.patch(splatnode, "GPU_REFRESH", 0)
+        self.patch(splatnode, "gpu_info", lambda: {"name": "GPU", "memory_total": 8000, "memory_used": 100})
+        self.assertEqual(self.request("GET", "/info")[1]["gpu"]["name"], "GPU")
+        self.patch(splatnode, "gpu_info", lambda: 1 / 0)  # a reading that raises is logged, never the end of the thread or the answer
+        for _ in range(100):
+            if self.request("GET", "/info")[1]["gpu"] is None:
+                break
+            time.sleep(0.05)
+        self.assertIsNone(self.request("GET", "/info")[1]["gpu"])
+        self.assertFalse(node.gpu_refreshing)
+
+    def test_a_client_that_hangs_up_before_its_answer_is_logged_in_one_line(self):
+        said = []
+        self.patch(splatnode, "log", said.append)
+
+        def hang_up(handler, data):
+            raise BrokenPipeError(errno.EPIPE, "Broken pipe")
+        self.patch(splatnode.Handler, "send_body", hang_up)
+        with self.assertRaises((http.client.HTTPException, ConnectionError)):
+            self.request("GET", "/info")
+        self.assertEqual(said, ["GET /info: the client hung up before its answer"])
+
     def test_an_unexpected_error_is_answered_with_its_message(self):
         self.patch(type(self.server.node), "info", lambda self: 1 / 0)
         response, data = self.request("GET", "/info")
