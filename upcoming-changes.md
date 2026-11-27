@@ -17,7 +17,8 @@ None open.
 **Up next**
 
 0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0): the release review is done ("Release review
-   of 0.5.0", findings A to AK); next, the user chooses the fixes, then they are built, then the user's run by hand
+   of 0.5.0", findings A to AK); the user chose 2026-11-27 to fix all but AB (their run by hand), AC (deferred) and
+   AF (dev only); next, the fixes, built on `review-plugin`, `review-pages`, `review-node`, `review-release`, then the user's run by hand
    of the release workflow, the release check (on WebODM 4.0.1 too), the release branch.
 
 1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
@@ -893,7 +894,7 @@ anyone who may see the task, its file kept per task until the edits or the model
   model; at 320 px the drawing controls stay in sight; a plain user who may not see the task gets the heading,
   the link back and the reason; no console error.
 
-### Release review of 0.5.0 (done 2026-11-26; fixes to choose with the user)
+### Release review of 0.5.0 (done 2026-11-26; fixes: all but AB, AC, AF, the user's choice 2026-11-27)
 
 `main` at f4ba2b1 (plugin 0.5.0 to be, node 0.3.0), against v0.4.0. Read by five readers in parallel (the plugin's
 Python, its pages, the splat node, the release and its pins, the docs), each finding checked again in the code
