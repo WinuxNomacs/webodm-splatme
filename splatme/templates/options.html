@@ -353,6 +353,7 @@ shared (the admin page) the administrators', for users who saved none, which onl
 
     form.addEventListener("submit", function(e){
         e.preventDefault();
+        if (switching) return;  // Enter in a field while the chosen node is asked
         save(document.getElementById("splatme-auto-save"), {node: nodes.length > 1 ? nodeSelect.value : "",
             trainer_kind: node ? kindOf(node) : "", steps: steps.value, image_size: size.value.trim() === "" ? 0 : size.value,
             // A field the node's trainer lacks is hidden, and saving clears it
@@ -363,11 +364,29 @@ shared (the admin page) the administrators', for users who saved none, which onl
     });
     reset.addEventListener("click", function(){ save(reset, {reset: true}); });
 
-    // Splat Node changed: that node's trainer, and the options saved for it
+    // Splat Node changed: that node's trainer, and the options saved for it. Until it answers Save waits (it would
+    // file the previous trainer's options under this one); a failure goes back to the node before
+    var switching = false, shownNode = "";
+    var saveButton = document.getElementById("splatme-auto-save");
+    nodeSelect.addEventListener("focus", function(){ if (!switching) shownNode = nodeSelect.value; });
     nodeSelect.addEventListener("change", function(){
         var chosen = nodeSelect.value;
+        switching = true;
+        saveButton.disabled = true;
+        saved.style.display = "none";
+        error.textContent = "";
         $.getJSON(API + "?ranges=1&node=" + encodeURIComponent(chosen)).done(function(data){
-            if (nodeSelect.value === chosen) show(data, chosen);
+            if (nodeSelect.value !== chosen) return;
+            show(data, chosen);
+            shownNode = chosen;
+            switching = false;
+            saveButton.disabled = false;
+        }).fail(function(xhr){
+            if (nodeSelect.value !== chosen) return;
+            nodeSelect.value = shownNode;
+            switching = false;
+            saveButton.disabled = false;
+            error.textContent = reason(xhr);
         });
     });
     $.getJSON("/api/plugins/splatme/nodes").done(function(data){
