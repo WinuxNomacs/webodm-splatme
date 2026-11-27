@@ -67,6 +67,8 @@ jobs:
   node:
     name: The splat node's image (${{ matrix.trainer }})
     runs-on: ubuntu-24.04
+    # LichtFeld Studio's build took 66 minutes on a GitHub runner, OpenSplat's 12 (2026-11-27): about twice that
+    timeout-minutes: 130
     permissions:
       packages: write  # to push the image
     strategy:
