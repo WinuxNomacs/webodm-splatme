@@ -16,11 +16,12 @@ None open.
 
 **Up next**
 
-0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0): the release review is done ("Release review
-   of 0.5.0", findings A to AK); the user chose 2026-11-27 to fix all but AB (their run by hand), AC (deferred) and
-   AF (dev only); the fixes built 2026-11-27 ("Fixes from the release review of 0.5.0"). Next: the user's run by
-   hand of the release workflow (the LichtFeld build on a GitHub runner, then a `timeout-minutes`), the release
-   check (on WebODM 4.0.1 too), the release branch.
+0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0; WebODM 4.0.1 or later): the release review
+   is done ("Release review of 0.5.0", findings A to AK, fixed but AB, AC and AF), the release workflow run by hand
+   (46032454011, 2026-11-27: all jobs passed; LichtFeld's image 66 minutes, OpenSplat's 12; the node job now has
+   `timeout-minutes: 130`), and the release check ("Release check of 0.5.0", with its two fixes). Branch
+   `release/0.5.0` (the manifest's version, the changelog's date) is ready to merge into `main`; then the user pushes
+   and tags `v0.5.0`, and the directory entry follows.
 
 1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
    `splatnode.sh`, node 0.2.3 on ghcr.io, the docs). The published zip's SHA-256 is `9bd1319d…` (the same files as
@@ -1330,6 +1331,72 @@ a lost Apply failed when next read; a task deleted during Apply; Download's temp
 *Also found*: the dev stack's check task was applied on directly on 2026-11-18 (34,308 splats removed, its edits
 since cleared), against the rule to copy it: its shown model is cut by edits it no longer has. An Apply with its
 empty edits makes it whole again; the user decides.
+
+### Release check of 0.5.0 (done)
+
+Rehearsed three times on 2026-11-27, each on a throwaway production WebODM (port 8018, project `sm-scratch`, removed
+after) with two copies of the 18-photo Brighton Beach task (the dev task untouched): 0.4.0 as published (SHA-256
+checked against its `.sha256`) and its own `splatnode.sh install` (node 0.2.3 from ghcr.io), upgraded to the new zip
+under a running training, then the node upgraded to `splatme-node:relcheck` (built from the same commit, its
+`splatnode.py` compared: identical) through a `docker` stand-in for the pull.
+
+**The first run (WebODM 4.0.0) found two bugs, both fixed and merged before the final run** (the user's decision:
+SplatMe has no release schedule, findings are fixed before the release):
+
+- **A training node looked broken** (since 0.2.x). Under a training `nvidia-smi` took 10 to 31 s on this machine
+  (WSL; under 1.2 s idle), and the node's `/info` waited for it. SplatMe waits 15 s, so while a node trained, the
+  nodes list showed "does not answer" (or "has no GPU it can use" when it answered with no reading), Train Splats
+  refused to start or queue a training on another task, and an automatic training would have failed (read in the
+  code). Fix (branch `fix-busy-gpu`): the node answers with its last GPU reading, renewed in the background every
+  30 s, and logs a client that hangs up in one line; SplatMe accepts a busy node with no GPU reading, which helps
+  nodes before 0.3.0 only when they answer within 15 s (seen in the second run: sometimes accepted, sometimes not;
+  upgrading the node is what fixes it). Tests in `node/tests` (slow `nvidia-smi` under a training, a reading that
+  raises, a client hanging up) and Django (a busy node without a reading), each seen failing on the old code.
+- **Browsers kept the old pages after an upgrade** (since 0.1.0). The server gives `public/` no Cache-Control; after
+  a reinstall, headless Chromium ran the old `build/Tasks.js` from its disk cache. Fix (branch
+  `fix-stale-bundles`): each bundle's URL carries a version made from its built files (`plugin.bundle_version`);
+  main.js asks `/plugins/splatme/bundles`; the pages link their stylesheets (WebODM's SystemJS takes one only by a
+  name ending in `.css`).
+
+**Then, with the user (2026-11-27): each release is tested on the newest WebODM only** and raises
+`webodmMinVersion` to it, now 4.0.1 (released 2026-11-15; its plugin script versions, menus and project permission
+checks touch SplatMe); Getting Started's upgrade starts with updating WebODM. The dev stack moved to 4.0.1 (Django
+208, Jest 229, the node's tests and the docs build pass on it). A second run on 4.0.1, between the fixes, passed
+every step but had no browser check yet.
+
+**The final run**: WebODM 4.0.1, `dist/splatme-0.5.0.zip` from 560c385 (`release/0.5.0`), SHA-256
+`349b6771a6f06ddc3043327205b5fa2d56066713d1fdbdfbce3ae6770e289237`, by `scripts/rehearse.sh` (now in the skill):
+
+1. 0.4.0 installed ("SplatMe installed successfully"), two task copies imported.
+2. The 0.4.0 node: "The splat node 0.2.3 runs", "SplatMe in WebODM (smz-webapp) now trains on this node".
+3. On 0.4.0: a 1,500-step training completed; the administrators' defaults (4,000 steps, Image Size 1,200, Ignore
+   Sky), the administrator's own options (2,500, 1,000, no Crop) and a task's automatic training (3,500, 900) saved;
+   a browser profile visited the Dashboard and Tasks (`main.js?v=0.4.0`, unversioned bundles); a 12,000-step
+   training started.
+4. The upgrade under it: "Cannot load plugin: A plugin with the name splatme already exist...", deleted, "SplatMe
+   installed successfully", WebODM restarted. The record stood at step 930 for 99 s; one `GET revive` (204) took it
+   over (step 4,210 fifteen seconds later); it completed.
+5. Every setting as saved; the node migrated to the nodes list as `default`, named "OpenSplat" after its trainer,
+   same address, its token still the node's; `update`: "Node 0.2.3 trains, but lacks continuing another trainer's
+   model: update it to 0.3.0 or later." The browser back: `main.js?v=0.5.0`, `bundles`, `Dashboard.js?v=d7faddea7c13`,
+   `Tasks.js?v=78f477d6124b`, all from the network.
+6. Continue From Step on the old node: completed.
+7. The node's upgrade during a training, no terminal: "A training runs on the node: the upgrade restarts the node and
+   that training fails. Upgrade once it is done, or run again with --force.", exit 1, its files unchanged.
+8. Idle: "The splat node runs version 0.3.0 (it was 0.2.3). Its jobs and token are kept." then "The previous image is
+   still used (by a container or another tag): kept." (the user's own stopped `splatnode` container uses it); its
+   settings kept, `SPLATNODE_TRAINER_KIND=opensplat` added.
+9. On 0.5.0 and node 0.3.0: Continue; while it trained, the nodes list three times "busy": true with no error,
+   another task's check with no node error, and a second training queued ("Position 1 in the node's queue"); WebODM's
+   worker restarted; the pages (GET only) took both over and both imported. Tasks ("View in 3D") and Administration
+   → SplatMe ("The splat node is ready.", the node shown as "OpenSplat") without console errors.
+10. Logs: no traceback in the webapp, the worker or the node; the webapp logged each takeover.
+
+Not rehearsed: WebODM's **Update** button for SplatMe (Install Plugins), which appears only once the directory lists
+0.5.0; it installs the same zip. **Cleanup**: the node uninstalled, the stack removed with its volumes and network,
+`splatme-node:relcheck` deleted, the local `ghcr.io/winuxnomacs/splatme-node:latest` tag pointed back at the user's
+0.2.3 image (`976d3844…`, which the stand-in had moved), the task copies deleted. Kept: the pulled
+`webodm/webodm_webapp:4.0.1` image (the dev stack runs it now).
 
 ### Release check of 0.4.0 (done)
 

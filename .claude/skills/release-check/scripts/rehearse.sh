@@ -254,6 +254,8 @@ cmd_clean() {
     else
         docker image rm "$LATEST" >/dev/null 2>&1 || true
     fi
+    # Again: WebODM's network is left while the node, which joined it, is still there
+    [ -x "$RC_DIR/stack.sh" ] && "$RC_DIR/stack.sh" down -v >/dev/null 2>&1 || true
     rm -rf -- "${RC_DIR:?}/splatnode" "${RC_DIR:?}/task" "${RC_DIR:?}/profile" "${RC_DIR:?}/pages" "${RC_DIR:?}/old" "${RC_DIR:?}/bin"
     rm -f -- "${RC_DIR:?}"/scratch.yml "${RC_DIR:?}"/stack.sh "${RC_DIR:?}"/tasks.txt "${RC_DIR:?}"/node-files "${RC_DIR:?}"/latest-before "${RC_DIR:?}"/backup.zip
     echo "left: $(docker ps -aq -f name='^smz-' | wc -l) smz- containers, $(docker volume ls -q | grep -c 'sm-scratch\|smz' || true) volumes, $(docker network ls --format '{{.Name}}' | grep -c 'sm-scratch\|smz' || true) networks"
