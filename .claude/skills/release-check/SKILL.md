@@ -5,10 +5,24 @@ description: The upgrade rehearsal before tagging a SplatMe release - the last p
 
 # Release check
 
-An existing user's upgrade, rehearsed on a throwaway production WebODM 4.0.0 beside the dev stack, which is never
+An existing user's upgrade, rehearsed on a throwaway production WebODM (the version the dev stack pins) beside the dev stack, which is never
 touched. Run it on the zip that will be released: if `splatme/`, `node/` or the docs change after it, run it again.
 It needs no login from the user (the throwaway gets its own administrator) and pushes nothing. About half an hour
 of the GPU and the machine. Keep every file in the session's scratchpad (`$S` below).
+
+**`scripts/rehearse.sh` runs sections 2 to 4 in one go** (after section 1's zip and node image), printing what each
+step observed for the record and stopping at the first that fails; `rehearse.sh clean` is section 5:
+
+```
+RC_DIR=$S/rc RC_OLD=<last release> RC_ZIP=dist/splatme-X.Y.Z.zip .claude/skills/release-check/scripts/rehearse.sh run
+RC_DIR=$S/rc .claude/skills/release-check/scripts/rehearse.sh clean
+```
+
+It runs on the WebODM that `dev/webodm.sh` pins, which is kept at the newest WebODM release: each SplatMe release
+is tested on that one only and raises the manifest's `webodmMinVersion` to it (the user's decision, 2026-11-27).
+When a newer WebODM is out, move the dev stack to it first (the note above the pins in `dev/webodm.sh`) and run the
+tests there. `RC_WEBAPP=webodm/webodm_webapp@<digest>` runs it on another. The sections below are what it does, and
+how to do a step by hand.
 
 ## 1. What is tested
 
@@ -59,6 +73,11 @@ Headless Playwright scripts in `scripts/` beside this file (run with `NODE_PATH=
 - **api.js** `<method> <path> [json]`: SplatMe's API (`/api/plugins/splatme/`) with the session's CSRF token.
 - **pages.js** `<folder>`: SplatMe → Tasks, Administration → SplatMe, letting only GET and HEAD through (and the
   login POST), console errors read, screenshots into the folder.
+- **cache.js** `<profile folder>`: the Dashboard and SplatMe → Tasks in a persistent browser profile, each SplatMe
+  bundle printed as loaded from the network or the disk cache. Run before the upgrade and after it: a bundle from
+  the cache with the old `Last-Modified` means users would run the old page (found 2026-11-27, fixed by versioned
+  bundle URLs). After the upgrade every SplatMe file must come from the network: WebODM (4.0.1 on) gives `main.js`
+  the plugin's version, and main.js and the pages give the bundles theirs.
 
 A record's state, straight from the database: `PluginDatum.objects.get(key='splatme::job::<task id>')` in `docker
 exec -w /webodm smz-webapp python manage.py shell -c ...`; all SplatMe's rows: `key__startswith='splatme::'` (print
@@ -83,7 +102,8 @@ delete the zip.
 4. Records saved, then the plugin upgraded **while that training runs on the node** (upgrade.js, restart webapp
    and worker). The old worker job dies with the restart: the record stands still past the 60 s limit, then one `GET
    revive` (what every signed-in page asks) must take it over, and it completes and imports.
-5. Every setting the same as before; the saved token still the node's (`SPLATNODE_TOKEN` in its `.env`).
+5. Every setting the same as before; the saved token still the node's (`SPLATNODE_TOKEN` in its `.env`). The
+   browser that visited before the upgrade (cache.js) loads the new bundles.
 6. Continue on the old node (no `ref` is sent to a node older than `REF_VERSION`).
 7. `splatnode.sh upgrade` from the commit, while a training runs and with no terminal: must refuse naming
    `--force`, exit 1, nothing changed. Run it with `setsid -w bash node/splatnode.sh ... </dev/null` (no
@@ -91,9 +111,13 @@ delete the zip.
 8. Once idle, the upgrade, with a `docker` wrapper first on `PATH` standing in for the pull of the unpublished
    image: on `docker compose ... pull` (the last argument), it runs `docker tag splatme-node:relcheck
    ghcr.io/winuxnomacs/splatme-node:latest` instead; everything else goes to `/usr/bin/docker`. Expect "runs
-   version <new> (it was <old>). Its jobs and token are kept. The previous image was deleted."
-9. On the new release and node: Continue again (the node's `GET /jobs?ref=<run>` finds the job); WebODM's worker
-   restarted mid-training, then pages.js, whose revive takes it over; the import; the pages without console errors.
+   version <new> (it was <old>). Its jobs and token are kept. The previous image was deleted." ("still used ...
+   kept" when another container on the machine uses that image.) The stand-in moves the `latest` tag: note its image
+   before and tag it back at cleanup.
+9. On the new release and node: Continue again (the node's `GET /jobs?ref=<run>` finds the job). While it trains,
+   the nodes list and another task's check show the node busy with no error, and a second training queues (found
+   2026-11-27: a busy node's `nvidia-smi` took longer than SplatMe waits). WebODM's worker restarted mid-training,
+   then pages.js, whose revive takes it over; the import; the pages without console errors.
 10. The webapp's, the worker's and the node's logs: no error or traceback (the webapp logs each takeover).
 
 Notes from running it:
@@ -109,8 +133,8 @@ Notes from running it:
 
 ## 5. Cleaning up
 
-`splatnode.sh uninstall --yes` (same `SPLATNODE_DIR` and `SPLATNODE_PROJECT`), `docker image rm
-ghcr.io/winuxnomacs/splatme-node:latest splatme-node:relcheck` (only if neither was there before the check),
+`splatnode.sh uninstall --yes` (same `SPLATNODE_DIR` and `SPLATNODE_PROJECT`), `ghcr.io/winuxnomacs/splatme-node:latest`
+tagged back on the image it had before the check (or removed if there was none), `docker image rm splatme-node:relcheck`,
 `stack.sh down -v`, the task copy and the node's folder (`rm -rf -- "${S:?}/..."`). Then confirm: no `smz-`
 container, no `sm-scratch` or `smz` volume or network, the `sm-` containers as they were.
 
