@@ -89,7 +89,9 @@ it short; edit in place.
 - **Never push and never tag.** `.github/workflows/release.yml` runs only for a pushed `v*` tag (which must be
   the manifest's version) or by hand: it attaches `splatme-<version>.zip` (built by `dev/build-zip.sh`) and
   `node/splatnode.sh` (which the docs fetch from `releases/latest`) to a GitHub release, and pushes the node's two images, `ghcr.io/winuxnomacs/splatme-node` (OpenSplat) and `splatme-node-lichtfeld`
-  (a matrix in one job; both carry the node's own version, and `latest`), before the release is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation";
+  (a matrix in one job, each pushed under `run-<run id>`; once both are built the `publish` job gives them the node's
+  own version and `latest`, then checks both pull without a login: a new package starts private on ghcr.io and must
+  be made public), before the release is created; then it publishes the docs site to GitHub Pages (by hand only with "Publish the documentation";
   a run by hand builds both images too, without pushing them, before the docs deploy: OpenSplat's about 30
   minutes). A change to either Dockerfile or `node/splatnode.py` needs a new `VERSION` there: a version's image is built
   once, and carries a hash of its Dockerfile and `splatnode.py`, so a release whose node changed under a published version fails. Never add a

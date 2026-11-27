@@ -22,12 +22,19 @@ on:
 permissions:
   contents: read
 
+# One release at a time: two tags pushed close together would race to move latest
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   plugin:
     name: The plugin's zip
-    # After both of the node's images (needs waits for every matrix entry): the release's splatnode.sh
-    # (releases/latest) must not install an image not yet there
-    needs: node
+    # After both of the node's images are published and pullable without a login: the release's splatnode.sh
+    # (releases/latest) must not install an image not yet there. On a run by hand that publishes no image, after
+    # both are built
+    needs: [node, publish]
+    if: ${{ !cancelled() && needs.node.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write  # to create the release
@@ -63,7 +70,7 @@ jobs:
     permissions:
       packages: write  # to push the image
     strategy:
-      # One image failing does not cancel the other; the release still waits for both
+      # One image failing does not cancel the other (its log stays whole); nothing is published unless both build
       fail-fast: false
       matrix:
         include:
@@ -71,7 +78,7 @@ jobs:
             dockerfile: node/Dockerfile
             image: splatme-node
             description: "SplatMe's splat node: OpenSplat on an NVIDIA GPU, for WebODM"
-            licenses: AGPL-3.0
+            licenses: AGPL-3.0-only
             trainer_repo: https://github.com/WebODM/OpenSplat
             commit_arg: OPENSPLAT_COMMIT
           - trainer: lichtfeld
@@ -79,7 +86,7 @@ jobs:
             image: splatme-node-lichtfeld
             description: "SplatMe's splat node: LichtFeld Studio on an NVIDIA GPU, for WebODM"
             # SplatMe's node, and LichtFeld Studio (its NVIDIA library exception is in the image, /opt/lichtfeld)
-            licenses: AGPL-3.0 AND GPL-3.0-or-later
+            licenses: AGPL-3.0-only AND GPL-3.0-or-later
             trainer_repo: https://github.com/MrNeRF/LichtFeld-Studio
             commit_arg: LFS_COMMIT
     steps:
@@ -122,23 +129,38 @@ jobs:
       - name: Skip a version already published
         id: published
         if: steps.image.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # A plugin-only release leaves the node's version as it was: its image is not built again. A version's
           # image is built once, so a change to what goes in it (its Dockerfile, node/splatnode.py) needs a new
           # VERSION, or it would never be published: the published image's inputs must be these.
           name="${{ steps.image.outputs.name }}"; version="${{ steps.image.outputs.version }}"
           # FOUND: what --format shows of a published tag, or nothing when it is not published ("not found", as
-          # ghcr.io words it). Any other error (ghcr.io not answering) ends the job: a published version must never
-          # be built over. (It sets FOUND rather than printing it: an exit in $(...) would end only the subshell.)
+          # ghcr.io words a missing tag). A package never published (the first release of an image) may be worded
+          # otherwise: it counts as not published only when the GitHub API says the package does not exist. Any
+          # other error (ghcr.io not answering) ends the job: a published version must never be built over. (It sets
+          # FOUND rather than printing it: an exit in $(...) would end only the subshell.)
           inspect() {
             local out
             FOUND=""
             if out="$(docker buildx imagetools inspect "$name:$1" --format "$2" 2>&1)"; then
               FOUND="$out"
-            elif ! printf '%s' "$out" | grep -q ': not found$'; then
+            elif printf '%s' "$out" | grep -q ': not found$'; then
+              :
+            elif ! package_exists; then
+              echo "::notice::$name has never been published: $out"
+            else
               echo "::error::ghcr.io did not say whether $name:$1 is published: $out"
               exit 1
             fi
+          }
+          # Whether the package exists: the API answers 404 for one that does not (any other failure: it may)
+          package_exists() {
+            local code
+            code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/${{ matrix.image }}")"
+            [ "$code" != 404 ]
           }
           version_label='{{index .Image.Config.Labels "org.opencontainers.image.version"}}'
           # latest moves only forward: never to a version older than the one it is (a tag on an older commit, a run by hand)
@@ -182,16 +204,58 @@ jobs:
             --label "org.opencontainers.image.version=${{ steps.image.outputs.version }}" \
             --label "splatme.node.inputs=${{ steps.image.outputs.inputs }}"
           docker image ls "${{ steps.image.outputs.name }}"
-      - name: Push the image
+      - name: Push the image under this run's tag
         if: steps.image.outputs.publish == 'true' && steps.published.outputs.skip != 'true'
         run: |
-          docker push "${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}"
-          echo "### The splat node (${{ matrix.trainer }})" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ steps.published.outputs.move_latest }}" = true ]; then
-            docker push "${{ steps.image.outputs.name }}:latest"
-            echo "and \`latest\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          # Not its version nor latest yet: the publish job gives it those once both images are built, so one image
+          # failing publishes neither (an upgrade would otherwise get a node with no plugin release behind it)
+          name="${{ steps.image.outputs.name }}"
+          docker tag "$name:${{ steps.image.outputs.version }}" "$name:run-$GITHUB_RUN_ID"
+          docker push "$name:run-$GITHUB_RUN_ID"
+
+  publish:
+    name: Publish the splat node's images
+    # Once both images are built (needs waits for every matrix entry and fails if one did)
+    needs: node
+    if: github.ref_type == 'tag' || inputs.publish_image
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write  # to tag the images
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Give this run's images their version and latest
+        run: |
+          version="$(python3 -c 'import re; print(re.search(r"^VERSION = \"(.+)\"", open("node/splatnode.py").read(), re.M).group(1))')"
+          for image in splatme-node splatme-node-lichtfeld; do
+            name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$image"
+            # An image this run built (one already published was skipped, and keeps its tags)
+            docker buildx imagetools inspect "$name:run-$GITHUB_RUN_ID" >/dev/null 2>&1 || continue
+            docker buildx imagetools create -t "$name:$version" "$name:run-$GITHUB_RUN_ID"
+            echo "### \`$name:$version\`" >> "$GITHUB_STEP_SUMMARY"
+            # latest moves only forward
+            current="$(docker buildx imagetools inspect "$name:latest" --format '{{index .Image.Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || true)"
+            if [ -z "$current" ] || [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$version" ]; then
+              docker buildx imagetools create -t "$name:latest" "$name:run-$GITHUB_RUN_ID"
+              echo "and \`latest\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+      - name: The images can be pulled without a login
+        run: |
+          # A package's first publication is private on ghcr.io: an administrator's install would then fail. Checked
+          # before the plugin's release is made: set it public (the package's settings) and run the release again
+          docker logout ghcr.io
+          version="$(python3 -c 'import re; print(re.search(r"^VERSION = \"(.+)\"", open("node/splatnode.py").read(), re.M).group(1))')"
+          for image in splatme-node splatme-node-lichtfeld; do
+            name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$image"
+            if ! out="$(docker buildx imagetools inspect "$name:$version" 2>&1)"; then
+              echo "::error::$name:$version can't be pulled without a login (a private package?): $out"
+              exit 1
+            fi
+          done
 
   docs:
     name: The documentation site
