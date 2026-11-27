@@ -1371,8 +1371,40 @@ class Handler(BaseHTTPRequestHandler):
                 shutil.copyfileobj(f, self.wfile, CHUNK)
 
 
+MAX_CONNECTIONS = 128  # connections served at once: past it one is answered 503 and closed at once (high enough that a few idle sockets cannot lock SplatMe out)
+
+
+class Server(ThreadingHTTPServer):
+    """One thread a connection, at most MAX_CONNECTIONS of them: clients that send slowly (or never finish) hold
+    a thread each until the socket's timeout, and without a limit they could hold the node's memory and threads."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            try:
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 def make_server(host, port, data_dir, trainer, token="", keep_hours=48, stall_minutes=STALL_MINUTES, kind="opensplat"):
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = Server((host, port), Handler)
     server.daemon_threads = True
     server.node = Node(data_dir, trainer, keep_hours, stall_minutes, kind)
     server.token = token

@@ -104,11 +104,13 @@ class NodeTestCase(unittest.TestCase):
 
     def request(self, method, path, body=None, token="secret"):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        self.addCleanup(conn.close)
         headers = {"Authorization": "Bearer " + token} if token else {}
-        conn.request(method, path, body=body, headers=headers)
-        response = conn.getresponse()
-        data = response.read()
+        try:
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            data = response.read()
+        finally:
+            conn.close()  # as SplatMe's requests do: an idle connection holds one of the node's threads
         if response.getheader("Content-Type") == "application/json" and data:
             data = json.loads(data)
         return response, data
@@ -599,6 +601,32 @@ class TestFailures(NodeTestCase):
         self.assertEqual(self.wait(job["id"])["state"], "canceled")
         log = self.request("GET", "/jobs/{}/log".format(job["id"]))[1]
         self.assertNotIn(b"Using CUDA", log if isinstance(log, bytes) else log.encode())
+
+    def test_clients_that_never_finish_their_request_hold_at_most_a_set_number_of_threads(self):
+        self.patch(splatnode, "MAX_CONNECTIONS", 3)
+        self.server.slots = threading.BoundedSemaphore(3)
+        idle = []
+        for _ in range(3):  # connected, a header begun, never finished (no token needed)
+            s = socket.create_connection(("127.0.0.1", self.port))
+            s.sendall(b"GET /info HTTP/1.1\r\nHost: x\r\n")
+            idle.append(s)
+            self.addCleanup(s.close)
+        time.sleep(0.3)
+        late = socket.create_connection(("127.0.0.1", self.port))
+        self.addCleanup(late.close)
+        late.settimeout(5)
+        self.assertIn(b"503", late.recv(100))
+        for s in idle:
+            s.close()
+        for _ in range(50):  # their threads end with them, and the node answers again
+            try:
+                if self.request("GET", "/info")[0].status == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.1)
+        else:
+            self.fail("The node did not answer once the idle clients left")
 
     def test_a_full_disk_as_a_job_starts_fails_that_job_and_the_next_one_trains(self):
         node = self.server.node
