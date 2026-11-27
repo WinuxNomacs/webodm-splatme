@@ -29,6 +29,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from .. import api, crop, edits, meshes, sky, thermal, training
+from .. import node as node_module
 from .fake_node import MODEL, OPTIONS, FakeNode, trained, trained_lichtfeld
 
 API = "/api/plugins/splatme"
@@ -1344,6 +1345,41 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(status["state"], "failed")
         self.assertIn("no longer set up in SplatMe", status["error"])
 
+    def test_a_broken_nodes_answer_cannot_fail_the_pages_and_numbered_names_are_not_written_again(self):
+        task = make_task(self.user)
+        self.node.run_030("opensplat")
+        self.node.options = {**self.node.options, "max_gaussians": {"min": "1"}, "strategy": {"choices": [1, 2]}, 7: {}}
+        self.node.continue_from = {"properties": [1, None], "sh_degrees": "all"}
+        self.node.trainer_kind = "  "
+        res = self.client.get(f"{API}/task/{task.id}/check")
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn("max_gaussians", res.data["ranges"])
+        self.assertEqual(self.train(task, steps=10, image_size=16, max_gaussians=5000).status_code, 200)
+        self.assertEqual([n["name"] for n in training.nodes()], ["OpenSplat"])  # the list still reads
+        # Two nodes named after the same trainer: the second numbered, once
+        self.node.trainer_kind = "opensplat"
+        training.add_node("", self.node.url, self.node.token)
+        self.assertEqual([n["name"] for n in self.client.get(f"{API}/nodes").data["nodes"]], ["OpenSplat", "OpenSplat 2"])
+        with mock.patch.object(training, "change_nodes") as change:
+            training.check_nodes()
+        change.assert_not_called()
+
+    def test_an_older_node_is_told_what_it_lacks_and_only_administrators_get_node_addresses(self):
+        self.assertIn("lacks Grow Until and datasets over 2 GB; continuing another trainer's model", node_module.update_note("0.2.2"))
+        self.assertNotIn("Grow Until", node_module.update_note("0.2.3"))
+        self.assertIsNone(node_module.update_note("0.3.0"))
+        self.assertNotIn("url", self.client.get(f"{API}/node").data)
+        admin = APIClient()
+        admin.login(username="testsuperuser", password="test1234")
+        self.assertEqual(admin.get(f"{API}/node").data["url"], self.node.url)
+        # A viewer of a public task asks no node
+        task = make_task(self.user)
+        Task.objects.filter(pk=task.pk).update(public=True)
+        with mock.patch.object(training, "check_nodes") as asked:
+            res = APIClient().get(f"{API}/task/{task.id}/check")
+        asked.assert_not_called()
+        self.assertEqual((res.status_code, res.data["nodes"], res.data["node"]), (200, [], None))
+
     def test_a_training_from_before_several_nodes_stays_with_the_node_it_was_sent_to(self):
         other, other_id = self.second_node()
         self.node.script = [("running", {"progress": 50, "step": 5})]
@@ -1841,22 +1877,21 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(self.client.post(f"{API}/node", {"url": "http://elsewhere:3100"}).status_code, 403)
         self.assertEqual(self.client.post(f"{API}/automation/shared", {"steps": 30}).status_code, 403)
 
-    def test_everyone_sees_the_nodes_state_and_address_and_only_administrators_change_them(self):
+    def test_everyone_sees_the_nodes_state_and_only_administrators_its_address_and_change_them(self):
         res = self.client.get(f"{API}/node")
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.data["admin"])
         self.assertEqual(res.data["node"]["trainer"], "OpenSplat fake")
-        self.assertEqual(res.data["url"], self.node.url)
+        self.assertNotIn("url", res.data)
         self.assertNotIn("token_set", res.data)
         self.assertNotIn(self.node.token, json.dumps(res.data))
         self.assertEqual(APIClient().get(f"{API}/node").status_code, 403)
 
-        # What is wrong with the node is for administrators; the address is still shown
+        # What is wrong with the node, and where it is, are for administrators
         training.set_node("http://127.0.0.1:9")
         res = self.client.get(f"{API}/node")
         self.assertIn("Ask an administrator", res.data["error"])
-        self.assertNotIn("127.0.0.1", res.data["error"])
-        self.assertEqual(res.data["url"], "http://127.0.0.1:9")
+        self.assertNotIn("127.0.0.1", json.dumps(res.data))
 
     def test_test_connection_tries_an_address_without_saving_it(self):
         admin = APIClient()
@@ -1878,9 +1913,12 @@ class TestSplatMe(BootTestCase):
         self.node.version = "0.2.2"
         res = admin.post(f"{API}/node", {"url": self.node.url, "save": False}, format="json")
         self.assertIsNone(res.data["error"])
-        self.assertIn("no Grow Until", res.data["node"]["update"])
-        self.assertIn("0.2.3 or later", res.data["node"]["update"])
+        self.assertIn("lacks Grow Until", res.data["node"]["update"])
+        self.assertIn("0.3.0 or later", res.data["node"]["update"])
         self.node.version = "0.2.3"
+        res = admin.post(f"{API}/node", {"url": self.node.url, "save": False}, format="json")
+        self.assertEqual(res.data["node"]["update"], "Node 0.2.3 trains, but lacks continuing another trainer's model: update it to 0.3.0 or later.")
+        self.node.version = "0.3.0"
         res = admin.post(f"{API}/node", {"url": self.node.url, "save": False}, format="json")
         self.assertIsNone(res.data["node"]["update"])
 
@@ -1929,7 +1967,7 @@ class TestSplatMe(BootTestCase):
         res = self.auto(task, enabled=True, steps=20, image_size=16)
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data, {"enabled": True, "options": {"steps": 20, "image_size": 16}, "node": None,
-                                    "by_kind": {"opensplat": {"steps": 20, "image_size": 16}}})
+                                    "by_kind": {"opensplat": {"steps": 20, "image_size": 16}, "lichtfeld": dict(training.DEFAULTS)}})
         self.assertEqual(self.node.jobs, {})
 
         self.complete(task)
@@ -3417,6 +3455,26 @@ class TestSplatMe(BootTestCase):
         self.assertEqual(status["state"], "failed")
         self.assertIn("does not answer", status["error"])
         self.assertTrue(self.node.jobs[node_job]["deleted"])
+
+    def test_a_node_that_does_not_answer_is_asked_once_a_look_whatever_its_number_of_trainings(self):
+        tasks = [make_task(self.user) for _ in range(3)]
+        for n, task in enumerate(tasks):
+            self.lost_job(task, self.node.add_job(f"job-{n}"))
+            training.change_job(str(task.id), lambda job: job.update(state="training", updated=time.time(), run="r"))
+        asked = []
+
+        def silent(node, job_id):
+            asked.append(job_id)
+            raise training.NodeError("The splat node does not answer.")
+
+        with mock.patch.object(training.Node, "job", silent), mock.patch.object(training, "follower_beat", return_value=True):
+            seen = {}
+            training.follow_all("frun", seen)
+            self.assertEqual(len(asked), 1)  # the others wait for the next look, not 15 s each
+            self.assertEqual(sorted(m.get("silent") is not None for m in seen.values()), [True, True, True])
+            with mock.patch.object(training, "NODE_PATIENCE", -1):
+                training.follow_all("frun", seen)
+        self.assertEqual([self.status(task)["state"] for task in tasks], ["failed"] * 3)  # each on time
 
     def test_continuing_uses_the_options_the_model_was_trained_with_not_the_last_trainings(self):
         task = make_task(self.user)

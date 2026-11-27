@@ -216,8 +216,9 @@ def name_after_trainers(results):
     name. {id: new name} of those renamed."""
     wanted = {entry["id"]: trainer_label(node_kind(info)) for entry, info, _ in results
               if entry.get("named") is False and info and info.get("trainer")}
-    if not any(names_differ(entry, wanted) for entry, _, _ in results):
-        return {}
+    entries = [entry for entry, _, _ in results]
+    if all(free_name(entries, wanted[e["id"]], e) == e["name"] for e in entries if e["id"] in wanted):
+        return {}  # as they are (a number included): nothing to write, no lock taken
 
     def change(listed):
         renamed = {}
@@ -230,9 +231,6 @@ def name_after_trainers(results):
 
     return change_nodes(change)
 
-
-def names_differ(entry, wanted):
-    return entry["id"] in wanted and entry["name"] != wanted[entry["id"]]
 
 
 # A record from before plan 25 has no node: it was sent to SplatMe's one node, which the list keeps as "default"
@@ -1644,9 +1642,19 @@ def follow_all(frun, seen):
     jobs = handed_jobs()
     if not jobs and follower_done(frun):
         return False
+    silent = set()  # the nodes that did not answer in this look: their other jobs wait for the next look
     for task_id, job in jobs:
+        memory = seen.setdefault(job["node_job"], {})
         try:
-            follow_job(task_id, job["run"], job_node(job), job["node_job"], seen.setdefault(job["node_job"], {}))
+            if job_node_id(job) in silent:
+                # Asked again next look; its silence counts from now, so it fails on time if the node stays silent
+                memory.setdefault("silent", time.time())
+                if time.time() - memory["silent"] > NODE_PATIENCE:
+                    raise NodeError("The splat node did not answer.")
+                continue
+            follow_job(task_id, job["run"], job_node(job), job["node_job"], memory)
+            if "silent" in memory:
+                silent.add(job_node_id(job))
         except Superseded:
             seen.pop(job["node_job"], None)
         except Canceled:

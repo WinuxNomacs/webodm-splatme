@@ -170,6 +170,10 @@ class Check(TaskView):
         # the default) is what the form shows. Only an administrator can fix a node, and its address is theirs to know
         chosen = request.query_params.get("node") or None
         out["nodes"], picked = [], None
+        if not request.user.has_perm("change_project", task.project):
+            # Only those who may train need the nodes (Train Splats, Change): a viewer of a public task asks none
+            out["node_error"] = UNAVAILABLE
+            return Response(out)
         for entry, info, error in training.check_nodes():
             item = {"id": entry["id"], "name": entry["name"], "trainer_kind": None, "continue_problem": None,
                     "error": None if error is None else (error if request.user.is_superuser else UNAVAILABLE)}
@@ -641,13 +645,13 @@ class NodeSettings(APIView):
     permission_classes = (IsAuthenticated,)
 
     def describe(self, request, node):
-        out = {"admin": request.user.is_superuser, "node": None, "error": None, "url": node.url}
+        out = {"admin": request.user.is_superuser, "node": None, "error": None}
         try:
             out["node"] = node_state(node.check())
         except NodeError as e:
             out["error"] = str(e) if request.user.is_superuser else UNAVAILABLE
-        if request.user.is_superuser:
-            out["token_set"] = bool(node.token)
+        if request.user.is_superuser:  # its address is an administrator's to know, as in GET nodes
+            out.update(url=node.url, token_set=bool(node.token))
         return out
 
     def get(self, request):
