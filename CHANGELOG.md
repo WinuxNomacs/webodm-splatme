@@ -7,8 +7,9 @@ where a release needs a newer one.
 
 LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio
 node side by side and choose which trains. **Needs WebODM 4.0.1 or later**: update WebODM first (each release now
-needs the newest WebODM of its day; an older one does not load SplatMe). Needs splat node 0.3.0 for LichtFeld Studio and for continuing a model
-the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test Connection** says what it lacks).
+needs the newest WebODM of its day; an older one does not load SplatMe). Needs splat node 0.3.0 for LichtFeld
+Studio and for continuing a model the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test
+Connection** says what it lacks).
 
 - **LichtFeld Studio**: `splatnode.sh install --trainer lichtfeld` installs a node that trains with it (its image,
   `ghcr.io/winuxnomacs/splatme-node-lichtfeld`, 1.4 GB, is published with each release beside OpenSplat's). Its
