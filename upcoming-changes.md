@@ -16,6 +16,12 @@ None open.
 
 **Up next**
 
+0a. Measuring on splats, before the release (the user, 2026-11-27): a Measure tool in Edit Splats that aims on the
+   splats and takes its coordinates from the point cloud. Built 2026-11-27 (branch `measure`, merged). Left: the
+   version it ships as (0.5.0 is merged but not tagged; the changelog has it under Unreleased), then the release
+   check again on the zip that will be tagged (shipped code changed). See "28. Measuring on splats (built
+   2026-11-27)".
+
 0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0; WebODM 4.0.1 or later): the release review
    is done ("Release review of 0.5.0", findings A to AK, fixed but AB, AC and AF), the release workflow run by hand
    (46032454011, 2026-11-27: all jobs passed; LichtFeld's image 66 minutes, OpenSplat's 12; the node job now has
@@ -53,9 +59,6 @@ joins older holes.
    from LichtFeld Studio and Splatshop (proposed)".
 2. Surfaces that build walls, floors and ceilings in a model (asked 2026-11-26): plan the tool with the user. See
    "26. Surfaces for walls, floors and ceilings (asked 2026-11-26, to plan)".
-3. Measuring on splats (asked 2026-11-27): a Measure tool that aims on the splats and takes its coordinates from
-   the point cloud; the approach is decided, the details are planned with the user. See "28. Measuring on splats
-   (approach decided 2026-11-27, to plan)".
 
 **Later**
 
@@ -5050,7 +5053,7 @@ open decisions).
 - Conversion on the app: `splat-tools` for Windows (how it is installed, given the plugin rules) or the node's
   conversion.
 
-### 28. Measuring on splats (approach decided 2026-11-27, to plan)
+### 28. Measuring on splats (built 2026-11-27)
 
 **The request (2026-11-27):** splats cannot be measured accurately; WebODM gets around this by measuring the point
 cloud. Is this or another approach possible?
@@ -5081,8 +5084,59 @@ the image's PDAL, as `edits.py` does for Remove Floaters), so a measurement has 
 lands on what the user sees, with the task's edits and crop respected. Within the plugin rules: no change to
 WebODM.
 
-**To plan with the user:** where the tool lives (Edit Splats, its own page, or also View in 3D through
-`ModelView.addActionButton`); which measurements (distance, height, area, volume, an angle) and their units;
-how far a snap may move a pick, and what happens where the cloud has no point near it; whether measurements are
-saved with the task and exported; the cloud's index (built per request or kept, its memory on a large task) and
-how the docs state accuracy (relative lengths; absolute positions as good as the georeferencing).
+**Decided (the user, 2026-11-27):** in Edit Splats (both its Splats and 3D Model views), with Distance, Height,
+Area and Volume, kept for the session only (copied, not saved), built next and before the release (0.5.0 is not
+tagged yet: whether it ships as 0.5.0 is settled when it is done).
+
+**Design:**
+
+- **Snapping without preprocessing:** the task's tiled point cloud (`assets/entwine_pointcloud`, the EPT View in 3D
+  streams) read by PDAL for a small box about the pick: `pdal translate ept://... STDOUT --readers.ept.bounds=...`
+  took 0.10 to 0.13 s for 0.2 to 1 m boxes on the check task (568 to 8,914 points; the whole cloud, 3.5 s). No index
+  to build, keep or invalidate, and memory stays small on any size of task. The box's coordinates are the
+  projection's: the pick plus the offset (`get_rtc_offset`); heights are not offset.
+- **The pick** (viewer.js): on splats, Spark's `SplatMesh.raycast` (hidden splats, under opacity 0.2, are never
+  hit: the edits and the boundary are respected), falling back to the nearest splat shown under the pointer (as a
+  double click centres); on the 3D model, `surfaceHit`. The view sends the ray, the hit and a radius: the width of 4
+  pixels at the hit's distance.
+- **The snap** (`measure.py`, `GET task/<id>/snap`): the cloud's points within the radius of the ray and within a
+  depth window of the hit (the larger of 0.25 m and 4 radii: a splat's edge lies a few centimetres before the
+  surface); of those, the one nearest the ray. None: the splat's hit is kept, marked as not snapped.
+- **Volume** reuses WebODM's own (`coreplugins/measure/volume.py`'s `calc_volume`, the map's Volume, on the task's
+  DSM, through `run_function_async`), so the 3D tool and the map agree. The polygon's corners go as longitude and
+  latitude; the base methods are WebODM's. `POST task/<id>/volume`, then WebODM's `/api/workers/check` and `get`.
+- **Units** from WebODM's own unit system (`webodm/classes/Units`, the choice WebODM's map remembers): metric or
+  imperial, as the rest of WebODM shows.
+- **The panel:** Measure (key M) opens Distance, Height, Area and Volume; clicks add points (a drag still turns
+  the view), a double click or Finish ends Distance, Area and Volume, Height ends at its second point, Backspace
+  takes a point back, Esc stops. Each measurement is listed with its numbers, Copy and Delete; Clear Measurements
+  removes them. A snapped point is drawn in the success colour, a point on the splats only in the failure colour,
+  and the panel says what they mean.
+- **Numbers** (`public/measure.js`, pure, Jest): Distance: the length along the points, horizontal and vertical;
+  Height: the difference and both elevations; Area: on the surface (the polygon's area on its own plane, Newell's
+  method) and seen from above, and its perimeter.
+
+**What can fail, and what then:** no tiled point cloud (a task processed without one): points are not snapped,
+and the panel says the task has no point cloud. PDAL slow or failing: a deadline of 15 s, then not snapped, logged.
+No DSM: Volume answers WebODM's own message. A worker that never answers: WebODM's polling gives up after its
+errors; the panel shows the error.
+
+**Tests:** Django (the snap on a tiny EPT built with the image's `entwine` in the test, the ray and window rules,
+bad input, no cloud; the volume's corners as longitude and latitude, no DSM), Jest (measure.js), a live check in the
+editor on the check task's copy.
+
+**Built (2026-11-27, branch `measure`):** `splatme/measure.py` (the snap, the volume's corners), `api.py`'s `Snap`
+and `Volume`, `public/measure.js` (the numbers and their text), viewer.js's Measure mode (`startMeasure` and
+the rest), Editor.jsx's Measure section; Django `TestMeasure` (11 tests, a real EPT built with `entwine`), Jest
+`measure.test.js`; docs: Editing Splats' Measuring, the API page, the changelog. Changed from the design: Height
+measures the lower point to the higher, whichever is clicked first; WebODM's "Points are out of bounds" (a corner
+off the DSM) is said as what to do.
+
+Live check (the editor-check skill, a copy of the check task, deleted after): on the 3D model 13 of 14 points
+snapped (moved 0 to 55 cm, most under 6 cm); on the splats 11 of 14 (moved 0 to 91 cm: at the framing distance 4
+pixels are about 25 cm, and the picks fell on trees). The splats' Volume came back from WebODM's worker (124 m3);
+the model's, with a corner past the DSM's edge (the DSM stops 3 m short of the cloud on its north side), said so:
+40 random squares straight through `calc_volume` failed only where a corner was off the DSM. Copy, Delete and Clear
+worked; no console errors. Found and fixed during the check: the panel dropped the measurement it had just started
+(a state update raced the view's first callback), and the numbers read NaN (points as the view gives them).
+

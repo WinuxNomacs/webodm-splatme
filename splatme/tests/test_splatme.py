@@ -28,7 +28,7 @@ from nodeodm import status_codes
 from PIL import Image
 from rest_framework.test import APIClient
 
-from .. import api, crop, edits, meshes, sky, thermal, training
+from .. import api, crop, edits, measure, meshes, sky, thermal, training
 from .. import node as node_module
 from .fake_node import MODEL, OPTIONS, FakeNode, trained, trained_lichtfeld
 
@@ -3748,3 +3748,157 @@ class TestTwoRequestsAtOnce(BootTransactionTestCase):
         self.assertEqual(sorted(results), ["This task's splats are already being trained.", "started"])
         key = training.store().db_key(training.job_key(task.id))
         self.assertEqual(PluginDatum.objects.filter(key=key, user=None).count(), 1)
+
+
+class TestMeasure(BootTestCase):
+    """Edit Splats' Measure: a pick moved onto the task's point cloud, and WebODM's volume of a polygon."""
+
+    OFFSET = (1000.0, 2000.0)
+
+    def setUp(self):
+        self.user = User.objects.get(username="testuser")
+        self.client = APIClient()
+        self.client.login(username="testuser", password="test1234")
+        self.task = make_task(self.user)
+        with open(self.task.assets_path("odm_georeferencing", "coords.txt"), "w") as f:
+            f.write(f"WGS84 UTM 32N\n{self.OFFSET[0]} {self.OFFSET[1]}\n")
+
+    def with_cloud(self, task):
+        """Its tiled point cloud, as WebODM builds one for its 3D view: a level grid 4 m across, 5 cm apart, at
+        height 10, from (1000, 2000) in the projection (0, 0 in the model's frame), and a point at height 12 above
+        (3.5, 3.5) in the model's frame."""
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        xs, ys = np.meshgrid(np.arange(0, 4, 0.05), np.arange(0, 4, 0.05))
+        rows = [(x + self.OFFSET[0], y + self.OFFSET[1], 10.0) for x, y in zip(xs.ravel(), ys.ravel(), strict=True)]
+        rows.append((3.5 + self.OFFSET[0], 3.5 + self.OFFSET[1], 12.0))
+        with open(os.path.join(folder, "points.csv"), "w") as f:
+            f.write("X,Y,Z\n")
+            f.writelines(f"{x:.3f},{y:.3f},{z:.3f}\n" for x, y, z in rows)
+        las = os.path.join(folder, "points.las")
+        subprocess.run([shutil.which("pdal"), "translate", os.path.join(folder, "points.csv"), las,
+                        "--writers.las.a_srs=EPSG:32632"], check=True, capture_output=True)  # fmt: skip
+        subprocess.run([shutil.which("entwine"), "build", "-i", las, "-o", task.assets_path("entwine_pointcloud")],
+                       check=True, capture_output=True)  # fmt: skip
+
+    def snap(self, origin, direction, hit, radius=0.03, client=None):
+        query = "&".join(f"{k}={','.join(str(v) for v in value)}" for k, value in
+                         (("origin", origin), ("direction", direction), ("hit", hit)))  # fmt: skip
+        return (client or self.client).get(f"{API}/task/{self.task.id}/snap?{query}&radius={radius}")
+
+    def test_a_pick_on_a_splat_just_above_the_surface_moves_onto_the_point_cloud_under_the_pointer(self):
+        self.with_cloud(self.task)
+        res = self.snap((2.01, 2.02, 20), (0, 0, -1), (2.01, 2.02, 10.06))
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data["snapped"])
+        x, y, z = res.data["point"]
+        self.assertAlmostEqual(z, 10.0, places=3)
+        self.assertLessEqual(math.hypot(x - 2.0, y - 2.0), 0.03)  # the cloud's point nearest the ray
+        self.assertAlmostEqual(res.data["moved"], math.dist((x, y, z), (2.01, 2.02, 10.06)), places=3)
+
+    def test_a_slanted_ray_finds_the_point_along_it_not_the_one_under_the_hit(self):
+        self.with_cloud(self.task)
+        # From the side at 45 degrees towards (1, 1, 10): the hit a few centimetres before the surface along the ray
+        origin = np.array([1 - 5, 1.0, 15])
+        direction = np.array([1.0, 0, -1]) / math.sqrt(2)
+        hit = np.array([1.0, 1.0, 10]) - direction * 0.05
+        res = self.snap(origin, direction, hit)
+        self.assertTrue(res.data["snapped"])
+        self.assertLessEqual(math.dist(res.data["point"], (1, 1, 10)), 0.04)
+
+    def test_a_pick_far_from_the_point_cloud_keeps_the_splats_hit_unsnapped(self):
+        self.with_cloud(self.task)
+        res = self.snap((2, 2, 20), (0, 0, -1), (2, 2, 11))  # a metre above the surface: beyond the window
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data, {"point": [2, 2, 11], "snapped": False, "moved": 0})
+
+    def test_a_point_in_front_beside_the_ray_is_not_taken_for_the_surface(self):
+        self.with_cloud(self.task)
+        # The lone point at height 12 is 7 cm beside this ray, near the hit: beyond the radius, so the surface is
+        # not found either (it is 2 m on), and the hit is kept
+        res = self.snap((3.57, 3.5, 20), (0, 0, -1), (3.57, 3.5, 12), radius=0.03)
+        self.assertFalse(res.data["snapped"])
+        res = self.snap((3.51, 3.5, 20), (0, 0, -1), (3.51, 3.5, 12), radius=0.03)
+        self.assertTrue(res.data["snapped"])
+        self.assertAlmostEqual(res.data["point"][2], 12.0, places=3)
+
+    def test_a_task_without_a_point_cloud_keeps_the_hit_and_says_why(self):
+        res = self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10))
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["snapped"])
+        self.assertEqual(res.data["reason"], "This task has no point cloud to measure on.")
+
+    def test_a_point_cloud_pdal_cannot_read_keeps_the_hit_and_says_so(self):
+        self.with_cloud(self.task)
+        with mock.patch.object(measure, "read_box", side_effect=subprocess.TimeoutExpired("pdal", measure.READ_WAIT)):
+            res = self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10))
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["snapped"])
+        self.assertEqual(res.data["reason"], "The task's point cloud could not be read.")
+
+    def test_a_snap_with_bad_numbers_is_refused(self):
+        for origin, direction, hit, radius in (("1,2", "0,0,-1", "1,2,3", 0.1), ("1,2,3", "0,0,0", "1,2,3", 0.1),
+                                               ("1,2,3", "0,0,-1", "1,nan,3", 0.1), ("1,2,3", "0,0,-1", "1,2,3", "x"),
+                                               ("1,2,3", "0,0,-1", "1,2,1e12", 0.1)):  # fmt: skip
+            res = self.client.get(f"{API}/task/{self.task.id}/snap?origin={origin}&direction={direction}&hit={hit}&radius={radius}")
+            self.assertEqual(res.status_code, 400, (origin, direction, hit, radius))
+            self.assertIn("error", res.data)
+
+    def test_only_those_who_may_see_the_task_may_measure_it(self):
+        other = APIClient()
+        other.login(username="testuser2", password="test1234")
+        self.assertIn(self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10), client=other).status_code, (403, 404))
+        res = other.post(f"{API}/task/{self.task.id}/volume", {"ring": [[0, 0], [1, 0], [1, 1]]}, format="json")
+        self.assertIn(res.status_code, (403, 404))
+        assign_perm("view_project", User.objects.get(username="testuser2"), self.task.project)
+        self.assertEqual(self.snap((2, 2, 20), (0, 0, -1), (2, 2, 10), client=other).status_code, 200)
+
+    def test_a_volume_is_worked_out_by_webodms_own_on_the_dsm_with_its_corners_in_longitude_and_latitude(self):
+        from pyproj import Transformer
+
+        self.task.epsg = 32632
+        self.task.dsm_extent = "POLYGON((0 0, 1 0, 1 1, 0 0))"
+        self.task.save()
+        ring = [[0, 0], [10, 0], [10, 10], [0, 10]]
+        with mock.patch.object(api, "run_function_async") as run:
+            run.return_value.task_id = "celery-id"
+            res = self.client.post(f"{API}/task/{self.task.id}/volume", {"ring": ring, "base": "plane"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data, {"celery_task_id": "celery-id"})
+        from coreplugins.measure.volume import calc_volume
+
+        function = run.call_args.args[0]
+        kwargs = run.call_args.kwargs
+        self.assertIs(function, calc_volume)
+        self.assertEqual(kwargs["pts_epsg"], 4326)
+        self.assertEqual(kwargs["base_method"], "plane")
+        self.assertEqual(kwargs["input_dem"], os.path.abspath(self.task.get_asset_download_path("dsm.tif")))
+        to_degrees = Transformer.from_crs(32632, 4326, always_xy=True)
+        for (x, y), (lon, lat) in zip(ring, kwargs["pts"], strict=True):
+            expected = to_degrees.transform(x + self.OFFSET[0], y + self.OFFSET[1])
+            self.assertAlmostEqual(lon, expected[0], places=9)
+            self.assertAlmostEqual(lat, expected[1], places=9)
+
+    def test_a_volume_on_a_task_without_a_dsm_or_with_a_bad_polygon_or_base_is_refused(self):
+        url = f"{API}/task/{self.task.id}/volume"
+        res = self.client.post(url, {"ring": [[0, 0], [1, 0], [1, 1]]}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["error"], "This task has no surface model (DSM), which a volume is calculated on.")
+        self.task.epsg = 32632
+        self.task.dsm_extent = "POLYGON((0 0, 1 0, 1 1, 0 0))"
+        self.task.save()
+        for data in ({"ring": [[0, 0], [1, 0]]}, {"ring": [[0, 0], [1, "x"], [1, 1]]}, {"ring": "no"},
+                     {"ring": [[0, 0], [1, 0], [1, 1]], "base": "custom"}):  # fmt: skip
+            with mock.patch.object(api, "run_function_async") as run:
+                res = self.client.post(url, data, format="json")
+            self.assertEqual(res.status_code, 400, data)
+            run.assert_not_called()
+
+    def test_the_point_nearest_the_ray_within_the_window_is_chosen(self):
+        points = np.array([[0.0, 0, 0], [0.01, 0, 0], [0.002, 0, 0.5], [0.0, 0, -0.3]])
+        origin, direction = np.array([0.0, 0, 10]), np.array([0.0, 0, -1])
+        found = measure.nearest_on_ray(points, origin, direction, np.array([0.0, 0, 0.05]), radius=0.02, window=0.25)
+        self.assertEqual(found.tolist(), [0.0, 0, 0])
+        self.assertIsNone(measure.nearest_on_ray(points[2:3], origin, direction, np.array([0.0, 0, 0]), 0.02, 0.25))
+        self.assertIsNone(measure.nearest_on_ray(np.empty((0, 3)), origin, direction, np.array([0.0, 0, 0]), 0.02, 0.25))
+

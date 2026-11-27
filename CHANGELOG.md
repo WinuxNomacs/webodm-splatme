@@ -3,6 +3,12 @@
 The plugin's versions (`splatme/manifest.json`). The splat node has its own version (`node/splatnode.py`), named
 where a release needs a newer one.
 
+## Unreleased
+
+- **Measure** in Edit Splats (on the splats and on the 3D model): **Distance**, **Height**, **Area** and
+  **Volume**, clicked on the model. Each point moves onto the task's point cloud under the pointer, which is more
+  precise than the splats; Volume is WebODM's own (its map's), on the task's DSM. In WebODM's units; not saved.
+
 ## 0.5.0 (2026-11-27)
 
 LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio

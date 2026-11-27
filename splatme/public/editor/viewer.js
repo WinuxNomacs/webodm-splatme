@@ -10,6 +10,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { keepMask, boundaryMask, framing, round, strokeRing, brushStroke, colourEdit, colourMatrix, plyPositions, BRUSH_SIZES } from "../editShapes.js";
 import { cloneSource } from "../meshEdits.js";
+import { SNAP_PIXELS, pixelWidth } from "../measure.js";
 
 
 const DRACO_DECODER = "/plugins/splatme/vendor/draco/";  // three.js's own, vendored (WebODM's is too old for it)
@@ -79,7 +80,10 @@ function lineMaterial(color){
 // onPaintRadius(radius) and onPaintEnd() for the 3D model's surface brush, onModelBusy(busy) when the model's edits
 // start and stop being worked out, onModelMasked(removed, floating) when the textured model's edits have been shown
 // (triangles), and for Straighten's traced line onLinePoints(count) as it is traced, onLine(points) when it is
-// finished, onLineEnd() when tracing stops and onLineChange(index, points) when a point is dragged
+// finished, onLineEnd() when tracing stops and onLineChange(index, points) when a point is dragged; for Measure,
+// snap(pick) (a promise of {point, snapped}: the pick {hit, origin, direction, radius} moved onto the point cloud),
+// onMeasurePoints(points) as they are clicked, onMeasure(kind, points) when a measurement is finished and
+// onMeasureEnd() when measuring stops
 export function createViewer(container, handlers){
     const colors = {
         keep: themeColor(container, "theme-background-success", "backgroundColor"),
@@ -118,6 +122,12 @@ export function createViewer(container, handlers){
     // The surface brush (the 3D model's Brush): {op, radius, source (Clone's, or null: the next click picks it),
     // stroke: {points, view} while painting, at: the hit under the pointer, cursor: its circle, trail: the stroke drawn}
     let paint = null;
+    // Measure: the measurement being clicked, {kind, least, points: [{point, snapped}], chain: the snaps in order,
+    // object}; and the finished ones, drawn until setMeasurements changes them
+    let measuring = null;
+    const measured = new THREE.Group();
+    measured.renderOrder = 12;
+    scene.add(measured);
     // The lasso's stroke, drawn on a flat canvas over the view
     const overlay = document.createElement("canvas");
     overlay.style.cssText = "position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; display: none;";
@@ -531,6 +541,7 @@ export function createViewer(container, handlers){
     // the brush, Shift+wheel zooms. Clone's first click picks its source (onPaintSource).
     function startPaint(op, radius, source){
         if (!model) return;
+        cancelMeasure();
         cancelLine();
         endBrush();
         cancelPolygon();
@@ -717,6 +728,7 @@ export function createViewer(container, handlers){
     // LINE_LEAST points; Backspace takes back the last point. The view still turns between clicks.
     // skip: the edit the line is for, left out of the view meanwhile
     function startLine(skip = -1){
+        cancelMeasure();
         endPaint();
         endBrush();
         cancelPolygon();
@@ -772,6 +784,125 @@ export function createViewer(container, handlers){
         const points = placing.points.map(v => v.toArray().map(round));
         cancelLine();
         if (handlers.onLine) handlers.onLine(points);
+    }
+
+    // Measure: each click on the model adds a point, picked on what is shown (the splats the edits leave, or the 3D
+    // model's surface) and moved onto the task's point cloud by the server (snap); a double-click, Enter or
+    // finishMeasure ends it once it has its least points (a Height ends at its second); Backspace takes back the last
+    // point. The view still turns between clicks.
+    function startMeasure(kind, least){
+        endPaint();
+        endBrush();
+        cancelPolygon();
+        cancelLasso();
+        cancelLine();
+        cancelMeasure();
+        transform.detach();
+        measuring = {kind, least, points: [], chain: Promise.resolve(), object: null, finishing: false};
+        canvas.style.cursor = "crosshair";
+        if (handlers.onMeasurePoints) handlers.onMeasurePoints([]);
+    }
+    function cancelMeasure(){
+        if (!measuring) return;
+        clearMeasuring();
+        measuring = null;
+        canvas.style.cursor = "";
+        if (handlers.onMeasureEnd) handlers.onMeasureEnd();
+    }
+    function clearMeasuring(){
+        if (!measuring.object) return;
+        scene.remove(measuring.object);
+        clearGroup(measuring.object);
+        measuring.object = null;
+    }
+    // A measurement's points and the line through them (closed for an area or a volume): a point on the point cloud in
+    // the keep colour, one on the splats or the model only in the remove colour
+    function measureObject(kind, points){
+        const group = new THREE.Group();
+        const at = points.map(p => new THREE.Vector3(...p.point));
+        if (at.length > 1){
+            const geometry = new THREE.BufferGeometry().setFromPoints(at);
+            group.add(kind === "area" || kind === "volume" ? new THREE.LineLoop(geometry, lineMaterial(colors.keep)) : new THREE.Line(geometry, lineMaterial(colors.keep)));
+        }
+        for (const snapped of [true, false]){
+            const some = at.filter((_p, i) => !!points[i].snapped === snapped);
+            if (!some.length) continue;
+            group.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(some),
+                new THREE.PointsMaterial({color: snapped ? colors.keep : colors.remove, size: 8, sizeAttenuation: false, depthTest: false, transparent: true})));
+        }
+        group.traverse(o => { o.renderOrder = 12; });
+        return group;
+    }
+    function drawMeasuring(){
+        clearMeasuring();
+        measuring.object = measureObject(measuring.kind, measuring.points);
+        scene.add(measuring.object);
+    }
+    // What is shown under the pointer: {hit, origin, direction, radius} (Vector3s; radius in metres), or null
+    function measurePick(event){
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+        const raycaster = new THREE.Raycaster();
+        camera.updateMatrixWorld();
+        raycaster.setFromCamera(ndc, camera);
+        let hit = null;
+        if (model) hit = surfacePoint(event);
+        else if (mesh){
+            // Spark's raycast meets the splats shown (those the edits hide have no opacity, and are passed through)
+            const found = raycaster.intersectObject(mesh, false)[0];
+            if (found) hit = found.point.clone();
+            else {
+                const index = splatUnder(event);
+                if (index >= 0) hit = new THREE.Vector3(xs[index], ys[index], zs[index]);
+            }
+        }
+        if (!hit) return null;
+        const radius = pixelWidth(hit.distanceTo(camera.position), camera.fov, rect.height, SNAP_PIXELS);
+        return {hit, origin: raycaster.ray.origin.clone(), direction: raycaster.ray.direction.clone(), radius};
+    }
+    function measureClick(event){
+        const pick = measurePick(event);
+        if (!pick) return;
+        const state = measuring;
+        const asked = handlers.snap ? handlers.snap(pick) : Promise.resolve({point: pick.hit.toArray(), snapped: false});
+        // The points join in the order they were clicked, each once its snap answers (or fails: the pick stays)
+        state.chain = state.chain.then(() => asked.catch(() => ({point: pick.hit.toArray(), snapped: false}))).then(found => {
+            if (measuring !== state) return;
+            const last = state.points[state.points.length - 1];
+            const point = found.point.map(round4);
+            if (last && Math.hypot(point[0] - last.point[0], point[1] - last.point[1], point[2] - last.point[2]) < 0.001) return;  // a double click's second
+            state.points.push({point, snapped: !!found.snapped});
+            drawMeasuring();
+            if (handlers.onMeasurePoints) handlers.onMeasurePoints(state.points.slice());
+            if (state.kind === "height" && state.points.length >= 2) finishMeasure();
+        });
+    }
+    function undoMeasurePoint(){
+        if (!measuring) return;
+        const state = measuring;
+        state.chain = state.chain.then(() => {
+            if (measuring !== state || !state.points.length) return;
+            state.points.pop();
+            drawMeasuring();
+            if (handlers.onMeasurePoints) handlers.onMeasurePoints(state.points.slice());
+        });
+    }
+    // Ends the measurement once the clicks before it have their points
+    function finishMeasure(){
+        if (!measuring || measuring.finishing) return;
+        const state = measuring;
+        state.finishing = true;
+        state.chain.then(() => {
+            state.finishing = false;
+            if (measuring !== state || state.points.length < state.least) return;
+            const points = state.kind === "height" ? state.points.slice(0, 2) : state.points.slice();
+            cancelMeasure();
+            if (handlers.onMeasure) handlers.onMeasure(state.kind, points);
+        });
+    }
+    function setMeasurements(list){
+        clearGroup(measured);
+        for (const m of list) measured.add(measureObject(m.kind, m.points));
     }
 
     // The dragged box back as an edit: its turn only about the vertical (the view's own ring may tilt it)
@@ -950,7 +1081,7 @@ export function createViewer(container, handlers){
             canvas.setPointerCapture(event.pointerId);
             return;
         }
-        if (!placing && !drawing){
+        if (!placing && !drawing && !measuring){
             const point = linePointAt(event);
             if (point >= 0){
                 dragging = {point};
@@ -979,6 +1110,12 @@ export function createViewer(container, handlers){
             const click = pointer.down && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= CLICK_PIXELS;
             pointer.down = false;
             if (click) placeLine(event);
+            return;
+        }
+        if (measuring){
+            const click = pointer.down && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= CLICK_PIXELS;
+            pointer.down = false;
+            if (click && event.button === 0) measureClick(event);
             return;
         }
         if (brush){
@@ -1034,6 +1171,10 @@ export function createViewer(container, handlers){
             finishLine();
             return;
         }
+        if (measuring){
+            finishMeasure();
+            return;
+        }
         if (drawing){
             if (drawing.corners.length >= 3) finishPolygon();
             return;
@@ -1047,7 +1188,16 @@ export function createViewer(container, handlers){
             centreOnModel(event);
             return;
         }
-        if (!mesh || !shown) return;
+        const best = splatUnder(event);
+        if (best < 0) return;
+        const point = new THREE.Vector3(xs[best], ys[best], zs[best]);
+        camera.position.add(point.clone().sub(controls.target));
+        controls.target.copy(point);
+        controls.update();
+    }
+    // The nearest splat shown within PICK_PIXELS of the pointer on screen: its number, or -1
+    function splatUnder(event){
+        if (!mesh || !shown) return -1;
         const rect = canvas.getBoundingClientRect();
         const px = event.clientX - rect.left, py = event.clientY - rect.top;
         camera.updateMatrixWorld();
@@ -1065,11 +1215,7 @@ export function createViewer(container, handlers){
             best = i;
             bestDepth = w;
         }
-        if (best < 0) return;
-        const point = new THREE.Vector3(xs[best], ys[best], zs[best]);
-        camera.position.add(point.clone().sub(controls.target));
-        controls.target.copy(point);
-        controls.update();
+        return best;
     }
     // The same for the textured model: the surface under the pointer
     function centreOnModel(event){
@@ -1094,6 +1240,14 @@ export function createViewer(container, handlers){
         }
     }
     function onKey(event){
+        if (measuring && !(event.target.closest && event.target.closest("input, textarea, select"))){
+            if (event.key === "Escape") cancelMeasure();
+            else if (event.key === "Enter") finishMeasure();
+            else if (event.key === "Backspace"){
+                event.preventDefault();
+                undoMeasurePoint();
+            }
+        }
         if (placing && !(event.target.closest && event.target.closest("input, textarea, select"))){
             if (event.key === "Escape") cancelLine();
             else if (event.key === "Enter") finishLine();
@@ -1131,6 +1285,7 @@ export function createViewer(container, handlers){
 
     // Drawing a lasso: the view holds still while the pointer draws around what to cut, and letting go closes it
     function startLasso(){
+        cancelMeasure();
         endPaint();
         cancelLine();
         endBrush();
@@ -1153,6 +1308,7 @@ export function createViewer(container, handlers){
     // Painting with the brush: the view holds still while strokes are painted, each letting go one stroke, until
     // endBrush (Done or Escape)
     function startBrush(size, restore){
+        cancelMeasure();
         endPaint();
         cancelLine();
         cancelPolygon();
@@ -1194,6 +1350,7 @@ export function createViewer(container, handlers){
     }
 
     function startPolygon(){
+        cancelMeasure();
         endPaint();
         cancelLine();
         endBrush();
@@ -1411,8 +1568,8 @@ export function createViewer(container, handlers){
             return new Promise(resolve => {
                 if (!mesh) return resolve(null);
                 const helper = transform.getHelper();
-                const was = [shapes.visible, helper.visible];
-                shapes.visible = helper.visible = false;
+                const was = [shapes.visible, helper.visible, measured.visible];
+                shapes.visible = helper.visible = measured.visible = false;
                 renderer.render(scene, camera);
                 // Copied before the browser shows the frame, which clears the drawing buffer
                 const w = Math.min(width, canvas.width), h = Math.max(1, Math.round(canvas.height * w / canvas.width));
@@ -1420,7 +1577,7 @@ export function createViewer(container, handlers){
                 out.width = w;
                 out.height = h;
                 out.getContext("2d").drawImage(canvas, 0, 0, w, h);
-                [shapes.visible, helper.visible] = was;
+                [shapes.visible, helper.visible, measured.visible] = was;
                 out.toBlob(resolve, "image/jpeg", 0.8);
             });
         },
@@ -1428,6 +1585,7 @@ export function createViewer(container, handlers){
         keptCount(){
             return shown ? shown.reduce((a, b) => a + b, 0) : 0;
         },
+        startMeasure, cancelMeasure, finishMeasure, undoMeasurePoint, setMeasurements,
         startPolygon, cancelPolygon, finishPolygon, startLasso, cancelLasso, startLine, cancelLine, finishLine, undoLinePoint, startPaint, setPaint, endPaint, startBrush, setBrushSize, setBrushRestore, endBrush, goTo, frameView, topView,
         dispose(){
             stopped.abort();
@@ -1450,6 +1608,8 @@ export function createViewer(container, handlers){
             transform.dispose();
             controls.dispose();
             clearGroup(shapes);
+            clearGroup(measured);
+            if (measuring) clearMeasuring();
             if (mesh) mesh.dispose();
             if (model){
                 if (model.worker) model.worker.terminate();
