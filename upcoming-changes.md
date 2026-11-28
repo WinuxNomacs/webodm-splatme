@@ -19,7 +19,8 @@ None open.
 0a. Measuring on splats, before the release (the user, 2026-11-27): a Measure tool in Edit Splats that aims on the
    splats and takes its coordinates from the point cloud. Built 2026-11-27 (branch `measure`, merged). It ships in
    0.5.0 (the user, 2026-11-27). Its release review is done (findings A to L in section 28; all fixed but I and L,
-   the user's choice); left, the release check again on the zip that will be tagged. See "28. Measuring on splats (built
+   the user's choice), and the release check passed again on the zip that will be tagged (from 39301e9, sha256
+   5fa1135c...). Left, for the user: push `main` and tag `v0.5.0`. See "28. Measuring on splats (built
    2026-11-27)".
 
 0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0; WebODM 4.0.1 or later): the release review
@@ -5168,4 +5169,14 @@ the code; fixed on branch `measure-fixes` but I and L, the user's choice):**
 Checked live again (a copy of the check task, deleted after): M starts and stops, a double click ends a Distance,
 Enter ends an Area, a Volume came back through the new polling (28.7 m3), switching views mid-measurement left no
 errors. 221 Django tests, 248 Jest tests, the node's tests, Ruff and ESLint pass.
+
+**Release check again (2026-11-27, `rehearse.sh`, WebODM 4.0.1):** `dist/splatme-0.5.0.zip` from 39301e9, sha256
+`5fa1135c04fb53df8e5dcffc8462f803e6f8a3997ee470f61f22d7dd8a0b7342`; node image rebuilt from the same `node/`
+(unchanged since the first check; its `splatnode.py` compared). Every step as in the first check: 0.4.0 installed
+and trained, upgraded while a training ran and taken over after the restart (revive), settings, saved options, the
+task's automatic training, the node (named OpenSplat) and its token kept; the returning browser loaded every new
+bundle; Continue on the old node; the node's upgrade refused during a training, then 0.2.3 to 0.3.0 once idle;
+Continue, busy node, a queued training and a worker restart on the new release; pages without console errors; the
+logs only the three takeovers. Cleaned up: no `smz-` container, volume or network; the `latest` tag back at
+976d3844; `splatme-node:relcheck` removed.
 
