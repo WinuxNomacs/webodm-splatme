@@ -16,42 +16,9 @@ None open.
 
 **Up next**
 
-0a. Measuring on splats, before the release (the user, 2026-11-27): a Measure tool in Edit Splats that aims on the
-   splats and takes its coordinates from the point cloud. Built 2026-11-27 (branch `measure`, merged). It ships in
-   0.5.0 (the user, 2026-11-27). Its release review is done (findings A to L in section 28; all fixed but I and L,
-   the user's choice), and the release check passed again on the zip that will be tagged (from 39301e9, sha256
-   5fa1135c...). Left, for the user: push `main` and tag `v0.5.0`. See "28. Measuring on splats (built
-   2026-11-27)".
-
-0. Release 0.5.0 (LichtFeld Studio, several splat nodes; node 0.3.0; WebODM 4.0.1 or later): the release review
-   is done ("Release review of 0.5.0", findings A to AK, fixed but AB, AC and AF), the release workflow run by hand
-   (46032454011, 2026-11-27: all jobs passed; LichtFeld's image 66 minutes, OpenSplat's 12; the node job now has
-   `timeout-minutes: 130`), and the release check ("Release check of 0.5.0", with its two fixes). Branch
-   `release/0.5.0` (the manifest's version, the changelog's date) is merged into `main` (dacc448); the user pushes
-   and tags `v0.5.0`, then the directory entry follows.
-
-1. Release 0.4.0 (released 2026-11-23): tag `v0.4.0` pushed, the Release run 45264707250 succeeded (the zip,
-   `splatnode.sh`, node 0.2.3 on ghcr.io, the docs). The published zip's SHA-256 is `9bd1319d…` (the same files as
-   the zip the release check used). The directory entry is branch `splatme-0.4.0` on the user's fork (373d6e9, from
-   upstream's `main` at 7e32adf), pushed 2026-11-23. Left, for the user: open the pull request on GitHub; then check
-   https://plugins.webodm.org/index.json lists 0.4.0 once it is merged.
-
-Model editing (M0 to M4), the repair tools (R1 to R5) and their rework around a surface brush (R7, done 2026-11-23
-after the roof check with the user: branch tools-rework; meshEdits.js, editor/viewer.js, Editor.jsx, their Jest
-tests) are built: see sections 13 and 14, Remove Object reworked (R8, section 16), Straighten reworked (R9, section 17), and the model compared with its splats (R10, section 18: the comparison harness in the editor-check skill, Fill Holes' Very Large and faster fill textures in meshEdits.js and Editor.jsx; done 2026-11-23, branches splat-compare and fill-holes-larger). Built 2026-11-23 and in the release: trainings of 2 to 4.29 GB datasets,
-which failed with "Invalid zip archive" (the node now unpacks the dataset itself; section 15, branch
-node-zip-folder). Possible follow-ups,
-after the release: the splats rendered onto the model's texture (R10's finding: texture is what still sets the model apart from its splats), photo projection for fills and clones, and fills that stay inside the removed area when it
-joins older holes.
-
-2. LichtFeld Studio as a second trainer: plan phase 2 (the trainer-neutral node) with the user. The spike is done
-   (2026-11-24, branch `lichtfeld-spike`: `dev/lichtfeld/Dockerfile`, results in "19. Other trainers (research)").
-   Decided 2026-11-24: one trainer per node, OpenSplat stays the default, LichtFeld's Gaussian cap to be measured;
-   continuing, editing and the exposure correction are in "Decisions after the spike" there. Phase 2 built
-   2026-11-24 (section 21, branch `trainer-neutral`). Phase 3 (the LichtFeld node) planned 2026-11-24: "22. The
-   LichtFeld node (planned)"; 3a to 3f built and merged; next, the first run by hand of the release workflow (the LichtFeld build's time on GitHub), then the comparisons for default values: OpenSplat's growth swept on Brighton Beach and confirmed on the check
-   task ("24. OpenSplat's growth: the Brighton Beach sweep": done 2026-11-25, both trainers keep their defaults; left, the docs' guidance on Max Gaussians and LichtFeld). The default
-   values for both trainers come from comparisons run before the release (the user, 2026-11-24).
+Nothing planned: the next phase is chosen with the user from Then and Later below. Small items left from the
+0.5.0 reviews: I (a pinch adds a Measure point; to fix with Straighten's), AF (minimatch), and a test of Ignore
+Sky's mask mode.
 
 **Then**
 
@@ -63,6 +30,9 @@ joins older holes.
 
 **Later**
 
+0. Proposed after R10 (2026-11-23), not yet decided: the splats rendered onto the model's texture (texture is
+   what still sets the model apart from its splats), photo projection for fills and clones, and fills that stay
+   inside the removed area when it joins older holes.
 1. Proposed, not yet decided: HTTPS to a splat node on another machine, self-signed and pinned in SplatMe
    (asked 2026-11-16; the docs for a TLS proxy went into 0.2.0 with the guided setup). See "4. HTTPS to the splat node
    (proposed)".
@@ -109,6 +79,13 @@ joins older holes.
 
 **Done**
 
+- Release 0.5.0 (released 2026-11-27): LichtFeld Studio, several splat nodes, Measure; node 0.3.0; WebODM 4.0.1
+  or later. Tag `v0.5.0` on 3f1e094, Release run 46099629137 succeeded (the zip, `splatnode.sh`, both node images,
+  public on ghcr.io, and the docs). The published zip's SHA-256 is `d79e55a5...`. The directory entry is branch
+  `splatme-0.5.0` on the user's fork (774518d, from upstream's `main` at 96dad99), pushed 2026-11-27; the user
+  opens the pull request. See "Release review of 0.5.0", "Release check of 0.5.0" and "28. Measuring on splats".
+- LichtFeld Studio as a second trainer (phases 2 and 3, sections 19, 21, 22 and 24): released in 0.5.0.
+- Release 0.4.0 (released 2026-11-23): Release run 45264707250, directory entry merged upstream (PR #15).
 - Several splat nodes at once (asked 2026-11-25, built 2026-11-26, 25a to 25f): an OpenSplat and a LichtFeld node
   together, the user choosing which trains; Continue on any node whose trainer can read the model. Unreleased: it
   ships with the LichtFeld release (node 0.3.0). See "25. Several splat nodes (asked 2026-11-25, planned
