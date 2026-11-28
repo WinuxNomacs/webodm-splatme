@@ -279,7 +279,9 @@ jobs:
     name: Publish the documentation
     # With the release: once its files are up, so the docs' commands fetch what they describe
     needs: [docs, plugin]
-    if: github.ref_type == 'tag' || inputs.publish_docs
+    # The status checks stand in for the default success(), which is false when a job further up was skipped (the
+    # image's publish, on a run by hand that pushes no image)
+    if: ${{ !cancelled() && needs.docs.result == 'success' && needs.plugin.result == 'success' && (github.ref_type == 'tag' || inputs.publish_docs) }}
     runs-on: ubuntu-24.04
     permissions:
       pages: write     # to deploy to Pages
