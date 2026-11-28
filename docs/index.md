@@ -19,7 +19,7 @@ and ideas go in the repository's [issues](https://github.com/WinuxNomacs/webodm-
 
 ## Requirements
 
-- **WebODM 4.0.1 or later, installed with Docker** (each release needs the newest WebODM of its day). WebODM's
+- **WebODM 4.0.1 or later, installed with Docker**. WebODM's
   native Windows app is not supported. On an older WebODM, **Load Plugin (.zip)** says SplatMe was installed but
   WebODM then does not show it (and refuses it as already there): update WebODM first.
 - **An NVIDIA GPU that Docker can use**, for the training container (the "splat node"), on WebODM's machine or

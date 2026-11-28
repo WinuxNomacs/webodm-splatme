@@ -26,8 +26,11 @@ it short; edit in place.
   - The manifest says `"experimental": true` until the user decides otherwise; licence AGPL-3.0.
   - The guide's "no tests unless asked" does not apply: the user's rules ask for tests.
 - **WebODM 4.0.1, Docker installs** (Python 3.14, Django 5.2, DRF 3.18): `webodmMinVersion` is 4.0.1 and Ruff
-  targets py314. Each release is tested on the newest WebODM only and raises `webodmMinVersion` to it (the user's
-  decision, 2026-11-27): an older WebODM does not load the plugin, and Getting Started says to update WebODM first. The native Windows app is not supported (it has no `splat-tools` and cannot build a plugin's
+  targets py314. `webodmMinVersion` is raised only when SplatMe's code needs a newer WebODM than 4.0.0, and stays
+  there until code needs more; otherwise SplatMe is taken to work on any 4.x. Development and each release are tested
+  on WebODM's latest 4.x release (the dev stack's pin). A user with a problem is asked to update WebODM and SplatMe
+  to their latest releases first (the user's rule, 2026-11-28). 0.5.0's 4.0.1 came from a misreading of this rule,
+  not from its code. The native Windows app is not supported (it has no `splat-tools` and cannot build a plugin's
   page scripts); 3.3.2 is not supported yet.
 - **WebODM's own splat code is reused, not copied**: the export (`app/splats.py`, `prepare_export`), the
   conversion (`splat-tools`, run as `worker/tasks.py`'s `process_splats` runs it, on the `.ply` the trainer writes) and the asset (`splats.rad`,

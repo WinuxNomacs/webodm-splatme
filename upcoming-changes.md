@@ -18,7 +18,8 @@ None open.
 
 Nothing planned: the next phase is chosen with the user from Then and Later below. Small items left from the
 0.5.0 reviews: I (a pinch adds a Measure point; to fix with Straighten's), AF (minimatch), and a test of Ignore
-Sky's mask mode.
+Sky's mask mode. The next release's `webodmMinVersion` goes back to 4.0.0 unless its code needs a newer WebODM
+(the user's rule, 2026-11-28; CLAUDE.md), with the docs' "4.0.1 or later" to match.
 
 **Then**
 
@@ -1342,8 +1343,9 @@ SplatMe has no release schedule, findings are fixed before the release):
   main.js asks `/plugins/splatme/bundles`; the pages link their stylesheets (WebODM's SystemJS takes one only by a
   name ending in `.css`).
 
-**Then, with the user (2026-11-27): each release is tested on the newest WebODM only** and raises
-`webodmMinVersion` to it, now 4.0.1 (released 2026-11-15; its plugin script versions, menus and project permission
+**Then, with the user (2026-11-27), as recorded then: each release is tested on the newest WebODM only** and
+raises `webodmMinVersion` to it, now 4.0.1 (a misreading: corrected 2026-11-28, see CLAUDE.md; the minimum follows
+what the code needs, and 0.5.0's code needs nothing past 4.0.0) (released 2026-11-15; its plugin script versions, menus and project permission
 checks touch SplatMe); Getting Started's upgrade starts with updating WebODM. The dev stack moved to 4.0.1 (Django
 208, Jest 229, the node's tests and the docs build pass on it). A second run on 4.0.1, between the fixes, passed
 every step but had no browser check yet.

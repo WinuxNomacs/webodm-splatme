@@ -8,8 +8,8 @@ with a terminal on WebODM's machine, and on the GPU machine if that is another o
 
 ### 1. Check What You Need
 
-- **WebODM 4.0.1 or later, running in Docker** (with `./webodm.sh`). Each SplatMe release is tested on the newest
-  WebODM of its day and needs that version or later.
+- **WebODM 4.0.1 or later, running in Docker** (with `./webodm.sh`). SplatMe is tested on WebODM's latest release: if
+  something goes wrong, update WebODM and SplatMe to their latest releases first.
 - **A machine with an NVIDIA GPU** (GTX 16 or RTX 20 to RTX 50 series): WebODM's machine or another one. It needs
   the GPU's driver, Docker with Docker Compose v2, and the
   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).

@@ -18,8 +18,9 @@ RC_DIR=$S/rc RC_OLD=<last release> RC_ZIP=dist/splatme-X.Y.Z.zip .claude/skills/
 RC_DIR=$S/rc .claude/skills/release-check/scripts/rehearse.sh clean
 ```
 
-It runs on the WebODM that `dev/webodm.sh` pins, which is kept at the newest WebODM release: each SplatMe release
-is tested on that one only and raises the manifest's `webodmMinVersion` to it (the user's decision, 2026-11-27).
+It runs on the WebODM that `dev/webodm.sh` pins, which is kept at WebODM's latest 4.x release: each SplatMe release
+is tested on it. The manifest's `webodmMinVersion` is raised only when SplatMe's code needs a newer WebODM (the
+user's rule, 2026-11-28; CLAUDE.md).
 When a newer WebODM is out, move the dev stack to it first (the note above the pins in `dev/webodm.sh`) and run the
 tests there. `RC_WEBAPP=webodm/webodm_webapp@<digest>` runs it on another. The sections below are what it does, and
 how to do a step by hand.

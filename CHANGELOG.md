@@ -6,8 +6,8 @@ where a release needs a newer one.
 ## 0.5.0 (2026-11-27)
 
 LichtFeld Studio as a second trainer, and several splat nodes at once: install an OpenSplat and a LichtFeld Studio
-node side by side and choose which trains. **Needs WebODM 4.0.1 or later**: update WebODM first (each release now
-needs the newest WebODM of its day; an older one does not load SplatMe). Needs splat node 0.3.0 for LichtFeld
+node side by side and choose which trains. **Needs WebODM 4.0.1 or later**: update WebODM first if it is older
+(an older one does not load SplatMe). Needs splat node 0.3.0 for LichtFeld
 Studio and for continuing a model the other trainer made; SplatMe still trains on a node of 0.2.0 or later (**Test
 Connection** says what it lacks).
 
